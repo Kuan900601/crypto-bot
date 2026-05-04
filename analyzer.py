@@ -49,38 +49,6 @@ class CryptoAnalyzer:
         except Exception:
             return "📒 不可用", 1.0
 
-    async def fetch_fear_greed(self):
-        try:
-            async with aiohttp.ClientSession() as s:
-                async with s.get("https://api.alternative.me/fng/?limit=1",
-                                  timeout=aiohttp.ClientTimeout(total=6)) as r:
-                    data = await r.json()
-            val = int(data["data"][0]["value"])
-            label = data["data"][0]["value_classification"]
-            if val >= 75:
-                icon = "🟠"
-            elif val >= 55:
-                icon = "🟡"
-            elif val >= 45:
-                icon = "⚪"
-            elif val >= 25:
-                icon = "🔵"
-            else:
-                icon = "🔴"
-            return f"{icon} {val}/100 ({label})", val
-        except Exception:
-            return "⚪ 不可用", 50
-
-    async def fetch_news(self):
-        url = "https://cryptopanic.com/api/free/v1/posts/?auth_token=public&kind=news&public=true"
-        try:
-            async with aiohttp.ClientSession() as s:
-                async with s.get(url, timeout=aiohttp.ClientTimeout(total=8)) as r:
-                    data = await r.json()
-                    return data.get("results", [])[:15]
-        except Exception:
-            return []
-
     def rsi(self, df, p=14):
         d = df["close"].diff()
         g = d.clip(lower=0).ewm(alpha=1/p, adjust=False).mean()
@@ -172,23 +140,7 @@ class CryptoAnalyzer:
         else:
             return "震盪整理 ↔️", "RANGING", adx_v
 
-    BULL_W = {"bull","rally","surge","gain","pump","breakout","ath","adoption",
-              "buy","rise","recover","bullish","etf","approve","institutional","moon"}
-    BEAR_W = {"bear","crash","dump","drop","sell","ban","hack","lawsuit",
-              "fear","decline","bearish","sec","liquidat","collapse","warning","fraud"}
-
-    def sentiment(self, news):
-        score, heads = 0, []
-        for item in news[:12]:
-            t = item.get("title","").lower()
-            heads.append(item.get("title","")[:75])
-            score += (sum(1 for w in self.BULL_W if w in t) -
-                      sum(1 for w in self.BEAR_W if w in t)) * 0.1
-        score = max(-1.0, min(1.0, score))
-        label = "📗 偏多" if score > 0.3 else ("📕 偏空" if score < -0.3 else "📒 中性")
-        return score, label, heads[:5]
-
-    def generate_signal(self, df, news_score, fg_val=50):
+    def generate_signal(self, df, fg_val=50):
         p = df["close"].iloc[-1]
         rv = self.rsi(df).iloc[-1]
         kv, dv = [x.iloc[-1] for x in self.stoch_rsi(df)]
@@ -250,14 +202,58 @@ class CryptoAnalyzer:
             score *= 0.6
         elif adx_now > 35:
             score *= 1.2
-        if fg_val <= 20:
-            score += 1.5
-            reasons.append("極度恐懼(逆向做多)")
-        elif fg_val >= 80:
-            score -= 1.5
-            reasons.append("極度貪婪(逆向做空)")
-        total = score + news_score * 2
+        total = score
         if total >= 4:
             direction, den = "做多 🟢", "LONG"
         elif total <= -4:
             direction, den = "做空 🔴", "SHORT"
+        else:
+            direction, den = "觀望 🟡", "NEUTRAL"
+        strength = min(abs(total)/10*100, 100)
+        if regime in ("STRONG_BULL","STRONG_BEAR"):
+            tp1m, tp2m, slm = 2.0, 4.0, 1.2
+        elif regime in ("BULL","BEAR"):
+            tp1m, tp2m, slm = 1.5, 3.0, 1.5
+        else:
+            tp1m, tp2m, slm = 1.0, 2.0, 1.0
+        if den == "LONG":
+            entry = round(p*0.999, 4)
+            tp1 = round(p+av*tp1m, 4)
+            tp2 = round(p+av*tp2m, 4)
+            sl = round(p-av*slm, 4)
+        elif den == "SHORT":
+            entry = round(p*1.001, 4)
+            tp1 = round(p-av*tp1m, 4)
+            tp2 = round(p-av*tp2m, 4)
+            sl = round(p+av*slm, 4)
+        else:
+            entry = tp1 = tp2 = sl = p
+        rr = round(abs(tp1-entry)/abs(sl-entry+1e-9), 2)
+        wr = 0.55 if strength > 70 else 0.50 if strength > 50 else 0.45
+        kelly = max(0, (wr-(1-wr)/rr))*100 if rr > 0 else 0
+        return {
+            "price": p, "direction": direction, "direction_en": den,
+            "strength": strength, "reasons": reasons[:5],
+            "entry": entry, "tp1": tp1, "tp2": tp2, "sl": sl, "rr": rr,
+            "position_size": round(min(kelly, 10), 1),
+            "rsi": round(rv, 1), "stoch_k": round(kv, 1), "stoch_d": round(dv, 1),
+            "macd_hist": round(hv, 6), "adx": round(adx_now, 1),
+            "bb_upper": round(bbu.iloc[-1], 4), "bb_lower": round(bbl.iloc[-1], 4),
+            "bb_width": round(bbw, 4),
+            "ema20": round(e20, 4), "ema50": round(e50, 4), "ema200": round(e200, 4),
+            "atr": round(av, 4), "regime": regime, "regime_label": regime_label,
+            "obv_trend": "🟢 遞增" if obv_slope > 0 else "🔴 遞減"
+        }
+
+    async def full_analysis(self, symbol):
+        try:
+            df1h, df4h, ticker, (obl, obr) = await asyncio.gather(
+                self.fetch_ohlcv(symbol, "1h", 300),
+                self.fetch_ohlcv(symbol, "4h", 200),
+                self.fetch_ticker(symbol),
+                self.fetch_orderbook(symbol),
+            )
+            sig = self.generate_signal(df1h)
+            sig4h = self.generate_signal(df4h)
+            fibs, fhi, flo = self.fibonacci_levels(df1h)
+            vtl, _ = self.volume_trend(d
