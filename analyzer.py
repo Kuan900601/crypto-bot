@@ -200,35 +200,53 @@ class CryptoAnalyzer:
         e50  = self.ema(df, 50).iloc[-1]
         e200 = self.ema(df, 200).iloc[-1]
         t_sen, k_sen, span_a, span_b = self.ichimoku(df)
-        sa = span_a.iloc[-1] if not pd.isna(span_a.iloc[-1]) else p
-        sb = span_b.iloc[-1] if not pd.isna(span_b.iloc[-1]) else p
+
+        sa_vals = span_a.dropna()
+        sb_vals = span_b.dropna()
+        sa = sa_vals.iloc[-1] if len(sa_vals) > 0 else p
+        sb = sb_vals.iloc[-1] if len(sb_vals) > 0 else p
         cloud_top = max(sa, sb)
         cloud_bot = min(sa, sb)
-        regime_label, regime, _ = self.market_regime(df)
 
+        t_vals = t_sen.dropna()
+        k_vals = k_sen.dropna()
+
+        regime_label, regime, _ = self.market_regime(df)
         score, reasons = 0, []
+
         if rv < 30:   score += 2.5; reasons.append(f"RSI超賣({rv:.1f})")
         elif rv < 40: score += 1.0; reasons.append(f"RSI偏低({rv:.1f})")
         elif rv > 70: score -= 2.5; reasons.append(f"RSI超買({rv:.1f})")
         elif rv > 60: score -= 1.0; reasons.append(f"RSI偏高({rv:.1f})")
+
         if kv < 20 and kv > dv:    score += 1.5; reasons.append("StochRSI底部金叉")
         elif kv > 80 and kv < dv:  score -= 1.5; reasons.append("StochRSI頂部死叉")
+
         if ml.iloc[-1] > sl_.iloc[-1] and hv > 0: score += 2; reasons.append("MACD金叉")
         elif ml.iloc[-1] < sl_.iloc[-1] and hv < 0: score -= 2; reasons.append("MACD死叉")
+
         if p < bbl.iloc[-1]:   score += 2; reasons.append("跌破布林下軌")
         elif p > bbu.iloc[-1]: score -= 2; reasons.append("突破布林上軌")
+
         if p > e20 > e50 > e200:   score += 2.5; reasons.append("EMA多頭排列")
         elif p < e20 < e50 < e200: score -= 2.5; reasons.append("EMA空頭排列")
+
         if p > cloud_top:   score += 2; reasons.append("價格在雲層之上")
         elif p < cloud_bot: score -= 2; reasons.append("價格在雲層之下")
-        if t_sen.iloc[-1] > k_sen.iloc[-1]: score += 1; reasons.append("Ichimoku轉換>基準")
-        elif t_sen.iloc[-1] < k_sen.iloc[-1]: score -= 1
+
+        if len(t_vals) > 0 and len(k_vals) > 0:
+            if t_vals.iloc[-1] > k_vals.iloc[-1]: score += 1; reasons.append("Ichimoku轉換>基準")
+            elif t_vals.iloc[-1] < k_vals.iloc[-1]: score -= 1
+
         if obv_slope > 0: score += 1; reasons.append("OBV量能遞增")
         elif obv_slope < 0: score -= 1; reasons.append("OBV量能遞減")
+
         if adx_now < 20:   score *= 0.6
         elif adx_now > 35: score *= 1.2
+
         if fg_val <= 20:   score += 1.5; reasons.append("極度恐懼(逆向做多)")
         elif fg_val >= 80: score -= 1.5; reasons.append("極度貪婪(逆向做空)")
+
         total = score + news_score * 2
 
         if total >= 4:    direction, den = "做多 🟢", "LONG"
