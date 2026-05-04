@@ -1,0 +1,3 @@
+class Config:
+    DEFAULT_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
+    ALERT_INTERVAL_MIN = 30
