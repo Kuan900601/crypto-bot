@@ -6,33 +6,28 @@ from datetime import datetime, timezone
 
 class CryptoAnalyzer:
 
-    async def fetch_ohlcv(self, symbol, timeframe="1h", limit=300):
+    async def fetch_ohlcv(self, symbol, timeframe="1h", limit=200):
         pair = symbol.replace("/", "")
-        url = f"https://api.binance.com/api/v3/klines?symbol={pair}&interval={timeframe}&limit={limit}"
+        url = "https://api.binance.com/api/v3/klines?symbol=" + pair + "&interval=" + timeframe + "&limit=" + str(limit)
         async with aiohttp.ClientSession() as s:
             async with s.get(url, timeout=aiohttp.ClientTimeout(total=10)) as r:
                 data = await r.json()
-        if isinstance(data, dict) and data.get("code"):
-            raise ValueError(f"幣種不存在：{symbol}")
-        df = pd.DataFrame(data, columns=[
-            "timestamp","open","high","low","close","volume",
-            "close_time","quote_volume","trades","tbb","tbq","ignore"
-        ])
+        cols = ["timestamp","open","high","low","close","volume","close_time","quote_volume","trades","tbb","tbq","ignore"]
+        df = pd.DataFrame(data, columns=cols)
         for c in ["open","high","low","close","volume"]:
             df[c] = df[c].astype(float)
-        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
         return df
 
     async def fetch_ticker(self, symbol):
         pair = symbol.replace("/", "")
-        url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={pair}"
+        url = "https://api.binance.com/api/v3/ticker/24hr?symbol=" + pair
         async with aiohttp.ClientSession() as s:
             async with s.get(url, timeout=aiohttp.ClientTimeout(total=6)) as r:
                 return await r.json()
 
     async def fetch_orderbook(self, symbol):
         pair = symbol.replace("/", "")
-        url = f"https://api.binance.com/api/v3/depth?symbol={pair}&limit=20"
+        url = "https://api.binance.com/api/v3/depth?symbol=" + pair + "&limit=20"
         try:
             async with aiohttp.ClientSession() as s:
                 async with s.get(url, timeout=aiohttp.ClientTimeout(total=6)) as r:
@@ -41,11 +36,11 @@ class CryptoAnalyzer:
             asks = sum(float(a[1]) for a in data.get("asks", []))
             ratio = bids / asks if asks > 0 else 1
             if ratio > 1.3:
-                return f"📗 買壓強 ({ratio:.2f})", ratio
+                return "📗 買壓強", ratio
             elif ratio < 0.77:
-                return f"📕 賣壓強 ({ratio:.2f})", ratio
+                return "📕 賣壓強", ratio
             else:
-                return f"📒 買賣平衡 ({ratio:.2f})", ratio
+                return "📒 平衡", ratio
         except Exception:
             return "📒 不可用", 1.0
 
@@ -76,8 +71,10 @@ class CryptoAnalyzer:
         return sma + std*s, sma, sma - std*s, s.iloc[-1]*2
 
     def atr(self, df, p=14):
-        h, l, pc = df["high"], df["low"], df["close"].shift(1)
-        tr = pd.concat([(h-l),(h-pc).abs(),(l-pc).abs()], axis=1).max(axis=1)
+        h = df["high"]
+        l = df["low"]
+        pc = df["close"].shift(1)
+        tr = pd.concat([(h-l), (h-pc).abs(), (l-pc).abs()], axis=1).max(axis=1)
         return tr.ewm(span=p, adjust=False).mean()
 
     def ema(self, df, p):
@@ -87,21 +84,11 @@ class CryptoAnalyzer:
         direction = np.sign(df["close"].diff()).fillna(0)
         return (direction * df["volume"]).cumsum()
 
-    def fibonacci_levels(self, df, lookback=100):
-        r = df.tail(lookback)
-        hi, lo = r["high"].max(), r["low"].min()
-        diff = hi - lo
-        return {
-            "0.236": round(hi - 0.236*diff, 4),
-            "0.382": round(hi - 0.382*diff, 4),
-            "0.5":   round(hi - 0.5*diff, 4),
-            "0.618": round(hi - 0.618*diff, 4),
-            "0.786": round(hi - 0.786*diff, 4),
-        }, round(hi, 4), round(lo, 4)
-
     def adx(self, df, p=14):
-        h, l = df["high"], df["low"]
-        up, down = h.diff(), -l.diff()
+        h = df["high"]
+        l = df["low"]
+        up = h.diff()
+        down = -l.diff()
         pdm = up.where((up > down) & (up > 0), 0)
         mdm = down.where((down > up) & (down > 0), 0)
         av = self.atr(df, p)
@@ -113,15 +100,28 @@ class CryptoAnalyzer:
     def volume_trend(self, df, p=20):
         avg = df["volume"].rolling(p).mean().iloc[-1]
         curr = df["volume"].iloc[-1]
-        r = curr/avg if avg > 0 else 1
+        r = curr / avg if avg > 0 else 1
         if r > 2.0:
-            return f"🔥 極度爆量({r:.1f}x)", r
+            return "🔥 極度爆量", r
         elif r > 1.5:
-            return f"🔴 爆量({r:.1f}x)", r
+            return "🔴 爆量", r
         elif r > 1.2:
-            return f"🟡 放量({r:.1f}x)", r
+            return "🟡 放量", r
         else:
-            return f"🟢 縮量({r:.1f}x)", r
+            return "🟢 縮量", r
+
+    def fibonacci(self, df, lookback=100):
+        r = df.tail(lookback)
+        hi = r["high"].max()
+        lo = r["low"].min()
+        diff = hi - lo
+        return {
+            "0.236": round(hi - 0.236*diff, 4),
+            "0.382": round(hi - 0.382*diff, 4),
+            "0.5": round(hi - 0.5*diff, 4),
+            "0.618": round(hi - 0.618*diff, 4),
+            "0.786": round(hi - 0.786*diff, 4),
+        }, round(hi, 4), round(lo, 4)
 
     def market_regime(self, df):
         e20 = self.ema(df, 20).iloc[-1]
@@ -140,34 +140,35 @@ class CryptoAnalyzer:
         else:
             return "震盪整理 ↔️", "RANGING", adx_v
 
-    def generate_signal(self, df, fg_val=50):
+    def generate_signal(self, df):
         p = df["close"].iloc[-1]
         rv = self.rsi(df).iloc[-1]
-        kv, dv = [x.iloc[-1] for x in self.stoch_rsi(df)]
+        kv = self.stoch_rsi(df)[0].iloc[-1]
+        dv = self.stoch_rsi(df)[1].iloc[-1]
         ml, sl_, hist = self.macd(df)
         hv = hist.iloc[-1]
         bbu, _, bbl, bbw = self.bollinger(df)
         av = self.atr(df).iloc[-1]
         obv_slope = self.obv(df).diff(5).iloc[-1]
-        adx_v, pdi, mdi = self.adx(df)
-        adx_now = adx_v.iloc[-1]
+        adx_now = self.adx(df)[0].iloc[-1]
         e20 = self.ema(df, 20).iloc[-1]
         e50 = self.ema(df, 50).iloc[-1]
         e200 = self.ema(df, 200).iloc[-1]
-        regime_label, regime, _ = self.market_regime(df)
-        score, reasons = 0, []
+        rl, regime, _ = self.market_regime(df)
+        score = 0
+        reasons = []
         if rv < 30:
             score += 2.5
-            reasons.append(f"RSI超賣({rv:.1f})")
+            reasons.append("RSI超賣(" + str(round(rv, 1)) + ")")
         elif rv < 40:
             score += 1.0
-            reasons.append(f"RSI偏低({rv:.1f})")
+            reasons.append("RSI偏低(" + str(round(rv, 1)) + ")")
         elif rv > 70:
             score -= 2.5
-            reasons.append(f"RSI超買({rv:.1f})")
+            reasons.append("RSI超買(" + str(round(rv, 1)) + ")")
         elif rv > 60:
             score -= 1.0
-            reasons.append(f"RSI偏高({rv:.1f})")
+            reasons.append("RSI偏高(" + str(round(rv, 1)) + ")")
         if kv < 20 and kv > dv:
             score += 1.5
             reasons.append("StochRSI底部金叉")
@@ -194,66 +195,150 @@ class CryptoAnalyzer:
             reasons.append("EMA空頭排列")
         if obv_slope > 0:
             score += 1
-            reasons.append("OBV量能遞增")
+            reasons.append("OBV遞增")
         elif obv_slope < 0:
             score -= 1
-            reasons.append("OBV量能遞減")
+            reasons.append("OBV遞減")
         if adx_now < 20:
-            score *= 0.6
+            score = score * 0.6
         elif adx_now > 35:
-            score *= 1.2
-        total = score
-        if total >= 4:
-            direction, den = "做多 🟢", "LONG"
-        elif total <= -4:
-            direction, den = "做空 🔴", "SHORT"
+            score = score * 1.2
+        if score >= 4:
+            direction = "做多 🟢"
+            den = "LONG"
+        elif score <= -4:
+            direction = "做空 🔴"
+            den = "SHORT"
         else:
-            direction, den = "觀望 🟡", "NEUTRAL"
-        strength = min(abs(total)/10*100, 100)
-        if regime in ("STRONG_BULL","STRONG_BEAR"):
+            direction = "觀望 🟡"
+            den = "NEUTRAL"
+        strength = min(abs(score) / 10 * 100, 100)
+        if regime in ("STRONG_BULL", "STRONG_BEAR"):
             tp1m, tp2m, slm = 2.0, 4.0, 1.2
-        elif regime in ("BULL","BEAR"):
+        elif regime in ("BULL", "BEAR"):
             tp1m, tp2m, slm = 1.5, 3.0, 1.5
         else:
             tp1m, tp2m, slm = 1.0, 2.0, 1.0
         if den == "LONG":
-            entry = round(p*0.999, 4)
-            tp1 = round(p+av*tp1m, 4)
-            tp2 = round(p+av*tp2m, 4)
-            sl = round(p-av*slm, 4)
+            entry = round(p * 0.999, 4)
+            tp1 = round(p + av * tp1m, 4)
+            tp2 = round(p + av * tp2m, 4)
+            sl = round(p - av * slm, 4)
         elif den == "SHORT":
-            entry = round(p*1.001, 4)
-            tp1 = round(p-av*tp1m, 4)
-            tp2 = round(p-av*tp2m, 4)
-            sl = round(p+av*slm, 4)
+            entry = round(p * 1.001, 4)
+            tp1 = round(p - av * tp1m, 4)
+            tp2 = round(p - av * tp2m, 4)
+            sl = round(p + av * slm, 4)
         else:
             entry = tp1 = tp2 = sl = p
-        rr = round(abs(tp1-entry)/abs(sl-entry+1e-9), 2)
+        rr = round(abs(tp1 - entry) / abs(sl - entry + 1e-9), 2)
         wr = 0.55 if strength > 70 else 0.50 if strength > 50 else 0.45
-        kelly = max(0, (wr-(1-wr)/rr))*100 if rr > 0 else 0
+        kelly = max(0, (wr - (1 - wr) / rr)) * 100 if rr > 0 else 0
         return {
             "price": p, "direction": direction, "direction_en": den,
             "strength": strength, "reasons": reasons[:5],
             "entry": entry, "tp1": tp1, "tp2": tp2, "sl": sl, "rr": rr,
-            "position_size": round(min(kelly, 10), 1),
-            "rsi": round(rv, 1), "stoch_k": round(kv, 1), "stoch_d": round(dv, 1),
-            "macd_hist": round(hv, 6), "adx": round(adx_now, 1),
-            "bb_upper": round(bbu.iloc[-1], 4), "bb_lower": round(bbl.iloc[-1], 4),
-            "bb_width": round(bbw, 4),
-            "ema20": round(e20, 4), "ema50": round(e50, 4), "ema200": round(e200, 4),
-            "atr": round(av, 4), "regime": regime, "regime_label": regime_label,
-            "obv_trend": "🟢 遞增" if obv_slope > 0 else "🔴 遞減"
+            "pos": round(min(kelly, 10), 1),
+            "rsi": round(rv, 1), "sk": round(kv, 1), "sd": round(dv, 1),
+            "mh": round(hv, 6), "adx": round(adx_now, 1),
+            "bbu": round(bbu.iloc[-1], 4), "bbl": round(bbl.iloc[-1], 4),
+            "e20": round(e20, 4), "e50": round(e50, 4), "e200": round(e200, 4),
+            "atr": round(av, 4), "regime": regime, "rl": rl,
+            "obv": "🟢 遞增" if obv_slope > 0 else "🔴 遞減"
         }
 
     async def full_analysis(self, symbol):
         try:
-            df1h, df4h, ticker, (obl, obr) = await asyncio.gather(
-                self.fetch_ohlcv(symbol, "1h", 300),
-                self.fetch_ohlcv(symbol, "4h", 200),
+            results = await asyncio.gather(
+                self.fetch_ohlcv(symbol, "1h", 200),
+                self.fetch_ohlcv(symbol, "4h", 150),
                 self.fetch_ticker(symbol),
                 self.fetch_orderbook(symbol),
             )
+            df1h = results[0]
+            df4h = results[1]
+            ticker = results[2]
+            obl = results[3][0]
             sig = self.generate_signal(df1h)
             sig4h = self.generate_signal(df4h)
-            fibs, fhi, flo = self.fibonacci_levels(df1h)
+            fibs, fhi, flo = self.fibonacci(df1h)
             vtl, _ = self.volume_trend(df1h)
+            chg = float(ticker.get("priceChangePercent", 0))
+            icon = "📈" if chg >= 0 else "📉"
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            p = sig["price"]
+            fib_sup = max(((k, v) for k, v in fibs.items() if v < p), key=lambda x: x[1], default=None)
+            fib_res = min(((k, v) for k, v in fibs.items() if v > p), key=lambda x: x[1], default=None)
+            report = "╔══════════════════════╗\n"
+            report += "║ 🔍 *" + symbol + " 深度分析*\n"
+            report += "║ 🕒 " + now + "\n"
+            report += "╚══════════════════════╝\n\n"
+            report += "💰 *現價：* `" + str(p) + "` " + icon + " `" + str(round(chg, 2)) + "%`\n"
+            report += "🌊 *市場結構：* " + sig["rl"] + "\n"
+            report += "📊 *ADX：* `" + str(sig["adx"]) + "`\n\n"
+            report += "━━━━ 📊 技術指標 ━━━━\n"
+            report += "• RSI: `" + str(sig["rsi"]) + "`\n"
+            report += "• StochRSI K/D: `" + str(sig["sk"]) + "/" + str(sig["sd"]) + "`\n"
+            report += "• MACD柱: `" + str(sig["mh"]) + "`\n"
+            report += "• 布林 上/下: `" + str(sig["bbu"]) + "/" + str(sig["bbl"]) + "`\n"
+            report += "• EMA 20/50/200: `" + str(sig["e20"]) + "/" + str(sig["e50"]) + "/" + str(sig["e200"]) + "`\n"
+            report += "• OBV: " + sig["obv"] + " | " + vtl + "\n"
+            report += "• ATR: `" + str(sig["atr"]) + "`\n\n"
+            report += "━━━━ 🎯 Fibonacci ━━━━\n"
+            if fib_sup:
+                report += "• 支撐(" + str(fib_sup[0]) + "): `" + str(fib_sup[1]) + "`\n"
+            if fib_res:
+                report += "• 阻力(" + str(fib_res[0]) + "): `" + str(fib_res[1]) + "`\n"
+            report += "\n━━━━ 🌐 訂單簿 ━━━━\n"
+            report += "• " + obl + "\n"
+            report += "\n══════════════════════\n"
+            if sig["direction_en"] != "NEUTRAL":
+                if sig["direction_en"] == sig4h["direction_en"]:
+                    conf = "✅ 1H+4H一致"
+                else:
+                    conf = "⚠️ 週期分歧謹慎"
+                report += "🎯 *方向：" + sig["direction"] + "*\n"
+                report += "💪 *強度：" + str(round(sig["strength"])) + "%*\n"
+                report += "📋 " + " | ".join(sig["reasons"][:3]) + "\n\n"
+                report += "┌──────────────────────┐\n"
+                report += "│ 🎯 進場  `" + str(sig["entry"]) + "`\n"
+                report += "│ 🏁 止盈1 `" + str(sig["tp1"]) + "`\n"
+                report += "│ 🏆 止盈2 `" + str(sig["tp2"]) + "`\n"
+                report += "│ 🛑 止損  `" + str(sig["sl"]) + "`\n"
+                report += "│ ⚖️ 風報比 `1:" + str(sig["rr"]) + "`\n"
+                report += "│ 💼 建議倉位 `" + str(sig["pos"]) + "%`\n"
+                report += "└──────────────────────┘\n\n"
+                report += "📅 4H：" + sig4h["direction"] + " | " + conf + "\n"
+            else:
+                report += "🟡 *建議觀望*\n"
+                report += "強度不足（" + str(round(sig["strength"])) + "%）\n"
+                report += "📋 " + " | ".join(sig["reasons"][:3]) + "\n"
+            report += "\n══════════════════════\n"
+            report += "⚠️ _僅供參考，非投資建議_"
+            return report
+        except Exception as e:
+            return "❌ 分析失敗：" + str(e)
+
+    async def get_news_summary(self):
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        return "📰 *市場情緒*\n🕒 " + now + "\n\n新聞功能暫時關閉以提升速度"
+
+    async def trend_watch(self, symbols):
+        now = datetime.now(timezone.utc).strftime("%H:%M UTC")
+        report = "🔭 *趨勢總覽* — " + now + "\n"
+        report += "──────────────────────\n"
+        for symbol in symbols:
+            try:
+                df, ticker = await asyncio.gather(
+                    self.fetch_ohlcv(symbol, "1h", 200),
+                    self.fetch_ticker(symbol)
+                )
+                rl, _, adx_v = self.market_regime(df)
+                chg = float(ticker.get("priceChangePercent", 0))
+                price = df["close"].iloc[-1]
+                icon = "📈" if chg >= 0 else "📉"
+                report += icon + " *" + symbol + "*  `" + str(round(price, 2)) + "`  `" + str(round(chg, 1)) + "%`\n"
+                report += "   " + rl + "  ADX:`" + str(round(adx_v)) + "`\n\n"
+            except Exception:
+                report += "❌ " + symbol + " 失敗\n\n"
+        return report
