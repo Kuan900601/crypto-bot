@@ -256,4 +256,4 @@ class CryptoAnalyzer:
             sig = self.generate_signal(df1h)
             sig4h = self.generate_signal(df4h)
             fibs, fhi, flo = self.fibonacci_levels(df1h)
-            vtl, _ = self.volume_trend(d
+            vtl, _ = self.volume_trend(df1h)
