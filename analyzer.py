@@ -200,64 +200,47 @@ class CryptoAnalyzer:
         e50  = self.ema(df, 50).iloc[-1]
         e200 = self.ema(df, 200).iloc[-1]
         t_sen, k_sen, span_a, span_b = self.ichimoku(df)
-
         sa_vals = span_a.dropna()
         sb_vals = span_b.dropna()
         sa = sa_vals.iloc[-1] if len(sa_vals) > 0 else p
         sb = sb_vals.iloc[-1] if len(sb_vals) > 0 else p
         cloud_top = max(sa, sb)
         cloud_bot = min(sa, sb)
-
         t_vals = t_sen.dropna()
         k_vals = k_sen.dropna()
-
         regime_label, regime, _ = self.market_regime(df)
         score, reasons = 0, []
-
         if rv < 30:   score += 2.5; reasons.append(f"RSI超賣({rv:.1f})")
         elif rv < 40: score += 1.0; reasons.append(f"RSI偏低({rv:.1f})")
         elif rv > 70: score -= 2.5; reasons.append(f"RSI超買({rv:.1f})")
         elif rv > 60: score -= 1.0; reasons.append(f"RSI偏高({rv:.1f})")
-
         if kv < 20 and kv > dv:    score += 1.5; reasons.append("StochRSI底部金叉")
         elif kv > 80 and kv < dv:  score -= 1.5; reasons.append("StochRSI頂部死叉")
-
         if ml.iloc[-1] > sl_.iloc[-1] and hv > 0: score += 2; reasons.append("MACD金叉")
         elif ml.iloc[-1] < sl_.iloc[-1] and hv < 0: score -= 2; reasons.append("MACD死叉")
-
         if p < bbl.iloc[-1]:   score += 2; reasons.append("跌破布林下軌")
         elif p > bbu.iloc[-1]: score -= 2; reasons.append("突破布林上軌")
-
         if p > e20 > e50 > e200:   score += 2.5; reasons.append("EMA多頭排列")
         elif p < e20 < e50 < e200: score -= 2.5; reasons.append("EMA空頭排列")
-
         if p > cloud_top:   score += 2; reasons.append("價格在雲層之上")
         elif p < cloud_bot: score -= 2; reasons.append("價格在雲層之下")
-
         if len(t_vals) > 0 and len(k_vals) > 0:
             if t_vals.iloc[-1] > k_vals.iloc[-1]: score += 1; reasons.append("Ichimoku轉換>基準")
             elif t_vals.iloc[-1] < k_vals.iloc[-1]: score -= 1
-
         if obv_slope > 0: score += 1; reasons.append("OBV量能遞增")
         elif obv_slope < 0: score -= 1; reasons.append("OBV量能遞減")
-
         if adx_now < 20:   score *= 0.6
         elif adx_now > 35: score *= 1.2
-
         if fg_val <= 20:   score += 1.5; reasons.append("極度恐懼(逆向做多)")
         elif fg_val >= 80: score -= 1.5; reasons.append("極度貪婪(逆向做空)")
-
         total = score + news_score * 2
-
         if total >= 4:    direction, den = "做多 🟢", "LONG"
         elif total <= -4: direction, den = "做空 🔴", "SHORT"
         else:             direction, den = "觀望 🟡", "NEUTRAL"
         strength = min(abs(total)/10*100, 100)
-
         if regime in ("STRONG_BULL","STRONG_BEAR"): tp1m,tp2m,slm = 2.0,4.0,1.2
         elif regime in ("BULL","BEAR"):             tp1m,tp2m,slm = 1.5,3.0,1.5
         else:                                       tp1m,tp2m,slm = 1.0,2.0,1.0
-
         if den == "LONG":
             entry=round(p*0.999,4); tp1=round(p+av*tp1m,4); tp2=round(p+av*tp2m,4); sl=round(p-av*slm,4)
         elif den == "SHORT":
@@ -267,7 +250,6 @@ class CryptoAnalyzer:
         rr = round(abs(tp1-entry)/abs(sl-entry+1e-9), 2)
         wr = 0.55 if strength>70 else 0.50 if strength>50 else 0.45
         kelly = max(0,(wr-(1-wr)/rr))*100 if rr>0 else 0
-
         return {"price":p,"direction":direction,"direction_en":den,"strength":strength,
                 "reasons":reasons[:5],"entry":entry,"tp1":tp1,"tp2":tp2,"sl":sl,"rr":rr,
                 "position_size":round(min(kelly,10),1),"rsi":round(rv,1),
@@ -300,7 +282,6 @@ class CryptoAnalyzer:
             p    = sig["price"]
             fib_sup = max(((k,v) for k,v in fibs.items() if v<p), key=lambda x:x[1], default=None)
             fib_res = min(((k,v) for k,v in fibs.items() if v>p), key=lambda x:x[1], default=None)
-
             report = (
                 f"╔══════════════════════╗\n"
                 f"║ 🔍 *{symbol} 深度分析*\n"
@@ -330,7 +311,6 @@ class CryptoAnalyzer:
             )
             for h in headlines[:3]:
                 report += f"  ▫️ {h}\n"
-
             report += f"\n{'═'*22}\n"
             if sig["direction_en"] != "NEUTRAL":
                 conf = "✅ 1H+4H一致，信號可靠" if sig["direction_en"]==sig4h["direction_en"] else "⚠️ 多空週期分歧，謹慎"
@@ -364,7 +344,7 @@ class CryptoAnalyzer:
         score, label, headlines = self.sentiment(news)
         fgl, fgv = await self.fetch_fear_greed()
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-        r = f"📰 *加密市場情緒報告*\n🕒 {now}\n\n😱 恐懼貪婪指數: {fgl}\n📰 新聞情緒: {label} (`{score:+.2f}`)\n\n"
+        r = f"📰 *加密市場情緒報告*\n🕒 {now}\n\n😱 恐懼貪婪: {fgl}\n📰 新聞情緒: {label} (`{score:+.2f}`)\n\n"
         for i, h in enumerate(headlines[:8], 1):
             r += f"{i}. {h}\n"
         return r
