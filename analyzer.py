@@ -201,11 +201,11 @@ class CryptoAnalyzer:
         e200 = self.ema(df, 200).iloc[-1]
         t_sen, k_sen, span_a, span_b = self.ichimoku(df)
         sa_vals = span_a.dropna()
-sb_vals = span_b.dropna()
-sa = sa_vals.iloc[-1] if len(sa_vals) > 0 else p
-sb = sb_vals.iloc[-1] if len(sb_vals) > 0 else p
-cloud_top = max(sa, sb)
-cloud_bot = min(sa, sb)
+        sb_vals = span_b.dropna()
+        sa = sa_vals.iloc[-1] if len(sa_vals) > 0 else p
+        sb = sb_vals.iloc[-1] if len(sb_vals) > 0 else p
+        cloud_top = max(sa, sb)
+        cloud_bot = min(sa, sb)
         t_vals = t_sen.dropna()
         k_vals = k_sen.dropna()
         regime_label, regime, _ = self.market_regime(df)
