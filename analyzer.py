@@ -7,17 +7,20 @@ from datetime import datetime, timezone
 
 class CryptoAnalyzer:
 
-    # 掃描候選池（30個主流幣種）
     SCAN_POOL = [
         "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT",
         "DOGE/USDT", "ADA/USDT", "AVAX/USDT", "LINK/USDT", "MATIC/USDT",
         "DOT/USDT", "UNI/USDT", "ATOM/USDT", "LTC/USDT", "BCH/USDT",
         "NEAR/USDT", "APT/USDT", "ARB/USDT", "OP/USDT", "INJ/USDT",
-        "SUI/USDT", "SEI/USDT", "TIA/USDT", "RNDR/USDT", "FIL/USDT",
-        "PEPE/USDT", "SHIB/USDT", "AAVE/USDT", "MKR/USDT", "TRX/USDT",
+        "SUI/USDT", "TIA/USDT", "FIL/USDT", "PEPE/USDT", "SHIB/USDT",
+        "AAVE/USDT", "MKR/USDT", "TRX/USDT", "ICP/USDT", "ETC/USDT",
     ]
 
-    # ── 安全取值 ──
+    # 時間框架對應表
+    TF_BINANCE = {"1m": "1m", "15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d"}
+    TF_BYBIT = {"1m": "1", "15m": "15", "1h": "60", "4h": "240", "1d": "D"}
+    TF_OKX = {"1m": "1m", "15m": "15m", "1h": "1H", "4h": "4H", "1d": "1D"}
+
     def safe_val(self, series, default=0):
         try:
             v = series.dropna()
@@ -30,69 +33,209 @@ class CryptoAnalyzer:
         except Exception:
             return float(default)
 
-    # ── 數據抓取 ──
-    async def fetch_ohlcv(self, session, symbol, timeframe="1h", limit=200):
+    # ── 多交易所容錯 K 線抓取 ──
+    async def _fetch_binance_klines(self, session, symbol, timeframe, limit):
         pair = symbol.replace("/", "")
-        url = "https://api.binance.com/api/v3/klines?symbol=" + pair + "&interval=" + timeframe + "&limit=" + str(limit)
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as r:
+        tf = self.TF_BINANCE.get(timeframe, "1h")
+        url = "https://api.binance.com/api/v3/klines?symbol=" + pair + "&interval=" + tf + "&limit=" + str(limit)
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=6)) as r:
+            if r.status != 200:
+                raise ValueError("Binance HTTP " + str(r.status))
             data = await r.json()
-        if isinstance(data, dict):
-            raise ValueError("幣種錯誤：" + symbol)
+        if not isinstance(data, list):
+            raise ValueError("Binance error")
         cols = ["timestamp","open","high","low","close","volume","close_time","qv","tr","tbb","tbq","ig"]
         df = pd.DataFrame(data, columns=cols)
         for c in ["open","high","low","close","volume"]:
             df[c] = df[c].astype(float)
         return df
 
-    async def fetch_ticker(self, session, symbol):
+    async def _fetch_bybit_klines(self, session, symbol, timeframe, limit):
+        pair = symbol.replace("/", "")
+        tf = self.TF_BYBIT.get(timeframe, "60")
+        url = "https://api.bybit.com/v5/market/kline?category=spot&symbol=" + pair + "&interval=" + tf + "&limit=" + str(limit)
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=6)) as r:
+            if r.status != 200:
+                raise ValueError("Bybit HTTP " + str(r.status))
+            data = await r.json()
+        if data.get("retCode") != 0:
+            raise ValueError("Bybit error")
+        rows = data["result"]["list"]
+        # Bybit 返回時間倒序，需要反轉
+        rows = list(reversed(rows))
+        df = pd.DataFrame(rows, columns=["timestamp","open","high","low","close","volume","turnover"])
+        for c in ["open","high","low","close","volume"]:
+            df[c] = df[c].astype(float)
+        return df
+
+    async def _fetch_okx_klines(self, session, symbol, timeframe, limit):
+        # OKX uses BTC-USDT format
+        pair = symbol.replace("/", "-")
+        tf = self.TF_OKX.get(timeframe, "1H")
+        url = "https://www.okx.com/api/v5/market/candles?instId=" + pair + "&bar=" + tf + "&limit=" + str(min(limit, 300))
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=6)) as r:
+            if r.status != 200:
+                raise ValueError("OKX HTTP " + str(r.status))
+            data = await r.json()
+        if data.get("code") != "0":
+            raise ValueError("OKX error")
+        rows = data["data"]
+        # OKX 返回時間倒序
+        rows = list(reversed(rows))
+        df = pd.DataFrame(rows, columns=["timestamp","open","high","low","close","volume","volCcy","volCcyQuote","confirm"])
+        for c in ["open","high","low","close","volume"]:
+            df[c] = df[c].astype(float)
+        return df
+
+    async def fetch_ohlcv(self, session, symbol, timeframe="1h", limit=200):
+        """容錯：Binance → Bybit → OKX"""
+        for fetcher in [self._fetch_binance_klines, self._fetch_bybit_klines, self._fetch_okx_klines]:
+            try:
+                df = await fetcher(session, symbol, timeframe, limit)
+                if df is not None and len(df) > 0:
+                    return df
+            except Exception:
+                continue
+        raise ValueError("所有交易所都無法抓取 " + symbol)
+
+    # ── Ticker 容錯 ──
+    async def _ticker_binance(self, session, symbol):
         pair = symbol.replace("/", "")
         url = "https://api.binance.com/api/v3/ticker/24hr?symbol=" + pair
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as r:
-            return await r.json()
+            if r.status != 200:
+                raise ValueError("Binance HTTP " + str(r.status))
+            data = await r.json()
+        return {
+            "lastPrice": float(data.get("lastPrice", 0)),
+            "priceChangePercent": float(data.get("priceChangePercent", 0)),
+            "highPrice": float(data.get("highPrice", 0)),
+            "lowPrice": float(data.get("lowPrice", 0)),
+            "quoteVolume": float(data.get("quoteVolume", 0)),
+        }
+
+    async def _ticker_bybit(self, session, symbol):
+        pair = symbol.replace("/", "")
+        url = "https://api.bybit.com/v5/market/tickers?category=spot&symbol=" + pair
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as r:
+            if r.status != 200:
+                raise ValueError("Bybit HTTP " + str(r.status))
+            data = await r.json()
+        if data.get("retCode") != 0 or not data["result"]["list"]:
+            raise ValueError("Bybit ticker error")
+        d = data["result"]["list"][0]
+        return {
+            "lastPrice": float(d.get("lastPrice", 0)),
+            "priceChangePercent": float(d.get("price24hPcnt", 0)) * 100,
+            "highPrice": float(d.get("highPrice24h", 0)),
+            "lowPrice": float(d.get("lowPrice24h", 0)),
+            "quoteVolume": float(d.get("turnover24h", 0)),
+        }
+
+    async def _ticker_okx(self, session, symbol):
+        pair = symbol.replace("/", "-")
+        url = "https://www.okx.com/api/v5/market/ticker?instId=" + pair
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as r:
+            if r.status != 200:
+                raise ValueError("OKX HTTP " + str(r.status))
+            data = await r.json()
+        if data.get("code") != "0" or not data["data"]:
+            raise ValueError("OKX ticker error")
+        d = data["data"][0]
+        last = float(d.get("last", 0))
+        opn = float(d.get("open24h", last))
+        chg = ((last - opn) / opn * 100) if opn > 0 else 0
+        return {
+            "lastPrice": last,
+            "priceChangePercent": chg,
+            "highPrice": float(d.get("high24h", 0)),
+            "lowPrice": float(d.get("low24h", 0)),
+            "quoteVolume": float(d.get("volCcy24h", 0)),
+        }
+
+    async def fetch_ticker(self, session, symbol):
+        for fetcher in [self._ticker_binance, self._ticker_bybit, self._ticker_okx]:
+            try:
+                t = await fetcher(session, symbol)
+                if t["lastPrice"] > 0:
+                    return t
+            except Exception:
+                continue
+        raise ValueError("Ticker 失敗 " + symbol)
 
     async def fetch_orderbook(self, session, symbol):
         pair = symbol.replace("/", "")
-        url = "https://api.binance.com/api/v3/depth?symbol=" + pair + "&limit=50"
+        # 試 Binance
         try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as r:
-                data = await r.json()
-            bids = sum(float(b[1]) for b in data.get("bids", []))
-            asks = sum(float(a[1]) for a in data.get("asks", []))
-            ratio = bids / asks if asks > 0 else 1
-            if ratio > 1.5:
-                return "💚 強力買壓 (" + str(round(ratio, 2)) + "x)", ratio
-            elif ratio > 1.2:
-                return "📗 買壓較強 (" + str(round(ratio, 2)) + "x)", ratio
-            elif ratio < 0.67:
-                return "💔 強力賣壓 (" + str(round(ratio, 2)) + "x)", ratio
-            elif ratio < 0.83:
-                return "📕 賣壓較強 (" + str(round(ratio, 2)) + "x)", ratio
-            else:
-                return "📒 多空均衡 (" + str(round(ratio, 2)) + "x)", ratio
+            url = "https://api.binance.com/api/v3/depth?symbol=" + pair + "&limit=50"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=4)) as r:
+                if r.status == 200:
+                    data = await r.json()
+                    bids = sum(float(b[1]) for b in data.get("bids", []))
+                    asks = sum(float(a[1]) for a in data.get("asks", []))
+                    if bids > 0 or asks > 0:
+                        ratio = bids / asks if asks > 0 else 1
+                        return self._format_ob(ratio), ratio
         except Exception:
-            return "📒 不可用", 1.0
+            pass
+        # 試 Bybit
+        try:
+            url = "https://api.bybit.com/v5/market/orderbook?category=spot&symbol=" + pair + "&limit=50"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=4)) as r:
+                data = await r.json()
+            if data.get("retCode") == 0:
+                bids = sum(float(b[1]) for b in data["result"]["b"])
+                asks = sum(float(a[1]) for a in data["result"]["a"])
+                if bids > 0 or asks > 0:
+                    ratio = bids / asks if asks > 0 else 1
+                    return self._format_ob(ratio), ratio
+        except Exception:
+            pass
+        return "📒 不可用", 1.0
+
+    def _format_ob(self, ratio):
+        if ratio > 1.5:
+            return "💚 強力買壓 (" + str(round(ratio, 2)) + "x)"
+        elif ratio > 1.2:
+            return "📗 買壓較強 (" + str(round(ratio, 2)) + "x)"
+        elif ratio < 0.67:
+            return "💔 強力賣壓 (" + str(round(ratio, 2)) + "x)"
+        elif ratio < 0.83:
+            return "📕 賣壓較強 (" + str(round(ratio, 2)) + "x)"
+        else:
+            return "📒 多空均衡 (" + str(round(ratio, 2)) + "x)"
 
     async def fetch_funding_rate(self, session, symbol):
-        """資金費率（Binance 永續）— 反向指標"""
         pair = symbol.replace("/", "")
-        url = "https://fapi.binance.com/fapi/v1/premiumIndex?symbol=" + pair
+        # Binance
         try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as r:
-                data = await r.json()
-            rate = float(data.get("lastFundingRate", 0)) * 100
-            return round(rate, 4)
+            url = "https://fapi.binance.com/fapi/v1/premiumIndex?symbol=" + pair
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=4)) as r:
+                if r.status == 200:
+                    data = await r.json()
+                    return round(float(data.get("lastFundingRate", 0)) * 100, 4)
         except Exception:
-            return None
+            pass
+        # Bybit
+        try:
+            url = "https://api.bybit.com/v5/market/tickers?category=linear&symbol=" + pair
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=4)) as r:
+                data = await r.json()
+            if data.get("retCode") == 0 and data["result"]["list"]:
+                return round(float(data["result"]["list"][0].get("fundingRate", 0)) * 100, 4)
+        except Exception:
+            pass
+        return None
 
     async def fetch_long_short_ratio(self, session, symbol):
-        """多空比（合約市場情緒）"""
         pair = symbol.replace("/", "")
-        url = "https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=" + pair + "&period=1h&limit=1"
         try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as r:
-                data = await r.json()
-            if data and len(data) > 0:
-                return float(data[0].get("longShortRatio", 1))
+            url = "https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=" + pair + "&period=1h&limit=1"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=4)) as r:
+                if r.status == 200:
+                    data = await r.json()
+                    if data and len(data) > 0:
+                        return float(data[0].get("longShortRatio", 1))
         except Exception:
             pass
         return None
@@ -196,36 +339,26 @@ class CryptoAnalyzer:
         dx = 100 * (pdi - mdi).abs() / (pdi + mdi + 1e-9)
         return dx.ewm(span=p).mean()
 
-    # ── 背離偵測（高勝率信號）──
     def detect_divergence(self, df, lookback=30):
-        """偵測 RSI 背離"""
         try:
             r = df.tail(lookback).reset_index(drop=True)
             rsi_v = self.rsi(r).fillna(50)
-            # 找最近兩個價格高點和低點
-            price_high_idx = r["high"].idxmax()
-                
-            # 看頂背離：價格新高，RSI 沒新高
             recent_high = r["high"].iloc[-5:].max()
             prev_high = r["high"].iloc[:-5].max()
             recent_rsi_at_high = rsi_v.iloc[-5:].max()
             prev_rsi_at_high = rsi_v.iloc[:-5].max()
             if recent_high > prev_high and recent_rsi_at_high < prev_rsi_at_high - 3:
                 return "BEAR_DIV", "📕 頂背離（看跌）"
-
-            # 底背離：價格新低，RSI 沒新低
             recent_low = r["low"].iloc[-5:].min()
             prev_low = r["low"].iloc[:-5].min()
             recent_rsi_at_low = rsi_v.iloc[-5:].min()
             prev_rsi_at_low = rsi_v.iloc[:-5].min()
             if recent_low < prev_low and recent_rsi_at_low > prev_rsi_at_low + 3:
                 return "BULL_DIV", "📗 底背離（看漲）"
-
             return None, None
         except Exception:
             return None, None
 
-    # ── 多重支撐阻力 ──
     def pivot_sr(self, df, lookback=50):
         r = df.tail(lookback)
         high = float(r["high"].max())
@@ -279,17 +412,17 @@ class CryptoAnalyzer:
             curr = float(df["volume"].iloc[-1])
             r = curr / avg if avg > 0 else 1
             if r > 2.5:
-                return "🔥🔥 異常爆量 (" + str(round(r, 1)) + "x)", r
+                return "🔥🔥 異常爆量 (" + str(round(r, 1)) + "x)"
             elif r > 1.8:
-                return "🔥 爆量 (" + str(round(r, 1)) + "x)", r
+                return "🔥 爆量 (" + str(round(r, 1)) + "x)"
             elif r > 1.3:
-                return "🟡 放量 (" + str(round(r, 1)) + "x)", r
+                return "🟡 放量 (" + str(round(r, 1)) + "x)"
             elif r > 0.7:
-                return "🟢 正常 (" + str(round(r, 1)) + "x)", r
+                return "🟢 正常 (" + str(round(r, 1)) + "x)"
             else:
-                return "⚪ 縮量 (" + str(round(r, 1)) + "x)", r
+                return "⚪ 縮量 (" + str(round(r, 1)) + "x)"
         except Exception:
-            return "📒 一般", 1.0
+            return "📒 一般"
 
     def market_regime(self, df):
         e20 = self.safe_val(self.ema(df, 20))
@@ -351,7 +484,6 @@ class CryptoAnalyzer:
         except Exception:
             return ""
 
-    # ── 信號生成 ──
     def generate_signal(self, df, fg_val=50):
         p = float(df["close"].iloc[-1])
         rv = self.safe_val(self.rsi(df), 50)
@@ -416,14 +548,12 @@ class CryptoAnalyzer:
             score = score * 0.6
         elif adx_now > 35:
             score = score * 1.2
-        # 背離信號（高權重）
         if div_type == "BULL_DIV":
             score += 2
             reasons.append(div_label)
         elif div_type == "BEAR_DIV":
             score -= 2
             reasons.append(div_label)
-        # F&G 反向
         if fg_val <= 20:
             score += 1.5
             reasons.append("極度恐懼(逆向)")
@@ -440,7 +570,6 @@ class CryptoAnalyzer:
             direction = "觀望 🟡"
             den = "NEUTRAL"
         strength = min(abs(score) / 10 * 100, 100)
-        # 用支撐阻力位精準設定止盈止損
         sw_res, sw_sup = self.swing_sr(df)
         if regime in ("STRONG_BULL", "STRONG_BEAR"):
             tp1m, tp2m, slm = 2.0, 4.0, 1.2
@@ -450,14 +579,12 @@ class CryptoAnalyzer:
             tp1m, tp2m, slm = 1.0, 2.0, 1.0
         if den == "LONG":
             entry = round(p * 0.999, 4)
-            # 止盈優先用阻力位
             if sw_res:
                 tp1 = sw_res[0]
                 tp2 = sw_res[1] if len(sw_res) > 1 else round(p + av * tp2m, 4)
             else:
                 tp1 = round(p + av * tp1m, 4)
                 tp2 = round(p + av * tp2m, 4)
-            # 止損優先用支撐位
             if sw_sup:
                 sl = round(sw_sup[0] * 0.998, 4)
             else:
@@ -491,10 +618,8 @@ class CryptoAnalyzer:
             "atr": round(av, 4), "regime": regime, "rl": rl,
             "obv": "🟢 遞增" if obv_slope > 0 else "🔴 遞減",
             "div": div_label,
-            "raw_score": round(abs(score), 2)
         }
 
-    # ── 完整分析 ──
     async def full_analysis(self, symbol):
         try:
             async with aiohttp.ClientSession() as session:
@@ -513,7 +638,7 @@ class CryptoAnalyzer:
             df1h = results[0]
             df4h = results[1] if not isinstance(results[1], Exception) else df1h
             ticker = results[2] if not isinstance(results[2], Exception) else {}
-            obl, ob_ratio = results[3] if not isinstance(results[3], Exception) else ("📒 不可用", 1.0)
+            obl, _ = results[3] if not isinstance(results[3], Exception) else ("📒 不可用", 1.0)
             fgl, fgv = results[4] if not isinstance(results[4], Exception) else ("⚪", 50)
             funding = results[5] if not isinstance(results[5], Exception) else None
             ls_ratio = results[6] if not isinstance(results[6], Exception) else None
@@ -522,7 +647,7 @@ class CryptoAnalyzer:
             piv = self.pivot_sr(df1h)
             sw_res, sw_sup = self.swing_sr(df1h)
             fibs = self.fib_sr(df1h)
-            vtl, _ = self.volume_trend(df1h)
+            vtl = self.volume_trend(df1h)
             chg = float(ticker.get("priceChangePercent", 0))
             high24 = float(ticker.get("highPrice", 0))
             low24 = float(ticker.get("lowPrice", 0))
@@ -543,10 +668,10 @@ class CryptoAnalyzer:
                 fund_emoji = "🔴" if funding > 0.05 else ("🟢" if funding < -0.05 else "⚪")
                 r += "💰 資金費率 " + fund_emoji + " `" + str(funding) + "%`\n"
             if ls_ratio is not None:
-                ls_emoji = "🟠 多頭擁擠" if ls_ratio > 2 else ("🔵 空頭擁擠" if ls_ratio < 0.5 else "⚪")
+                ls_emoji = "🟠 多擁擠" if ls_ratio > 2 else ("🔵 空擁擠" if ls_ratio < 0.5 else "⚪")
                 r += "⚖️ 多空比 `" + str(round(ls_ratio, 2)) + "` " + ls_emoji + "\n"
             r += "\n*━━ 📊 技術指標 ━━*\n"
-            r += "• RSI(14) `" + str(sig["rsi"]) + "`"
+            r += "• RSI `" + str(sig["rsi"]) + "`"
             if sig["rsi"] > 70:
                 r += " ⚠️超買"
             elif sig["rsi"] < 30:
@@ -576,20 +701,18 @@ class CryptoAnalyzer:
             r += "\n━━━━━━━━━━━━━━━━━━━━\n"
             if sig["direction_en"] != "NEUTRAL":
                 if sig["direction_en"] == sig4h["direction_en"]:
-                    conf = "✅ 1H+4H 一致 (信號可靠)"
+                    conf = "✅ 1H+4H 一致"
                 else:
-                    conf = "⚠️ 多空週期分歧 (謹慎)"
+                    conf = "⚠️ 週期分歧"
                 r += "🎯 *方向：" + sig["direction"] + "*\n"
-                r += "💪 信號強度 `" + str(round(sig["strength"])) + "%`\n"
+                r += "💪 強度 `" + str(round(sig["strength"])) + "%`\n"
                 r += "📋 " + " | ".join(sig["reasons"][:3]) + "\n\n"
                 r += "🎯 進場 `" + str(sig["entry"]) + "`\n"
-                r += "🏁 止盈 1 `" + str(sig["tp1"]) + "`\n"
-                r += "🏆 止盈 2 `" + str(sig["tp2"]) + "`\n"
+                r += "🏁 止盈1 `" + str(sig["tp1"]) + "`\n"
+                r += "🏆 止盈2 `" + str(sig["tp2"]) + "`\n"
                 r += "🛑 止損 `" + str(sig["sl"]) + "`\n"
-                r += "⚖️ 風報 `1 : " + str(sig["rr"]) + "`\n"
-                r += "💼 倉位 `" + str(sig["pos"]) + "%`\n\n"
-                r += "📅 4H " + sig4h["direction"] + "\n"
-                r += conf
+                r += "⚖️ 風報 `1:" + str(sig["rr"]) + "` | 倉位 `" + str(sig["pos"]) + "%`\n\n"
+                r += "📅 4H " + sig4h["direction"] + " | " + conf
             else:
                 r += "🟡 *建議觀望* (強度 " + str(round(sig["strength"])) + "%)\n"
                 if sig["reasons"]:
@@ -599,48 +722,43 @@ class CryptoAnalyzer:
         except Exception as e:
             return "❌ 分析失敗：" + str(e)
 
-    # ── 黃金獵手（核心新功能）──
     async def golden_hunter(self):
-        """掃描所有幣種，找最佳交易機會"""
+        """掃描所有幣種，找最佳交易機會（優化降低門檻+容錯）"""
         try:
             now = datetime.now(timezone.utc).strftime("%m-%d %H:%M UTC")
             candidates = []
             async with aiohttp.ClientSession() as session:
-                # 先抓 F&G
                 fg_result = await self.fetch_fear_greed(session)
                 fg_val = fg_result[1] if not isinstance(fg_result, Exception) else 50
-                # 並行抓所有幣種 1H + ticker
                 tasks = []
                 for sym in self.SCAN_POOL:
                     tasks.append(self.fetch_ohlcv(session, sym, "1h", 200))
                     tasks.append(self.fetch_ticker(session, sym))
                 results = await asyncio.gather(*tasks, return_exceptions=True)
-                # 處理結果
+                ok_count = 0
                 for i, sym in enumerate(self.SCAN_POOL):
                     df = results[i*2]
                     ticker = results[i*2+1]
                     if isinstance(df, Exception):
                         continue
+                    ok_count += 1
                     if isinstance(ticker, Exception):
                         ticker = {}
                     try:
                         sig = self.generate_signal(df, fg_val)
                         if sig["direction_en"] == "NEUTRAL":
                             continue
-                        # 過濾條件：強度≥55 / 風報比≥1.8 / ADX≥22
-                        if sig["strength"] < 55:
+                        # 降低門檻（避免無候選）
+                        if sig["strength"] < 45:
                             continue
-                        if sig["rr"] < 1.8:
+                        if sig["rr"] < 1.5:
                             continue
-                        if sig["adx"] < 22:
+                        if sig["adx"] < 18:
                             continue
-                        # 流動性過濾
                         vol24 = float(ticker.get("quoteVolume", 0)) / 1e6
-                        if vol24 < 50:
+                        if vol24 < 20:
                             continue
                         chg = float(ticker.get("priceChangePercent", 0))
-                        # 計算綜合評分
-                        # 強度40% + 風報比30% + ADX20% + 流動性10%
                         confidence = (
                             sig["strength"] * 0.4 +
                             min(sig["rr"] * 20, 60) * 0.3 +
@@ -648,21 +766,18 @@ class CryptoAnalyzer:
                             min(vol24 / 10, 100) * 0.1
                         )
                         candidates.append({
-                            "symbol": sym,
-                            "sig": sig,
-                            "vol24": vol24,
-                            "chg": chg,
-                            "confidence": round(confidence, 1)
+                            "symbol": sym, "sig": sig, "vol24": vol24,
+                            "chg": chg, "confidence": round(confidence, 1)
                         })
                     except Exception:
                         continue
-                # 二次驗證 4H 一致性
                 if not candidates:
                     return ("🎯 *黃金獵手 — " + now + "*\n"
                             "━━━━━━━━━━━━━━━━━━━━\n\n"
-                            "目前市場無強烈信號\n"
-                            "建議觀望，等待更明確機會 🕐")
-                # 抓 top 5 候選的 4H 數據驗證
+                            "📡 已掃描 " + str(ok_count) + "/" + str(len(self.SCAN_POOL)) + " 幣種\n"
+                            "目前無強烈交易信號\n"
+                            "建議觀望，等待更明確機會 🕐\n\n"
+                            "💡 _市場可能處於盤整階段_")
                 candidates.sort(key=lambda x: x["confidence"], reverse=True)
                 top_candidates = candidates[:8]
                 tasks_4h = [self.fetch_ohlcv(session, c["symbol"], "4h", 150) for c in top_candidates]
@@ -675,10 +790,8 @@ class CryptoAnalyzer:
                     c["sig4h"] = sig4h
                     c["confirmed"] = sig4h["direction_en"] == c["sig"]["direction_en"]
                     if c["confirmed"]:
-                        c["confidence"] += 10  # 加分
-                # 重新排序
+                        c["confidence"] += 10
                 top_candidates.sort(key=lambda x: x["confidence"], reverse=True)
-            # 輸出 TOP 3
             r = "🎯 *黃金獵手 — 最佳交易機會*\n"
             r += "🕒 " + now + "\n"
             r += "━━━━━━━━━━━━━━━━━━━━\n"
@@ -708,18 +821,17 @@ class CryptoAnalyzer:
                 r += "🛑 止損 `" + str(sig["sl"]) + "`\n"
                 r += "⚖️ 風報 `1:" + str(sig["rr"]) + "` | 倉位 `" + str(sig["pos"]) + "%`\n\n"
             r += "━━━━━━━━━━━━━━━━━━━━\n"
-            r += "💡 *使用建議*\n"
-            r += "• 信心評分 ≥80 為高品質\n"
+            r += "💡 *建議*\n"
+            r += "• 信心評分 ≥80 高品質\n"
             r += "• 多週期一致 ✅ 勝率較高\n"
             r += "• 嚴守止損，分批進場\n"
-            r += "⚠️ _僅供參考，非投資建議_"
+            r += "⚠️ _僅供參考_"
             return r
         except Exception as e:
             return "❌ 黃金獵手失敗：" + str(e)
 
-    # ── 異動偵測 ──
     async def detect_movers(self):
-        """偵測異動幣種：暴漲、暴跌、爆量"""
+        """異動偵測（優化容錯）"""
         try:
             now = datetime.now(timezone.utc).strftime("%m-%d %H:%M UTC")
             async with aiohttp.ClientSession() as session:
@@ -734,22 +846,26 @@ class CryptoAnalyzer:
                     chg = float(t.get("priceChangePercent", 0))
                     vol = float(t.get("quoteVolume", 0)) / 1e6
                     price = float(t.get("lastPrice", 0))
+                    if price == 0:
+                        continue
                     data.append({"symbol": sym, "chg": chg, "vol": vol, "price": price})
                 except Exception:
                     continue
-            # 排序
+            if not data:
+                return "❌ 異動掃描失敗：無法取得任何幣種數據"
             top_gainers = sorted(data, key=lambda x: x["chg"], reverse=True)[:5]
             top_losers = sorted(data, key=lambda x: x["chg"])[:5]
             top_volume = sorted(data, key=lambda x: x["vol"], reverse=True)[:5]
             r = "⚡ *市場異動掃描*\n"
             r += "🕒 " + now + "\n"
-            r += "━━━━━━━━━━━━━━━━━━━━\n\n"
+            r += "━━━━━━━━━━━━━━━━━━━━\n"
+            r += "📡 已掃描 " + str(len(data)) + "/" + str(len(self.SCAN_POOL)) + " 幣種\n\n"
             r += "*🚀 漲幅榜 TOP 5*\n"
             for c in top_gainers:
-                r += "• " + c["symbol"] + " `" + str(c["price"]) + "` 📈 `+" + str(round(c["chg"], 2)) + "%`\n"
+                r += "• " + c["symbol"] + " `" + str(round(c["price"], 4)) + "` 📈 `+" + str(round(c["chg"], 2)) + "%`\n"
             r += "\n*📉 跌幅榜 TOP 5*\n"
             for c in top_losers:
-                r += "• " + c["symbol"] + " `" + str(c["price"]) + "` 📉 `" + str(round(c["chg"], 2)) + "%`\n"
+                r += "• " + c["symbol"] + " `" + str(round(c["price"], 4)) + "` 📉 `" + str(round(c["chg"], 2)) + "%`\n"
             r += "\n*💵 成交量 TOP 5*\n"
             for c in top_volume:
                 r += "• " + c["symbol"] + " `$" + str(round(c["vol"], 1)) + "M`\n"
@@ -759,7 +875,6 @@ class CryptoAnalyzer:
         except Exception as e:
             return "❌ 異動掃描失敗：" + str(e)
 
-    # ── 多週期 K 線位 ──
     async def kline_sr_analysis(self, symbol):
         try:
             async with aiohttp.ClientSession() as session:
@@ -773,7 +888,7 @@ class CryptoAnalyzer:
                     return_exceptions=True
                 )
             if isinstance(results[0], Exception):
-                return "❌ 抓取失敗"
+                return "❌ 抓取失敗：" + str(results[0])
             timeframes = [
                 ("1分K", results[0], 30),
                 ("15分K", results[1], 50),
@@ -809,14 +924,11 @@ class CryptoAnalyzer:
                     r += "🎯 支撐 `" + " / ".join(str(x) for x in sw_sup[:2]) + "`\n"
                 r += "\n"
             r += "━━━━━━━━━━━━━━━━━━━━\n"
-            r += "💡 *判讀*\n"
-            r += "• 多週期支撐重疊 → 強支撐\n"
-            r += "• 多週期阻力重疊 → 強阻力"
+            r += "💡 多週期支撐/阻力重疊 → 強位置"
             return r
         except Exception as e:
             return "❌ 失敗：" + str(e)
 
-    # ── 市場情緒 ──
     async def get_market_sentiment(self):
         try:
             async with aiohttp.ClientSession() as session:
@@ -849,7 +961,7 @@ class CryptoAnalyzer:
                 r += "• 總市值 `$" + str(global_data["total_mcap"]) + "B`"
                 ch = global_data["mcap_change"]
                 r += " " + ("📈" if ch >= 0 else "📉") + " `" + str(ch) + "%`\n"
-                r += "• BTC 市占 `" + str(global_data["btc_dom"]) + "%` | ETH `" + str(global_data["eth_dom"]) + "%`\n"
+                r += "• BTC `" + str(global_data["btc_dom"]) + "%` | ETH `" + str(global_data["eth_dom"]) + "%`\n"
             r += "\n*━━ 📊 龍頭走勢 ━━*\n"
             if btc_df is not None:
                 rl, _, _ = self.market_regime(btc_df)
@@ -876,31 +988,23 @@ class CryptoAnalyzer:
             r += "\n━━━━━━━━━━━━━━━━━━━━\n"
             r += "💡 *市場判讀*\n"
             if fgv <= 25 and score < -0.2:
-                r += "🟢 市場恐慌，逢低分批佈局\n"
-                r += "策略：價值幣種定投，等反彈"
+                r += "🟢 市場恐慌，逢低分批佈局\n策略：價值幣種定投"
             elif fgv >= 75 and score > 0.2:
-                r += "🔴 市場過熱，獲利了結\n"
-                r += "策略：減倉至 30%"
+                r += "🔴 市場過熱，獲利了結\n策略：減倉至 30%"
             elif fgv <= 40 and score > 0:
-                r += "🔵 偏冷靜，關注突破信號\n"
-                r += "策略：突破關鍵阻力跟進"
+                r += "🔵 偏冷靜，關注突破信號\n策略：突破關鍵阻力跟進"
             elif fgv >= 60 and score < 0:
-                r += "🟡 情緒分歧，謹慎觀察\n"
-                r += "策略：減倉觀望"
+                r += "🟡 情緒分歧，謹慎觀察\n策略：減倉觀望"
             else:
-                r += "⚪ 中性盤整\n"
-                r += "策略：等突破關鍵價位"
+                r += "⚪ 中性盤整\n策略：等突破關鍵價位"
             return r
         except Exception as e:
             return "❌ 失敗：" + str(e)
 
-    # ── 趨勢總覽 ──
     async def trend_watch(self, symbols):
+        """趨勢總覽（修復：保證有輸出）"""
         try:
             now = datetime.now(timezone.utc).strftime("%m-%d %H:%M UTC")
-            r = "🔭 *市場趨勢總覽*\n"
-            r += "🕒 " + now + "\n"
-            r += "━━━━━━━━━━━━━━━━━━━━\n\n"
             async with aiohttp.ClientSession() as session:
                 tasks = []
                 for s in symbols:
@@ -908,11 +1012,13 @@ class CryptoAnalyzer:
                     tasks.append(self.fetch_ticker(session, s))
                 results = await asyncio.gather(*tasks, return_exceptions=True)
             strong_bull, bull, bear, strong_bear, ranging = [], [], [], [], []
+            ok_count = 0
             for i, sym in enumerate(symbols):
                 df = results[i*2]
                 ticker = results[i*2+1]
                 if isinstance(df, Exception):
                     continue
+                ok_count += 1
                 ticker = ticker if not isinstance(ticker, Exception) else {}
                 rl, regime, adx_v = self.market_regime(df)
                 chg = float(ticker.get("priceChangePercent", 0))
@@ -933,33 +1039,40 @@ class CryptoAnalyzer:
                     bear.append(info)
                 else:
                     ranging.append(info)
+            r = "🔭 *市場趨勢總覽*\n"
+            r += "🕒 " + now + "\n"
+            r += "━━━━━━━━━━━━━━━━━━━━\n"
+            r += "📡 已掃描 " + str(ok_count) + "/" + str(len(symbols)) + " 幣種\n\n"
+            if ok_count == 0:
+                return r + "❌ 所有幣種抓取失敗\n_交易所 API 暫時不可用_"
+
             def fmt(coin):
-                line = "• *" + coin["symbol"] + "* `" + str(coin["price"]) + "` "
+                line = "• *" + coin["symbol"] + "* `" + str(round(coin["price"], 4)) + "` "
                 line += ("📈" if coin["chg"] >= 0 else "📉") + " `" + str(round(coin["chg"], 1)) + "%`\n"
                 line += "  ADX:`" + str(coin["adx"]) + "` RSI:`" + str(coin["rsi"]) + "` 量:`$" + str(coin["vol"]) + "M`\n"
                 return line
             if strong_bull:
-                r += "🚀 *強多頭*\n"
+                r += "🚀 *強多頭* (" + str(len(strong_bull)) + ")\n"
                 for c in strong_bull:
                     r += fmt(c)
                 r += "\n"
             if bull:
-                r += "📈 *多頭*\n"
+                r += "📈 *多頭* (" + str(len(bull)) + ")\n"
                 for c in bull:
                     r += fmt(c)
                 r += "\n"
             if ranging:
-                r += "↔️ *震盪*\n"
+                r += "↔️ *震盪* (" + str(len(ranging)) + ")\n"
                 for c in ranging:
                     r += fmt(c)
                 r += "\n"
             if bear:
-                r += "📉 *空頭*\n"
+                r += "📉 *空頭* (" + str(len(bear)) + ")\n"
                 for c in bear:
                     r += fmt(c)
                 r += "\n"
             if strong_bear:
-                r += "💥 *強空頭*\n"
+                r += "💥 *強空頭* (" + str(len(strong_bear)) + ")\n"
                 for c in strong_bear:
                     r += fmt(c)
                 r += "\n"
@@ -973,4 +1086,4 @@ class CryptoAnalyzer:
                 r += "⚪ 多空分歧：嚴選標的"
             return r
         except Exception as e:
-            return "❌ 失敗：" + str(e)
+            return "❌ 趨勢分析失敗：" + str(e)

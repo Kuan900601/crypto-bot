@@ -42,16 +42,17 @@ def back_btn():
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = (
-        "🤖 *加密貨幣 AI 分析機器人 v5.0*\n"
+        "🤖 *加密貨幣 AI 分析機器人 v6.0*\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
         "🎯 *黃金獵手* — 自動掃描 30 幣種找最佳機會\n"
         "⚡ *異動掃描* — 漲跌量榜即時掌握\n"
         "🌐 *市場情緒* — 恐懼貪婪+新聞時事\n"
         "🚀 *深度分析* — 含背離+資金費率+多空比\n"
-        "🔍 *自訂幣種* — 任意 Binance 幣種\n"
+        "🔍 *自訂幣種* — 任意幣種\n"
         "📊 *多週期 K 線位* — 1m/15m/1H/4H/日支撐阻力\n"
         "🔭 *趨勢總覽* — 強弱分類掃描\n"
         "🔔 *自動推播* — 24h 監控\n\n"
+        "⚡ _三大交易所容錯：Binance→Bybit→OKX_\n\n"
         "選擇下方功能 👇"
     )
     await update.message.reply_text(text, reply_markup=main_menu(), parse_mode="Markdown")
@@ -71,19 +72,19 @@ async def cmd_analyze(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if "/" not in symbol:
         symbol = symbol + "/USDT"
     msg = await update.message.reply_text("⏳ 分析 " + symbol + " 中...")
-    result = await safe_run(analyzer.full_analysis(symbol))
+    result = await safe_run(analyzer.full_analysis(symbol), timeout=30)
     await msg.edit_text(result, parse_mode="Markdown")
 
 
 async def cmd_hunter(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    msg = await update.message.reply_text("🎯 黃金獵手掃描中... (約 15 秒)")
-    result = await safe_run(analyzer.golden_hunter(), timeout=45)
+    msg = await update.message.reply_text("🎯 黃金獵手掃描中... (約 20 秒)")
+    result = await safe_run(analyzer.golden_hunter(), timeout=60)
     await msg.edit_text(result, parse_mode="Markdown")
 
 
 async def cmd_movers(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("⏳ 掃描異動...")
-    result = await safe_run(analyzer.detect_movers(), timeout=20)
+    result = await safe_run(analyzer.detect_movers(), timeout=30)
     await msg.edit_text(result, parse_mode="Markdown")
 
 
@@ -92,20 +93,20 @@ async def cmd_kline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if "/" not in symbol:
         symbol = symbol + "/USDT"
     msg = await update.message.reply_text("⏳ 多週期分析中...")
-    result = await safe_run(analyzer.kline_sr_analysis(symbol), timeout=25)
+    result = await safe_run(analyzer.kline_sr_analysis(symbol), timeout=30)
     await msg.edit_text(result, parse_mode="Markdown")
 
 
 async def cmd_trend(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     symbols = [s.upper() for s in ctx.args] if ctx.args else Config.DEFAULT_SYMBOLS
     msg = await update.message.reply_text("⏳ 掃描趨勢...")
-    result = await safe_run(analyzer.trend_watch(symbols), timeout=30)
+    result = await safe_run(analyzer.trend_watch(symbols), timeout=40)
     await msg.edit_text(result, parse_mode="Markdown")
 
 
 async def cmd_sentiment(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("⏳ 分析市場情緒...")
-    result = await safe_run(analyzer.get_market_sentiment(), timeout=15)
+    result = await safe_run(analyzer.get_market_sentiment(), timeout=20)
     await msg.edit_text(result, parse_mode="Markdown")
 
 
@@ -128,17 +129,17 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if d.startswith("a_"):
         symbol = d[2:]
         await q.edit_message_text("⏳ 深度分析 " + symbol + " 中...")
-        result = await safe_run(analyzer.full_analysis(symbol))
+        result = await safe_run(analyzer.full_analysis(symbol), timeout=30)
         await q.edit_message_text(result, parse_mode="Markdown", reply_markup=back_btn())
 
     elif d == "hunter":
-        await q.edit_message_text("🎯 黃金獵手掃描中...\n(掃描 30 幣種約 15-30 秒)")
-        result = await safe_run(analyzer.golden_hunter(), timeout=45)
+        await q.edit_message_text("🎯 黃金獵手掃描中...\n(掃描 30 幣種約 20-30 秒)")
+        result = await safe_run(analyzer.golden_hunter(), timeout=60)
         await q.edit_message_text(result, parse_mode="Markdown", reply_markup=back_btn())
 
     elif d == "movers":
         await q.edit_message_text("⏳ 掃描市場異動...")
-        result = await safe_run(analyzer.detect_movers(), timeout=20)
+        result = await safe_run(analyzer.detect_movers(), timeout=30)
         await q.edit_message_text(result, parse_mode="Markdown", reply_markup=back_btn())
 
     elif d == "kline":
@@ -154,12 +155,12 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     elif d == "trend":
         await q.edit_message_text("⏳ 掃描市場趨勢...")
-        result = await safe_run(analyzer.trend_watch(Config.DEFAULT_SYMBOLS), timeout=30)
+        result = await safe_run(analyzer.trend_watch(Config.DEFAULT_SYMBOLS), timeout=40)
         await q.edit_message_text(result, parse_mode="Markdown", reply_markup=back_btn())
 
     elif d == "sentiment":
         await q.edit_message_text("⏳ 分析市場情緒...")
-        result = await safe_run(analyzer.get_market_sentiment(), timeout=15)
+        result = await safe_run(analyzer.get_market_sentiment(), timeout=20)
         await q.edit_message_text(result, parse_mode="Markdown", reply_markup=back_btn())
 
     elif d == "custom":
@@ -168,7 +169,7 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "🔍 *自訂幣種深度分析*\n\n"
             "請輸入幣種，例如：\n"
             "`BTC` `ETH` `PEPE` `LINK` `AVAX`\n\n"
-            "支援所有 Binance 現貨幣種",
+            "支援 Binance/Bybit/OKX 上的幣種",
             parse_mode="Markdown",
             reply_markup=back_btn()
         )
@@ -206,20 +207,20 @@ async def text_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if state == "WAIT_SYMBOL":
         USER_STATES.pop(chat_id, None)
         msg = await update.message.reply_text("⏳ 深度分析 " + symbol + " 中...")
-        result = await safe_run(analyzer.full_analysis(symbol))
+        result = await safe_run(analyzer.full_analysis(symbol), timeout=30)
         await msg.edit_text(result, parse_mode="Markdown", reply_markup=back_btn())
         return
 
     if state == "WAIT_KLINE":
         USER_STATES.pop(chat_id, None)
         msg = await update.message.reply_text("⏳ 多週期分析 " + symbol + " 中...")
-        result = await safe_run(analyzer.kline_sr_analysis(symbol), timeout=25)
+        result = await safe_run(analyzer.kline_sr_analysis(symbol), timeout=30)
         await msg.edit_text(result, parse_mode="Markdown", reply_markup=back_btn())
         return
 
     if "/" in text and len(text) < 15:
         msg = await update.message.reply_text("⏳ 分析 " + symbol + " 中...")
-        result = await safe_run(analyzer.full_analysis(symbol))
+        result = await safe_run(analyzer.full_analysis(symbol), timeout=30)
         await msg.edit_text(result, parse_mode="Markdown")
 
 
@@ -227,7 +228,7 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
     for chat_id, symbols in list(ctx.bot_data.get("watchers", {}).items()):
         for symbol in symbols:
             try:
-                result = await asyncio.wait_for(analyzer.full_analysis(symbol), timeout=20)
+                result = await asyncio.wait_for(analyzer.full_analysis(symbol), timeout=25)
                 now = datetime.now(timezone.utc).strftime("%H:%M UTC")
                 await ctx.bot.send_message(
                     chat_id=chat_id,
@@ -261,7 +262,7 @@ def main():
         interval=Config.ALERT_INTERVAL_MIN * 60,
         first=30
     )
-    logger.info("🤖 Bot v5.0 啟動")
+    logger.info("🤖 Bot v6.0 啟動 (多交易所容錯版)")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
