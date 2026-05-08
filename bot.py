@@ -1,3 +1,4 @@
+
 import asyncio
 import logging
 import os
@@ -9,7 +10,9 @@ from telegram.ext import (
     ContextTypes, MessageHandler, filters
 )
 from analyzer import CryptoAnalyzer
-from config import Config
+
+# ⭐ 推播間隔：5 分鐘
+PUSH_INTERVAL_MIN = 5
 
 logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -18,9 +21,11 @@ analyzer = CryptoAnalyzer()
 USER_STATES = {}
 USER_FAVORITES = {}
 PUSH_HISTORY = {}
-HUNTER_WATCHERS = set()  # ⭐ 改用全域變數確保跨 job 持久
+HUNTER_WATCHERS = set()
 
 DATA_FILE = "/tmp/bot_data.json"
+
+DEFAULT_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT", "DOGE/USDT"]
 
 
 def load_data():
@@ -33,7 +38,7 @@ def load_data():
             HUNTER_WATCHERS = set(int(x) for x in data.get("watchers", []))
             logger.info("載入：自選 " + str(len(USER_FAVORITES)) + " 戶，推播 " + str(len(HUNTER_WATCHERS)) + " 戶")
     except Exception as e:
-        logger.info("初次啟動或載入失敗: " + str(e))
+        logger.info("初次啟動: " + str(e))
 
 
 def save_data():
@@ -64,7 +69,7 @@ def main_menu():
         [InlineKeyboardButton("📊 多週期 K 線位", callback_data="kline"),
          InlineKeyboardButton("🔭 趨勢總覽", callback_data="trend")],
         [InlineKeyboardButton("📜 推播歷史", callback_data="history")],
-        [InlineKeyboardButton("🔔 智能推播 ON", callback_data="auto_on"),
+        [InlineKeyboardButton("🔔 5分推播 ON", callback_data="auto_on"),
          InlineKeyboardButton("🔕 推播 OFF", callback_data="auto_off")],
     ])
 
@@ -90,21 +95,22 @@ def fav_menu(chat_id):
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = (
-        "🤖 *加密貨幣 AI 分析機器人 v9.0*\n"
+        "🤖 *加密貨幣 AI 分析機器人 v10.0*\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
-        "🎯 *黃金獵手* — 專業交易員設置\n"
-        "  • 6項過濾條件 + 100分評分\n"
+        "🎯 *黃金獵手* — 平衡版專業設置\n"
+        "  • 評分 ≥55 即推薦（勝率 60-70%）\n"
+        "  • 6 項過濾 + 100 分評分系統\n"
         "  • 三段止盈 + 智能止損\n"
-        "  • 中短線分流，勝率優先\n\n"
+        "  • 中短線分流\n\n"
         "⚡ *異動掃描* — 漲跌量 TOP 5\n"
-        "🌐 *市場情緒* — 多源新聞 + 恐懼貪婪\n"
+        "🌐 *市場情緒* — 中文新聞時事\n"
         "🚀 *深度分析* — 即時價 + 突破警示\n"
         "⭐ *我的自選* — 持久化儲存\n"
         "📊 *多週期 K 線位* — 支撐阻力\n"
-        "🔭 *趨勢總覽* — 多空力道 + 4H 確認\n"
+        "🔭 *趨勢總覽* — 多空力道\n"
         "📜 *推播歷史* — 信號追蹤\n"
-        "🔔 *智能推播* — 僅推 ≥80 分高品質\n\n"
-        "_v9 重點：即時數據、專業獵手、多源新聞_\n\n"
+        "🔔 *智能推播* — 每 5 分鐘掃描\n\n"
+        "_v10：平衡標準、中文新聞、5分推播_\n\n"
         "選擇下方功能 👇"
     )
     await update.message.reply_text(text, reply_markup=main_menu(), parse_mode="Markdown")
@@ -114,7 +120,7 @@ async def safe_run(coro, timeout=30):
     try:
         return await asyncio.wait_for(coro, timeout=timeout)
     except asyncio.TimeoutError:
-        return "⏱ 處理超時，請再試一次"
+        return "⏱ 處理超時"
     except Exception as e:
         return "❌ 錯誤：" + str(e)
 
@@ -129,7 +135,7 @@ async def cmd_analyze(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_hunter(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    msg = await update.message.reply_text("🎯 專業黃金獵手掃描中... (約 20-30 秒)")
+    msg = await update.message.reply_text("🎯 專業黃金獵手掃描中...")
     result = await safe_run(analyzer.golden_hunter(), timeout=90)
     await msg.edit_text(result, parse_mode="Markdown")
 
@@ -150,7 +156,7 @@ async def cmd_kline(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_trend(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    symbols = [s.upper() for s in ctx.args] if ctx.args else Config.DEFAULT_SYMBOLS
+    symbols = [s.upper() for s in ctx.args] if ctx.args else DEFAULT_SYMBOLS
     msg = await update.message.reply_text("⏳ 掃描趨勢...")
     result = await safe_run(analyzer.trend_watch(symbols), timeout=40)
     await msg.edit_text(result, parse_mode="Markdown")
@@ -162,10 +168,8 @@ async def cmd_sentiment(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await msg.edit_text(result, parse_mode="Markdown")
 
 
-# ⭐ /testpush 立即測試推播
 async def cmd_testpush(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    msg = await update.message.reply_text("⏳ 測試推播中...（不過濾品質）")
+    msg = await update.message.reply_text("⏳ 測試推播中...")
     result = await safe_run(analyzer.golden_hunter(smart_filter=False), timeout=90)
     await msg.edit_text("🧪 *測試推播*\n\n" + result, parse_mode="Markdown")
 
@@ -173,7 +177,7 @@ async def cmd_testpush(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 def show_history(chat_id):
     history = PUSH_HISTORY.get(chat_id, [])
     if not history:
-        return "📜 *推播歷史*\n\n尚無記錄\n開啟智能推播後會自動記錄"
+        return "📜 *推播歷史*\n\n尚無記錄"
     r = "📜 *推播歷史 (最近 10 筆)*\n"
     r += "━━━━━━━━━━━━━━━━━━━━\n\n"
     for i, h in enumerate(reversed(history[-10:]), 1):
@@ -203,7 +207,7 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if d.startswith("a_"):
         symbol = d[2:]
-        await q.edit_message_text("⏳ 深度分析 " + symbol + " 中...")
+        await q.edit_message_text("⏳ 分析 " + symbol + "...")
         result = await safe_run(analyzer.full_analysis(symbol), timeout=30)
         keyboard = [[InlineKeyboardButton("⭐ 加入自選", callback_data="favadd_" + symbol),
                      InlineKeyboardButton("🏠 主選單", callback_data="home")]]
@@ -211,12 +215,12 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                                   reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif d == "hunter":
-        await q.edit_message_text("🎯 專業黃金獵手掃描中...\n(掃描 30 幣種 + 完整評分約 20-30 秒)")
+        await q.edit_message_text("🎯 專業黃金獵手掃描中...\n(掃描 30 幣種約 20-30 秒)")
         result = await safe_run(analyzer.golden_hunter(), timeout=90)
         await q.edit_message_text(result, parse_mode="Markdown", reply_markup=back_btn())
 
     elif d == "movers":
-        await q.edit_message_text("⏳ 掃描市場異動...")
+        await q.edit_message_text("⏳ 掃描異動...")
         result = await safe_run(analyzer.detect_movers(), timeout=30)
         await q.edit_message_text(result, parse_mode="Markdown", reply_markup=back_btn())
 
@@ -229,19 +233,19 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
     elif d == "trend":
-        await q.edit_message_text("⏳ 掃描市場趨勢...")
-        result = await safe_run(analyzer.trend_watch(Config.DEFAULT_SYMBOLS), timeout=40)
+        await q.edit_message_text("⏳ 掃描趨勢...")
+        result = await safe_run(analyzer.trend_watch(DEFAULT_SYMBOLS), timeout=40)
         await q.edit_message_text(result, parse_mode="Markdown", reply_markup=back_btn())
 
     elif d == "sentiment":
-        await q.edit_message_text("⏳ 分析市場情緒...")
+        await q.edit_message_text("⏳ 分析情緒...")
         result = await safe_run(analyzer.get_market_sentiment(), timeout=20)
         await q.edit_message_text(result, parse_mode="Markdown", reply_markup=back_btn())
 
     elif d == "custom":
         USER_STATES[chat_id] = "WAIT_SYMBOL"
         await q.edit_message_text(
-            "🔍 *自訂幣種分析*\n\n請輸入：\n`BTC` `ETH` `PEPE` `LINK`",
+            "🔍 *自訂幣種*\n\n請輸入：`BTC` `ETH` `PEPE` `LINK`",
             parse_mode="Markdown",
             reply_markup=back_btn()
         )
@@ -292,12 +296,12 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         HUNTER_WATCHERS.add(chat_id)
         save_data()
         await q.edit_message_text(
-            "✅ *智能推播已開啟*\n\n"
-            "🎯 每 " + str(Config.ALERT_INTERVAL_MIN) + " 分鐘自動掃描\n"
-            "💡 *只推送信心 ≥80 的高品質設置*\n"
+            "✅ *5分鐘智能推播已開啟*\n\n"
+            "🎯 每 *5 分鐘* 自動掃描 30 幣種\n"
+            "💡 推送信心 *≥65* 的設置\n"
             "📊 包含完整下單計劃\n"
             "📜 自動記錄到推播歷史\n\n"
-            "🧪 隨時可用 /testpush 立即測試\n\n"
+            "🧪 用 /testpush 立即測試\n\n"
             "_盤整時不會打擾你_",
             reply_markup=back_btn(),
             parse_mode="Markdown"
@@ -306,7 +310,7 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif d == "auto_off":
         HUNTER_WATCHERS.discard(chat_id)
         save_data()
-        await q.edit_message_text("🔕 自動推播已關閉", reply_markup=back_btn())
+        await q.edit_message_text("🔕 推播已關閉", reply_markup=back_btn())
 
     elif d == "home":
         USER_STATES.pop(chat_id, None)
@@ -327,7 +331,7 @@ async def text_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if state == "WAIT_SYMBOL":
         USER_STATES.pop(chat_id, None)
-        msg = await update.message.reply_text("⏳ 深度分析 " + symbol + " 中...")
+        msg = await update.message.reply_text("⏳ 分析 " + symbol + "...")
         result = await safe_run(analyzer.full_analysis(symbol), timeout=30)
         keyboard = [[InlineKeyboardButton("⭐ 加入自選", callback_data="favadd_" + symbol),
                      InlineKeyboardButton("🏠 主選單", callback_data="home")]]
@@ -337,7 +341,7 @@ async def text_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if state == "WAIT_KLINE":
         USER_STATES.pop(chat_id, None)
-        msg = await update.message.reply_text("⏳ 多週期分析 " + symbol + " 中...")
+        msg = await update.message.reply_text("⏳ 多週期分析 " + symbol + "...")
         result = await safe_run(analyzer.kline_sr_analysis(symbol), timeout=30)
         await msg.edit_text(result, parse_mode="Markdown", reply_markup=back_btn())
         return
@@ -360,35 +364,37 @@ async def text_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     if "/" in text and len(text) < 15:
-        msg = await update.message.reply_text("⏳ 分析 " + symbol + " 中...")
+        msg = await update.message.reply_text("⏳ 分析 " + symbol + "...")
         result = await safe_run(analyzer.full_analysis(symbol), timeout=30)
         await msg.edit_text(result, parse_mode="Markdown")
 
 
-# ⭐ 修復 4：智能推播
+# ⭐ 5 分鐘智能推播
 async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
     if not HUNTER_WATCHERS:
-        logger.info("智能推播：無訂閱用戶")
         return
-    logger.info("智能推播：執行黃金獵手掃描，訂閱戶 " + str(len(HUNTER_WATCHERS)))
+    logger.info("5分推播：訂閱戶 " + str(len(HUNTER_WATCHERS)))
     try:
-        result = await asyncio.wait_for(analyzer.golden_hunter(smart_filter=True), timeout=90)
+        result = await asyncio.wait_for(
+            analyzer.golden_hunter(smart_filter=True),  # 過濾 ≥65 分
+            timeout=90
+        )
         if result is None:
-            logger.info("智能推播：當下無 ≥80 信心信號，跳過")
+            logger.info("5分推播：無 ≥65 信號，跳過")
             return
         for chat_id in list(HUNTER_WATCHERS):
             try:
                 await ctx.bot.send_message(
                     chat_id=chat_id,
-                    text="🔔 *高品質信號推播*\n\n" + result,
+                    text="🔔 *黃金獵手即時推播*\n\n" + result,
                     parse_mode="Markdown"
                 )
-                # 記錄到推播歷史
+                # 記錄歷史
                 lines = result.split("\n")
                 for j, line in enumerate(lines):
                     if "🥇" in line and "*" in line:
                         try:
-                            sym = line.split("*")[1].strip()
+                            sym = line.split("*")[1].strip().split(" ")[0]
                             direction = ""
                             confidence = "?"
                             price = "?"
@@ -442,12 +448,13 @@ def main():
     app.add_handler(CommandHandler("testpush", cmd_testpush))
     app.add_handler(CallbackQueryHandler(button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
+    # ⭐ 每 5 分鐘執行
     app.job_queue.run_repeating(
         auto_broadcast,
-        interval=Config.ALERT_INTERVAL_MIN * 60,
+        interval=PUSH_INTERVAL_MIN * 60,
         first=60
     )
-    logger.info("🤖 Bot v9.0 啟動")
+    logger.info("🤖 Bot v10.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 

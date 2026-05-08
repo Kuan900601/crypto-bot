@@ -92,7 +92,7 @@ class CryptoAnalyzer:
                 continue
         raise ValueError("無法抓取 " + symbol)
 
-    # ── Ticker（即時價格）──
+    # ── Ticker ──
     async def _ticker_binance(self, session, symbol):
         pair = symbol.replace("/", "")
         url = "https://api.binance.com/api/v3/ticker/24hr?symbol=" + pair
@@ -264,7 +264,15 @@ class CryptoAnalyzer:
                 icon = "🔵"
             else:
                 icon = "🔴"
-            return icon + " " + str(now_val) + "/100 " + arrow + str(abs(change)) + " (" + label + ")", now_val
+            # 中文翻譯標籤
+            label_zh = {
+                "Extreme Greed": "極度貪婪",
+                "Greed": "貪婪",
+                "Neutral": "中性",
+                "Fear": "恐懼",
+                "Extreme Fear": "極度恐懼"
+            }.get(label, label)
+            return icon + " " + str(now_val) + "/100 " + arrow + str(abs(change)) + " (" + label_zh + ")", now_val
         except Exception:
             return "⚪ 不可用", 50
 
@@ -283,115 +291,123 @@ class CryptoAnalyzer:
         except Exception:
             return None
 
-    # ⭐ 修復 2：多來源新聞抓取
+    # ⭐ 中文新聞抓取
     async def fetch_news(self, session):
         sources = []
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
-        # 來源 1：CryptoCompare
+        # 來源 1：PANews 中文
         try:
-            url = "https://min-api.cryptocompare.com/data/v2/news/?lang=EN&sortOrder=latest"
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=6)) as r:
+            url = "https://www.panewslab.com/zh/rss/index.xml"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=6), headers=headers) as r:
+                if r.status == 200:
+                    text = await r.text()
+                    items = re.findall(r"<item>(.*?)</item>", text, re.DOTALL)
+                    for item in items[:12]:
+                        title_m = re.search(r"<title><!\[CDATA\[(.*?)\]\]></title>|<title>(.*?)</title>", item, re.DOTALL)
+                        pub_m = re.search(r"<pubDate>(.*?)</pubDate>", item)
+                        if title_m:
+                            title = (title_m.group(1) or title_m.group(2) or "").strip()
+                            if not title:
+                                continue
+                            pub_iso = ""
+                            if pub_m:
+                                try:
+                                    from email.utils import parsedate_to_datetime
+                                    pub_iso = parsedate_to_datetime(pub_m.group(1)).isoformat()
+                                except Exception:
+                                    pass
+                            sources.append({
+                                "title": title, "published_at": pub_iso, "source": "PANews"
+                            })
+                    if sources:
+                        return sources[:10]
+        except Exception:
+            pass
+
+        # 來源 2：Odaily 星球日報
+        try:
+            url = "https://www.odaily.news/v1/openapi/odailyrss"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=6), headers=headers) as r:
+                if r.status == 200:
+                    text = await r.text()
+                    items = re.findall(r"<item>(.*?)</item>", text, re.DOTALL)
+                    for item in items[:12]:
+                        title_m = re.search(r"<title><!\[CDATA\[(.*?)\]\]></title>|<title>(.*?)</title>", item, re.DOTALL)
+                        pub_m = re.search(r"<pubDate>(.*?)</pubDate>", item)
+                        if title_m:
+                            title = (title_m.group(1) or title_m.group(2) or "").strip()
+                            if not title:
+                                continue
+                            pub_iso = ""
+                            if pub_m:
+                                try:
+                                    from email.utils import parsedate_to_datetime
+                                    pub_iso = parsedate_to_datetime(pub_m.group(1)).isoformat()
+                                except Exception:
+                                    pass
+                            sources.append({
+                                "title": title, "published_at": pub_iso, "source": "Odaily"
+                            })
+                    if sources:
+                        return sources[:10]
+        except Exception:
+            pass
+
+        # 來源 3：BlockBeats 律動
+        try:
+            url = "https://api.theblockbeats.news/v1/open-api/open-flash?size=15&lang=cn"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=6), headers=headers) as r:
                 if r.status == 200:
                     data = await r.json()
-                    items = data.get("Data", [])[:15]
-                    for x in items:
-                        sources.append({
-                            "title": x.get("title", ""),
-                            "published_at": datetime.fromtimestamp(
-                                x.get("published_on", 0), tz=timezone.utc
-                            ).isoformat() if x.get("published_on") else "",
-                            "source": x.get("source", "")
-                        })
-                    if sources:
-                        return sources[:12]
-        except Exception:
-            pass
-
-        # 來源 2：CoinDesk RSS
-        try:
-            url = "https://www.coindesk.com/arc/outboundfeeds/rss/"
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=6),
-                                    headers={"User-Agent": "Mozilla/5.0"}) as r:
-                if r.status == 200:
-                    text = await r.text()
-                    titles = re.findall(r"<title><!\[CDATA\[(.*?)\]\]></title>", text)
-                    pubs = re.findall(r"<pubDate>(.*?)</pubDate>", text)
-                    for i, t in enumerate(titles[1:13]):  # 跳過 channel title
-                        try:
-                            pub_iso = ""
-                            if i < len(pubs):
-                                from email.utils import parsedate_to_datetime
-                                dt = parsedate_to_datetime(pubs[i])
-                                pub_iso = dt.isoformat()
-                        except Exception:
-                            pub_iso = ""
-                        sources.append({
-                            "title": t,
-                            "published_at": pub_iso,
-                            "source": "CoinDesk"
-                        })
-                    if sources:
-                        return sources[:12]
-        except Exception:
-            pass
-
-        # 來源 3：CoinTelegraph RSS
-        try:
-            url = "https://cointelegraph.com/rss"
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=6),
-                                    headers={"User-Agent": "Mozilla/5.0"}) as r:
-                if r.status == 200:
-                    text = await r.text()
-                    titles = re.findall(r"<title><!\[CDATA\[(.*?)\]\]></title>", text)
-                    if not titles:
-                        titles = re.findall(r"<title>(.*?)</title>", text)
-                    pubs = re.findall(r"<pubDate>(.*?)</pubDate>", text)
-                    for i, t in enumerate(titles[1:13]):
-                        if "<" in t or "RSS" in t:
+                    items = data.get("data", {}).get("data", []) if isinstance(data.get("data"), dict) else []
+                    for item in items[:12]:
+                        title = item.get("title", "")
+                        if not title:
                             continue
+                        pub_iso = ""
+                        ts = item.get("create_time", 0)
                         try:
-                            pub_iso = ""
-                            if i < len(pubs):
-                                from email.utils import parsedate_to_datetime
-                                dt = parsedate_to_datetime(pubs[i])
-                                pub_iso = dt.isoformat()
+                            ts = int(ts)
+                            if ts > 1e12:
+                                ts = ts / 1000
+                            pub_iso = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
                         except Exception:
-                            pub_iso = ""
+                            pass
                         sources.append({
-                            "title": t,
-                            "published_at": pub_iso,
-                            "source": "CoinTelegraph"
+                            "title": title, "published_at": pub_iso, "source": "BlockBeats"
                         })
                     if sources:
-                        return sources[:12]
+                        return sources[:10]
         except Exception:
             pass
 
-        # 來源 4：Decrypt RSS
+        # 備用 4：CoinTelegraph 中文版
         try:
-            url = "https://decrypt.co/feed"
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=6),
-                                    headers={"User-Agent": "Mozilla/5.0"}) as r:
+            url = "https://cn.cointelegraph.com/rss"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=6), headers=headers) as r:
                 if r.status == 200:
                     text = await r.text()
-                    titles = re.findall(r"<title><!\[CDATA\[(.*?)\]\]></title>", text)
-                    pubs = re.findall(r"<pubDate>(.*?)</pubDate>", text)
-                    for i, t in enumerate(titles[1:13]):
-                        try:
+                    items = re.findall(r"<item>(.*?)</item>", text, re.DOTALL)
+                    for item in items[:12]:
+                        title_m = re.search(r"<title><!\[CDATA\[(.*?)\]\]></title>|<title>(.*?)</title>", item, re.DOTALL)
+                        pub_m = re.search(r"<pubDate>(.*?)</pubDate>", item)
+                        if title_m:
+                            title = (title_m.group(1) or title_m.group(2) or "").strip()
+                            if not title:
+                                continue
                             pub_iso = ""
-                            if i < len(pubs):
-                                from email.utils import parsedate_to_datetime
-                                dt = parsedate_to_datetime(pubs[i])
-                                pub_iso = dt.isoformat()
-                        except Exception:
-                            pub_iso = ""
-                        sources.append({
-                            "title": t,
-                            "published_at": pub_iso,
-                            "source": "Decrypt"
-                        })
+                            if pub_m:
+                                try:
+                                    from email.utils import parsedate_to_datetime
+                                    pub_iso = parsedate_to_datetime(pub_m.group(1)).isoformat()
+                                except Exception:
+                                    pass
+                            sources.append({
+                                "title": title, "published_at": pub_iso, "source": "CT中文"
+                            })
                     if sources:
-                        return sources[:12]
+                        return sources[:10]
         except Exception:
             pass
 
@@ -549,12 +565,10 @@ class CryptoAnalyzer:
         else:
             return "震盪整理 ↔️", "RANGING", adx_v
 
-    BULL_W = {"bull","rally","surge","gain","pump","breakout","ath","adoption",
-              "buy","rise","recover","bullish","etf","approve","institutional",
-              "moon","launch","upgrade","partnership","investment","high"}
-    BEAR_W = {"bear","crash","dump","drop","sell","ban","hack","lawsuit",
-              "fear","decline","bearish","sec","liquidat","collapse","warning",
-              "fraud","ponzi","exploit","vulnerability","scam","low"}
+    BULL_W = {"漲", "突破", "新高", "上漲", "看漲", "牛市", "拉升", "反彈", "ETF", "通過", "批准", "利好", "利多", "暴漲",
+              "bull","rally","surge","gain","pump","breakout","ath","adoption","bullish","etf","approve"}
+    BEAR_W = {"跌", "下跌", "崩盤", "熊市", "看跌", "拋售", "暴跌", "封禁", "駭客", "詐騙", "利空", "下跌",
+              "bear","crash","dump","drop","sell","ban","hack","lawsuit","bearish","collapse","fraud"}
 
     def sentiment(self, news):
         score, items = 0, []
@@ -562,8 +576,8 @@ class CryptoAnalyzer:
             title = item.get("title", "")
             t = title.lower()
             published = item.get("published_at", "")
-            bull_count = sum(1 for w in self.BULL_W if w in t)
-            bear_count = sum(1 for w in self.BEAR_W if w in t)
+            bull_count = sum(1 for w in self.BULL_W if w in title or w in t)
+            bear_count = sum(1 for w in self.BEAR_W if w in title or w in t)
             item_score = (bull_count - bear_count) * 0.1
             score += item_score
             emoji = "📗" if item_score > 0.05 else "📕" if item_score < -0.05 else "📒"
@@ -621,7 +635,6 @@ class CryptoAnalyzer:
         return alerts
 
     def generate_signal(self, df, fg_val=50, current_price=None):
-        # ⭐ 修復 1：用 ticker 即時價格取代收盤價
         p = float(current_price) if current_price else float(df["close"].iloc[-1])
         rv = self.safe_val(self.rsi(df), 50)
         kv = self.safe_val(self.stoch_rsi(df)[0], 50)
@@ -697,10 +710,10 @@ class CryptoAnalyzer:
         elif fg_val >= 80:
             score -= 1.5
             reasons.append("極度貪婪(逆向)")
-        if score >= 3:
+        if score >= 2.5:  # 放寬到 2.5
             direction = "做多 🟢"
             den = "LONG"
-        elif score <= -3:
+        elif score <= -2.5:
             direction = "做空 🔴"
             den = "SHORT"
         else:
@@ -741,13 +754,10 @@ class CryptoAnalyzer:
         else:
             entry = tp1 = tp2 = sl = p
         rr = round(abs(tp1 - entry) / (abs(sl - entry) + 1e-9), 2)
-        wr = 0.55 if strength > 70 else 0.50 if strength > 50 else 0.45
-        kelly = max(0, (wr - (1 - wr) / rr)) * 100 if rr > 0 else 0
         return {
             "price": p, "direction": direction, "direction_en": den,
             "strength": strength, "reasons": reasons[:5],
             "entry": entry, "tp1": tp1, "tp2": tp2, "sl": sl, "rr": rr,
-            "pos": round(min(kelly, 10), 1),
             "rsi": round(rv, 1), "sk": round(kv, 1), "sd": round(dv, 1),
             "mh": round(hv, 6), "adx": round(adx_now, 1),
             "bbu": round(bbu_v, 4), "bbl": round(bbl_v, 4),
@@ -760,112 +770,132 @@ class CryptoAnalyzer:
     def signal_consensus(self, sigs):
         directions = [s["direction_en"] for s in sigs]
         if all(d == "LONG" for d in directions):
-            return "STRONG_LONG", "✅ 三週期一致看多", 1.5
+            return "FULL_LONG", "✅ 三週期一致看多", 1.5, "FULL"
         if all(d == "SHORT" for d in directions):
-            return "STRONG_SHORT", "✅ 三週期一致看空", 1.5
+            return "FULL_SHORT", "✅ 三週期一致看空", 1.5, "FULL"
         long_count = sum(1 for d in directions if d == "LONG")
         short_count = sum(1 for d in directions if d == "SHORT")
         if long_count >= 2 and short_count == 0:
-            return "LONG", "📗 偏多 (2/3)", 1.2
+            return "PARTIAL_LONG", "📗 偏多 (2/3)", 1.2, "PARTIAL"
         if short_count >= 2 and long_count == 0:
-            return "SHORT", "📕 偏空 (2/3)", 1.2
-        return "MIXED", "⚠️ 週期分歧", 0.8
+            return "PARTIAL_SHORT", "📕 偏空 (2/3)", 1.2, "PARTIAL"
+        if long_count >= 1 and short_count == 0:
+            return "WEAK_LONG", "📊 弱多 (1/3)", 1.0, "PARTIAL"
+        if short_count >= 1 and long_count == 0:
+            return "WEAK_SHORT", "📊 弱空 (1/3)", 1.0, "PARTIAL"
+        return "MIXED", "⚠️ 週期分歧", 0.8, "MIXED"
 
-    # ⭐ 修復 5：專業級下單設置
+    # ⭐ 平衡版專業設置（目標勝率 60-70%）
     def professional_setup(self, sig1h, sig4h, sig15m, df1h, df4h, df_daily,
                             sw_res_1h, sw_sup_1h, sw_res_4h, sw_sup_4h,
                             vol_ratio, funding, ls_ratio, fg_val, current_price):
-        """
-        專業交易員級別的設置評分 + 下單規劃
-        返回 (score, plan_dict) 或 (None, reason)
-        """
         direction = sig1h["direction_en"]
         if direction == "NEUTRAL":
-            return None, "信號不明確"
+            return None, "信號中性"
 
         p = current_price
         atr_1h = sig1h["atr"]
         atr_4h = sig4h["atr"] if sig4h["atr"] > 0 else atr_1h * 4
 
-        # ===== 必要過濾條件 =====
-        # 1. 順勢交易（不逆勢）
-        if direction == "LONG":
-            if sig1h["regime"] in ("STRONG_BEAR",):
-                return None, "1H強空頭逆勢做多"
-            if sig4h["regime"] in ("STRONG_BEAR", "BEAR"):
-                return None, "4H空頭逆勢做多"
-        elif direction == "SHORT":
-            if sig1h["regime"] in ("STRONG_BULL",):
-                return None, "1H強多頭逆勢做空"
-            if sig4h["regime"] in ("STRONG_BULL", "BULL"):
-                return None, "4H多頭逆勢做空"
+        # ===== 必要過濾（放寬版）=====
+        has_div = bool(sig1h.get("div"))
 
-        # 2. ADX ≥ 22（趨勢明確）
-        if sig1h["adx"] < 22:
-            return None, "ADX過低趨勢不明"
+        # 強逆勢且無背離 → 過濾
+        if direction == "LONG" and sig1h["regime"] == "STRONG_BEAR" and not has_div:
+            return None, "強空頭逆勢且無背離"
+        if direction == "SHORT" and sig1h["regime"] == "STRONG_BULL" and not has_div:
+            return None, "強多頭逆勢且無背離"
 
-        # ===== 評分系統（專業級）=====
+        # ADX 放寬到 18
+        if sig1h["adx"] < 18:
+            return None, "ADX過低"
+
+        # 風報比放寬到 1.3
+        if sig1h["rr"] < 1.3:
+            return None, "風報比不足"
+
+        # ===== 評分（基礎 50） =====
         score = 50
         factors = []
         risks = []
 
-        # 趨勢強度（最重要 25 分）
-        if sig1h["regime"] == "STRONG_BULL" and direction == "LONG":
-            score += 15
-            factors.append("✅ 1H強多頭順勢")
-        elif sig1h["regime"] == "BULL" and direction == "LONG":
-            score += 8
-            factors.append("✅ 1H多頭順勢")
-        elif sig1h["regime"] == "STRONG_BEAR" and direction == "SHORT":
-            score += 15
-            factors.append("✅ 1H強空頭順勢")
-        elif sig1h["regime"] == "BEAR" and direction == "SHORT":
-            score += 8
-            factors.append("✅ 1H空頭順勢")
+        # 趨勢順勢加分（最高 18 分）
+        if direction == "LONG":
+            if sig1h["regime"] == "STRONG_BULL":
+                score += 18
+                factors.append("✅ 強多頭順勢")
+            elif sig1h["regime"] == "BULL":
+                score += 12
+                factors.append("✅ 多頭順勢")
+            elif sig1h["regime"] == "RANGING":
+                score += 5
+                factors.append("📊 震盪偏多")
+            elif sig1h["regime"] == "BEAR" and has_div:
+                score += 8
+                factors.append("✅ 底背離反轉")
+        else:
+            if sig1h["regime"] == "STRONG_BEAR":
+                score += 18
+                factors.append("✅ 強空頭順勢")
+            elif sig1h["regime"] == "BEAR":
+                score += 12
+                factors.append("✅ 空頭順勢")
+            elif sig1h["regime"] == "RANGING":
+                score += 5
+                factors.append("📊 震盪偏空")
+            elif sig1h["regime"] == "BULL" and has_div:
+                score += 8
+                factors.append("✅ 頂背離反轉")
 
-        # 4H 大週期確認（10 分）
-        if sig4h["direction_en"] == direction:
+        # 4H 確認
+        regime_4h = sig4h["regime"]
+        if regime_4h == sig1h["regime"]:
             score += 10
             factors.append("✅ 4H週期一致")
-
-        # 15m 入場時機確認（5 分）
-        if sig15m["direction_en"] == direction:
+        elif regime_4h == "RANGING":
             score += 5
-            factors.append("✅ 15m入場確認")
-        elif sig15m["direction_en"] != "NEUTRAL":
-            risks.append("⚠️ 15m方向相反，等回調")
+        elif (direction == "LONG" and regime_4h in ("STRONG_BEAR", "BEAR")) or \
+             (direction == "SHORT" and regime_4h in ("STRONG_BULL", "BULL")):
+            score -= 5
+            risks.append("⚠️ 4H趨勢相反")
 
-        # ADX 強趨勢（10 分）
+        # ADX 強度
         if sig1h["adx"] >= 35:
             score += 10
             factors.append("✅ 強趨勢ADX≥35")
-        elif sig1h["adx"] >= 28:
-            score += 5
+        elif sig1h["adx"] >= 25:
+            score += 6
+            factors.append("✅ 趨勢明確ADX≥25")
+        elif sig1h["adx"] >= 20:
+            score += 3
 
-        # 量能配合（8 分）
+        # 量能
         if vol_ratio >= 1.5:
             score += 8
             factors.append("✅ 量能爆發")
+        elif vol_ratio >= 1.2:
+            score += 5
+            factors.append("✅ 放量")
         elif vol_ratio < 0.7:
-            score -= 5
-            risks.append("⚠️ 縮量風險")
+            score -= 4
+            risks.append("⚠️ 縮量")
 
-        # 資金費率反向（10 分）
+        # 資金費率反向
         if funding is not None:
-            if direction == "LONG" and funding < -0.03:
-                score += 10
-                factors.append("✅ 負費率反向做多")
-            elif direction == "SHORT" and funding > 0.03:
-                score += 10
-                factors.append("✅ 正費率反向做空")
+            if direction == "LONG" and funding < -0.02:
+                score += 8
+                factors.append("✅ 負費率反向")
+            elif direction == "SHORT" and funding > 0.02:
+                score += 8
+                factors.append("✅ 正費率反向")
             elif direction == "LONG" and funding > 0.08:
                 score -= 5
-                risks.append("⚠️ 多頭擁擠費率高")
+                risks.append("⚠️ 多頭過熱")
             elif direction == "SHORT" and funding < -0.08:
                 score -= 5
-                risks.append("⚠️ 空頭擁擠費率低")
+                risks.append("⚠️ 空頭過冷")
 
-        # 多空比反向（5 分）
+        # 多空比反向
         if ls_ratio is not None:
             if direction == "LONG" and ls_ratio < 0.7:
                 score += 5
@@ -874,38 +904,40 @@ class CryptoAnalyzer:
                 score += 5
                 factors.append("✅ 散戶看多逆向")
 
-        # 恐懼貪婪極端值（10 分）
-        if direction == "LONG" and fg_val <= 25:
-            score += 10
-            factors.append("✅ 極度恐懼逆向做多")
-        elif direction == "SHORT" and fg_val >= 75:
-            score += 10
-            factors.append("✅ 極度貪婪逆向做空")
+        # 恐懼貪婪
+        if direction == "LONG" and fg_val <= 30:
+            score += 8
+            factors.append("✅ 恐懼區逆向做多")
+        elif direction == "SHORT" and fg_val >= 70:
+            score += 8
+            factors.append("✅ 貪婪區逆向做空")
 
-        # 背離信號（12 分）
-        if sig1h.get("div"):
-            if "底背離" in sig1h["div"] and direction == "LONG":
-                score += 12
-                factors.append("✅ 底背離強信號")
-            elif "頂背離" in sig1h["div"] and direction == "SHORT":
-                score += 12
-                factors.append("✅ 頂背離強信號")
+        # 背離信號
+        if has_div:
+            score += 12
+            factors.append("✅ RSI " + sig1h["div"])
 
-        # 過熱風險扣分
-        if direction == "LONG" and sig1h["rsi"] > 75:
-            score -= 8
-            risks.append("⚠️ RSI過熱(>75)")
-        elif direction == "SHORT" and sig1h["rsi"] < 25:
-            score -= 8
-            risks.append("⚠️ RSI過冷(<25)")
+        # 15m 入場確認
+        if sig15m["direction_en"] == direction:
+            score += 5
+            factors.append("✅ 15m入場確認")
+        elif sig15m["direction_en"] != "NEUTRAL":
+            risks.append("⚠️ 15m方向相反")
+
+        # 過熱扣分
+        if direction == "LONG" and sig1h["rsi"] > 78:
+            score -= 6
+            risks.append("⚠️ RSI過熱(>78)")
+        elif direction == "SHORT" and sig1h["rsi"] < 22:
+            score -= 6
+            risks.append("⚠️ RSI過冷(<22)")
 
         score = max(0, min(100, score))
 
         # ===== 下單規劃 =====
-        # 根據評分決定持有時間
-        if score >= 80:
+        # 評分高用中線（4H 阻力支撐），評分低用短線（1H）
+        if score >= 75:
             timeframe = "中線（2-7天）"
-            # 中線用 4H 阻力支撐
             ref_res = sw_res_4h if sw_res_4h else sw_res_1h
             ref_sup = sw_sup_4h if sw_sup_4h else sw_sup_1h
             ref_atr = atr_4h
@@ -915,31 +947,24 @@ class CryptoAnalyzer:
             ref_sup = sw_sup_1h
             ref_atr = atr_1h
 
-        # 進場價：用回調策略
+        # 進場規劃
         if direction == "LONG":
-            # 做多：在當前價略下方掛單，或觸及支撐
             if ref_sup and (p - ref_sup[0]) / p < 0.01:
-                # 已接近支撐，立即進場
                 entry = round(p * 0.9995, 4)
                 entry_note = "立即進場（已近支撐）"
             else:
-                # 等回調 0.3%
                 entry = round(p * 0.997, 4)
                 entry_note = "等回調 0.3% 進場"
-
-            # 止損：支撐下方 1xATR 或更深支撐
             if ref_sup and len(ref_sup) > 0:
                 sl_base = ref_sup[0] * 0.997
                 sl_atr = p - ref_atr * 1.5
                 sl = round(min(sl_base, sl_atr), 4)
             else:
                 sl = round(p - ref_atr * 2, 4)
-
-            # 止盈：階梯式
             if ref_res and len(ref_res) >= 2:
-                tp1 = ref_res[0]  # 第一阻力
-                tp2 = ref_res[1]  # 第二阻力
-                tp3 = round(ref_res[1] + ref_atr * 1.5, 4)  # 突破後延伸
+                tp1 = ref_res[0]
+                tp2 = ref_res[1]
+                tp3 = round(ref_res[1] + ref_atr * 1.5, 4)
             elif ref_res:
                 tp1 = ref_res[0]
                 tp2 = round(p + ref_atr * 3, 4)
@@ -948,21 +973,19 @@ class CryptoAnalyzer:
                 tp1 = round(p + ref_atr * 2, 4)
                 tp2 = round(p + ref_atr * 3.5, 4)
                 tp3 = round(p + ref_atr * 5, 4)
-        else:  # SHORT
+        else:
             if ref_res and (ref_res[0] - p) / p < 0.01:
                 entry = round(p * 1.0005, 4)
                 entry_note = "立即進場（已近阻力）"
             else:
                 entry = round(p * 1.003, 4)
                 entry_note = "等反彈 0.3% 進場"
-
             if ref_res and len(ref_res) > 0:
                 sl_base = ref_res[0] * 1.003
                 sl_atr = p + ref_atr * 1.5
                 sl = round(max(sl_base, sl_atr), 4)
             else:
                 sl = round(p + ref_atr * 2, 4)
-
             if ref_sup and len(ref_sup) >= 2:
                 tp1 = ref_sup[0]
                 tp2 = ref_sup[1]
@@ -976,27 +999,22 @@ class CryptoAnalyzer:
                 tp2 = round(p - ref_atr * 3.5, 4)
                 tp3 = round(p - ref_atr * 5, 4)
 
-        # 風報計算
         risk = abs(entry - sl)
-        reward1 = abs(tp1 - entry)
-        reward2 = abs(tp2 - entry)
-        reward3 = abs(tp3 - entry)
-        rr1 = round(reward1 / risk, 2) if risk > 0 else 0
-        rr2 = round(reward2 / risk, 2) if risk > 0 else 0
-        rr3 = round(reward3 / risk, 2) if risk > 0 else 0
+        rr1 = round(abs(tp1 - entry) / risk, 2) if risk > 0 else 0
+        rr2 = round(abs(tp2 - entry) / risk, 2) if risk > 0 else 0
+        rr3 = round(abs(tp3 - entry) / risk, 2) if risk > 0 else 0
 
-        # 過濾風報過低
-        if rr1 < 1.2:
+        if rr1 < 1.0:
             return None, "風報比過低"
 
-        # 估算勝率（基於評分）
-        win_rate = 50 + (score - 50) * 0.6  # 評分50→50%, 評分100→80%
-        win_rate = round(min(85, max(45, win_rate)))
+        # 勝率：50→50%, 70→60%, 85→70%, 95→75%
+        win_rate = 50 + (score - 50) * 0.5
+        win_rate = round(min(78, max(50, win_rate)))
 
-        # Kelly 公式建議倉位
+        # Kelly 倉位（保守）
         avg_rr = (rr1 + rr2) / 2
         kelly = max(0, (win_rate/100 - (1 - win_rate/100) / avg_rr)) * 100
-        position = round(min(kelly * 0.5, 8), 1)  # 取 Kelly 的一半，且最多 8%
+        position = round(min(kelly * 0.5, 8), 1)
 
         # 風險等級
         if score >= 80:
@@ -1013,16 +1031,11 @@ class CryptoAnalyzer:
             "timeframe": timeframe,
             "entry": entry,
             "entry_note": entry_note,
-            "tp1": tp1,
-            "tp2": tp2,
-            "tp3": tp3,
+            "tp1": tp1, "tp2": tp2, "tp3": tp3,
             "sl": sl,
-            "rr1": rr1,
-            "rr2": rr2,
-            "rr3": rr3,
+            "rr1": rr1, "rr2": rr2, "rr3": rr3,
             "position": position,
-            "factors": factors,
-            "risks": risks,
+            "factors": factors, "risks": risks,
         }
         return score, plan
 
@@ -1033,7 +1046,7 @@ class CryptoAnalyzer:
                     self.fetch_ohlcv(session, symbol, "15m", 200),
                     self.fetch_ohlcv(session, symbol, "1h", 250),
                     self.fetch_ohlcv(session, symbol, "4h", 150),
-                    self.fetch_ticker(session, symbol),  # ⭐ 即時價格來源
+                    self.fetch_ticker(session, symbol),
                     self.fetch_orderbook(session, symbol),
                     self.fetch_fear_greed(session),
                     self.fetch_funding_rate(session, symbol),
@@ -1050,14 +1063,11 @@ class CryptoAnalyzer:
             fgl, fgv = results[5] if not isinstance(results[5], Exception) else ("⚪", 50)
             funding = results[6] if not isinstance(results[6], Exception) else None
             ls_ratio = results[7] if not isinstance(results[7], Exception) else None
-
-            # ⭐ 用 ticker 即時價格
             current_price = float(ticker.get("lastPrice", 0)) if ticker else float(df1h["close"].iloc[-1])
-
             sig15m = self.generate_signal(df15m, fgv, current_price)
             sig = self.generate_signal(df1h, fgv, current_price)
             sig4h = self.generate_signal(df4h, fgv, current_price)
-            consensus, consensus_label, multiplier = self.signal_consensus([sig15m, sig, sig4h])
+            consensus_key, consensus_label, multiplier, _ = self.signal_consensus([sig15m, sig, sig4h])
             piv = self.pivot_sr(df1h)
             sw_res, sw_sup = self.swing_sr(df1h)
             fibs = self.fib_sr(df1h)
@@ -1071,7 +1081,6 @@ class CryptoAnalyzer:
             p = current_price
             breakout_msg = self.breakout_quality(p, sw_res, sw_sup, vol_ratio)
             near_alerts = self.near_key_levels(p, sw_res, sw_sup)
-
             r = "🔍 *" + symbol + " 即時深度分析*\n"
             r += "🕒 " + now + "\n"
             r += "━━━━━━━━━━━━━━━━━━━━\n"
@@ -1126,7 +1135,7 @@ class CryptoAnalyzer:
                 r += "🏁 止盈1 `" + str(sig["tp1"]) + "`\n"
                 r += "🏆 止盈2 `" + str(sig["tp2"]) + "`\n"
                 r += "🛑 止損 `" + str(sig["sl"]) + "`\n"
-                r += "⚖️ 風報 `1:" + str(sig["rr"]) + "` | 倉位 `" + str(sig["pos"]) + "%`"
+                r += "⚖️ 風報 `1:" + str(sig["rr"]) + "`"
             else:
                 r += "🟡 *建議觀望* (強度 " + str(round(sig["strength"])) + "%)\n"
                 if sig["reasons"]:
@@ -1136,15 +1145,14 @@ class CryptoAnalyzer:
         except Exception as e:
             return "❌ 分析失敗：" + str(e)
 
-    # ⭐ 修復 5：專業黃金獵手
-    async def golden_hunter(self, smart_filter=False):
+    # ⭐ 平衡版黃金獵手
+    async def golden_hunter(self, smart_filter=False, min_score=55):
         try:
             now = datetime.now(timezone.utc).strftime("%m-%d %H:%M:%S UTC")
             candidates = []
             async with aiohttp.ClientSession() as session:
                 fg_result = await self.fetch_fear_greed(session)
                 fg_val = fg_result[1] if not isinstance(fg_result, Exception) else 50
-                # 並行抓取所有需要的數據
                 tasks = []
                 for sym in self.SCAN_POOL:
                     tasks.append(self.fetch_ohlcv(session, sym, "15m", 100))
@@ -1188,20 +1196,23 @@ class CryptoAnalyzer:
                         if sig1h["direction_en"] == "NEUTRAL":
                             continue
                         vol24 = float(ticker.get("quoteVolume", 0)) / 1e6
-                        if vol24 < 30:  # 流動性過濾
+                        if vol24 < 20:
                             continue
                         sig15m = self.generate_signal(df15m, fg_val, current_price)
                         sig4h = self.generate_signal(df4h, fg_val, current_price)
                         sw_res_1h, sw_sup_1h = self.swing_sr(df1h)
                         sw_res_4h, sw_sup_4h = self.swing_sr(df4h)
                         _, vol_ratio = self.volume_trend(df1h)
-                        # 專業評分
-                        score, plan = self.professional_setup(
+                        result = self.professional_setup(
                             sig1h, sig4h, sig15m, df1h, df4h, df_d,
                             sw_res_1h, sw_sup_1h, sw_res_4h, sw_sup_4h,
                             vol_ratio, funding, ls_ratio, fg_val, current_price
                         )
-                        if score is None:
+                        if result[0] is None:
+                            continue
+                        score, plan = result
+                        # 套用最低分過濾
+                        if score < min_score:
                             continue
                         chg = float(ticker.get("priceChangePercent", 0))
                         candidates.append({
@@ -1217,9 +1228,9 @@ class CryptoAnalyzer:
                     except Exception:
                         continue
 
-            # 智能推播：只取信心 ≥ 80
             if smart_filter:
-                high_quality = [c for c in candidates if c["plan"]["score"] >= 80]
+                # 智能推播：找信心 ≥65 的
+                high_quality = [c for c in candidates if c["plan"]["score"] >= 65]
                 if not high_quality:
                     return None
                 candidates = high_quality
@@ -1228,19 +1239,18 @@ class CryptoAnalyzer:
                 return ("🎯 *黃金獵手 — " + now + "*\n"
                         "━━━━━━━━━━━━━━━━━━━━\n\n"
                         "📡 已掃描 " + str(ok_count) + "/" + str(len(self.SCAN_POOL)) + " 幣種\n"
-                        "📊 通過嚴格過濾後無高品質機會\n\n"
+                        "📊 通過過濾後無符合條件機會\n\n"
                         "⏳ 建議等待：\n"
-                        "• 趨勢更明確（ADX≥22）\n"
-                        "• 多週期一致信號\n"
-                        "• 風報比 ≥1.2 的設置\n\n"
+                        "• 趨勢更明確（ADX≥18）\n"
+                        "• 風報比 ≥1.3 的設置\n"
+                        "• 評分 ≥55 的信號\n\n"
                         "_市場可能盤整或方向不明_")
 
             candidates.sort(key=lambda x: x["plan"]["score"], reverse=True)
-
             r = "🎯 *黃金獵手 — 專業交易員設置*\n"
             r += "🕒 " + now + "\n"
             r += "━━━━━━━━━━━━━━━━━━━━\n"
-            r += "📡 掃描 " + str(len(self.SCAN_POOL)) + " 幣種 | 高品質 " + str(len(candidates)) + " 個\n\n"
+            r += "📡 掃描 " + str(len(self.SCAN_POOL)) + " 幣種 | 候選 " + str(len(candidates)) + " 個\n\n"
             for rank, c in enumerate(candidates[:3], 1):
                 sig = c["sig1h"]
                 p = c["plan"]
@@ -1254,41 +1264,35 @@ class CryptoAnalyzer:
                 r += "💰 即時價 `" + str(c["current_price"]) + "` ("
                 r += "📈" if c["chg"] >= 0 else "📉"
                 r += " " + str(round(c["chg"], 2)) + "%)\n"
-                r += "💵 24H量 `$" + str(round(c["vol24"], 1)) + "M`\n"
+                r += "💵 24H量 `$" + str(round(c["vol24"], 1)) + "M`"
                 if c["funding"] is not None:
-                    r += "💰 費率 `" + str(c["funding"]) + "%`"
+                    r += " | 費率 `" + str(c["funding"]) + "%`"
                 if c["ls_ratio"] is not None:
                     r += " | 多空比 `" + str(round(c["ls_ratio"], 2)) + "`"
                 r += "\n\n"
-                # 加分因素
                 if p["factors"]:
-                    r += "*✅ 優勢因素*\n"
+                    r += "*✅ 優勢*\n"
                     for f in p["factors"][:5]:
                         r += "  " + f + "\n"
-                # 風險警示
                 if p["risks"]:
-                    r += "*⚠️ 風險提醒*\n"
+                    r += "*⚠️ 風險*\n"
                     for x in p["risks"]:
                         r += "  " + x + "\n"
                 r += "\n*📋 完整下單計劃*\n"
-                r += "🎯 進場價 `" + str(p["entry"]) + "`\n"
-                r += "  _" + p["entry_note"] + "_\n"
-                r += "🏁 止盈1 `" + str(p["tp1"]) + "` (R:R `1:" + str(p["rr1"]) + "`)\n"
-                r += "  _建議平 30% 倉位_\n"
-                r += "🏆 止盈2 `" + str(p["tp2"]) + "` (R:R `1:" + str(p["rr2"]) + "`)\n"
-                r += "  _建議平 50% 倉位_\n"
-                r += "🚀 止盈3 `" + str(p["tp3"]) + "` (R:R `1:" + str(p["rr3"]) + "`)\n"
-                r += "  _剩餘 20% 移動止損守利_\n"
+                r += "🎯 進場 `" + str(p["entry"]) + "` _" + p["entry_note"] + "_\n"
+                r += "🏁 止盈1 `" + str(p["tp1"]) + "` (1:" + str(p["rr1"]) + ") 平30%\n"
+                r += "🏆 止盈2 `" + str(p["tp2"]) + "` (1:" + str(p["rr2"]) + ") 平50%\n"
+                r += "🚀 止盈3 `" + str(p["tp3"]) + "` (1:" + str(p["rr3"]) + ") 移動止損20%\n"
                 r += "🛑 止損 `" + str(p["sl"]) + "`\n"
-                r += "💼 建議倉位 `" + str(p["position"]) + "%` 資金\n\n"
+                r += "💼 倉位 `" + str(p["position"]) + "%` 資金\n\n"
             r += "━━━━━━━━━━━━━━━━━━━━\n"
-            r += "💡 *專業交易守則*\n"
+            r += "💡 *交易守則*\n"
             r += "• 嚴守止損，絕不抗單\n"
-            r += "• 分批止盈，鎖住利潤\n"
-            r += "• 信心 ≥80 中線部位較大\n"
-            r += "• 信心 65-80 短線快進快出\n"
+            r += "• 三段止盈：30%/50%/20%\n"
+            r += "• 信心 ≥75 中線部位較大\n"
+            r += "• 信心 55-75 短線快進快出\n"
             r += "• 倉位 ≤8%，控制風險\n"
-            r += "⚠️ _僅供參考，非投資建議_"
+            r += "⚠️ _僅供參考_"
             return r
         except Exception as e:
             return "❌ 黃金獵手失敗：" + str(e)
@@ -1439,7 +1443,7 @@ class CryptoAnalyzer:
                 echg = float(eth_ticker.get("priceChangePercent", 0))
                 ic = "📈" if echg >= 0 else "📉"
                 r += "• ETH `" + str(round(p, 2)) + "` " + ic + " `" + str(round(echg, 2)) + "%` " + rl + "\n"
-            r += "\n*━━ 📰 即時新聞時事 ━━*\n"
+            r += "\n*━━ 📰 即時新聞時事 (中文) ━━*\n"
             if items:
                 for i, item in enumerate(items[:8], 1):
                     time_ago = self.format_published(item.get("published", ""))
@@ -1470,7 +1474,6 @@ class CryptoAnalyzer:
         except Exception as e:
             return "❌ 失敗：" + str(e)
 
-    # ⭐ 修復 3：趨勢總覽優化（加入即時價、評分、強弱比）
     async def trend_watch(self, symbols):
         try:
             now = datetime.now(timezone.utc).strftime("%m-%d %H:%M:%S UTC")
@@ -1495,11 +1498,9 @@ class CryptoAnalyzer:
                 rl, regime, adx_v = self.market_regime(df)
                 rl_4h, regime_4h, _ = self.market_regime(df4h)
                 chg = float(ticker.get("priceChangePercent", 0))
-                # ⭐ 用即時價
                 price = float(ticker.get("lastPrice", 0)) or float(df["close"].iloc[-1])
                 rsi_v = self.safe_val(self.rsi(df), 50)
                 vol = float(ticker.get("quoteVolume", 0)) / 1e6
-                # 4H 是否一致
                 aligned = (regime_4h == regime) or (
                     regime in ("STRONG_BULL", "BULL") and regime_4h in ("STRONG_BULL", "BULL")
                 ) or (
@@ -1520,12 +1521,10 @@ class CryptoAnalyzer:
                     bear.append(info)
                 else:
                     ranging.append(info)
-
             r = "🔭 *市場趨勢總覽 — 即時*\n"
             r += "🕒 " + now + "\n"
             r += "━━━━━━━━━━━━━━━━━━━━\n"
             r += "📡 已掃描 " + str(ok_count) + "/" + str(len(symbols)) + " 幣種\n"
-            # 多空力道
             bulls_total = len(strong_bull) * 2 + len(bull)
             bears_total = len(strong_bear) * 2 + len(bear)
             total_w = bulls_total + bears_total + 1
@@ -1573,17 +1572,13 @@ class CryptoAnalyzer:
             r += "✅ = 1H+4H週期一致（高勝率）\n\n"
             r += "💡 *操作建議*\n"
             if bull_pct > 60:
-                r += "🟢 市場偏強：優先做多強多頭幣種\n"
-                r += "   進場時機：回調至支撐位"
+                r += "🟢 市場偏強：優先做多強多頭\n   進場：回調支撐"
             elif bear_pct > 60:
-                r += "🔴 市場偏弱：優先做空強空頭幣種\n"
-                r += "   進場時機：反彈至阻力位"
+                r += "🔴 市場偏弱：優先做空強空頭\n   進場：反彈阻力"
             elif len(ranging) > (len(strong_bull) + len(strong_bear) + len(bull) + len(bear)):
-                r += "↔️ 市場盤整：減少交易，等待方向\n"
-                r += "   策略：高拋低吸或觀望"
+                r += "↔️ 市場盤整：減少交易\n   策略：高拋低吸或觀望"
             else:
-                r += "⚪ 多空分歧：嚴選 ✅ 標的\n"
-                r += "   只做多週期一致的設置"
+                r += "⚪ 多空分歧：嚴選 ✅ 標的\n   只做多週期一致"
             return r
         except Exception as e:
             return "❌ 失敗：" + str(e)
