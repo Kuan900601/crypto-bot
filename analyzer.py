@@ -2341,6 +2341,45 @@ class CryptoAnalyzer:
         # 倉位根據進場品質調整
         adjusted_position = round(position * entry_grade["pos_mult"], 1)
 
+        # ⭐ 訂單類型判斷（限價 vs 市價）
+        # 邏輯：
+        # - 進場價 ≤ 現價 0.2% → 市價單立即進場
+        # - 進場價需要等價格回到位 → 限價單掛單
+        price_diff = abs(entry - p) / p
+        if direction == "LONG":
+            if entry >= p:
+                # 進場價 >= 現價，需要追單 → 市價
+                order_type = "MARKET"
+                order_type_label = "📍 市價單立即進場"
+                order_instruction = "現在就用市價單買進，避免追高"
+            elif price_diff < 0.002:
+                order_type = "MARKET"
+                order_type_label = "📍 市價單立即進場"
+                order_instruction = "現價接近進場區，市價單即可"
+            else:
+                order_type = "LIMIT"
+                order_type_label = "📋 限價單掛單等候"
+                order_instruction = "在 " + str(entry) + " 掛買單，等價格回測"
+        else:
+            if entry <= p:
+                order_type = "MARKET"
+                order_type_label = "📍 市價單立即進場"
+                order_instruction = "現在就用市價單做空，避免殺低"
+            elif price_diff < 0.002:
+                order_type = "MARKET"
+                order_type_label = "📍 市價單立即進場"
+                order_instruction = "現價接近進場區，市價單即可"
+            else:
+                order_type = "LIMIT"
+                order_type_label = "📋 限價單掛單等候"
+                order_instruction = "在 " + str(entry) + " 掛空單，等價格反彈"
+
+        # 限價單有效時間
+        if "中線" in timeframe:
+            order_valid_hours = 24
+        else:
+            order_valid_hours = 8
+
         plan = {
             "score": round(score, 1),
             "win_rate": win_rate,
@@ -2348,6 +2387,10 @@ class CryptoAnalyzer:
             "timeframe": timeframe,
             "entry": entry,
             "entry_note": entry_note,
+            "order_type": order_type,
+            "order_type_label": order_type_label,
+            "order_instruction": order_instruction,
+            "order_valid_hours": order_valid_hours,
             "tp1": tp1, "tp2": tp2, "tp3": tp3, "tp4": tp4,
             "sl": sl,
             "rr1": rr1, "rr2": rr2, "rr3": rr3, "rr4": rr4,
@@ -2661,143 +2704,131 @@ class CryptoAnalyzer:
                         "_市場可能盤整或方向不明_")
 
             candidates.sort(key=lambda x: x["plan"]["score"], reverse=True)
-            r = "🎯 *黑潮船長 — 專業交易員設置*\n"
-            r += "🕒 " + now + "\n"
-            r += "━━━━━━━━━━━━━━━━━━━━\n"
-            r += "📡 掃描 " + str(len(self.SCAN_POOL)) + " 幣種 | 候選 " + str(len(candidates)) + " 個\n\n"
+            r = "🌊 *黑潮船長｜本輪交易機會*\n"
+            r += "_播報時間：" + now + "_\n"
+            r += "━━━━━━━━━━━━━━━\n"
+            r += "📡 已掃描 " + str(len(self.SCAN_POOL)) + " 個幣種，找到 *" + str(len(candidates)) + "* 個符合條件的機會\n"
+            # 整體市場狀態（簡短摘要）
+            if candidates:
+                avg_score = sum(c["plan"]["score"] for c in candidates[:3]) / min(3, len(candidates))
+                if avg_score >= 80:
+                    market_tone = "🟢 *本輪行情品質佳*，建議積極跟進"
+                elif avg_score >= 70:
+                    market_tone = "🟡 *本輪行情中等*，挑選 A 級進場"
+                else:
+                    market_tone = "🟠 *本輪行情普通*，建議小倉試水"
+                r += market_tone + "\n"
+            r += "\n"
+
             for rank, c in enumerate(candidates[:3], 1):
                 sig = c["sig1h"]
                 p = c["plan"]
+                direction_zh = "做多" if sig["direction_en"] == "LONG" else "做空"
+                direction_emoji = "🟢" if sig["direction_en"] == "LONG" else "🔴"
                 medal = "🥇" if rank == 1 else ("🥈" if rank == 2 else "🥉")
-                r += medal + " *" + c["symbol"] + "* — " + p["risk_level"] + "\n"
-                r += "━━━━━━━━━━━━━━━━━━\n"
-                r += "🎯 *方向：" + sig["direction"] + "*\n"
-                # ⭐ 進場品質徽章（最重要）
-                grade = p.get("entry_grade", "?")
-                grade_emoji = {"A": "🅰️", "B": "🅱️", "C": "🆑", "D": "🆖"}.get(grade, "❓")
-                r += "🏆 進場品質 " + grade_emoji + " *" + grade + " 級* — " + p.get("entry_grade_desc", "") + "\n"
-                r += "💯 信心評分 `" + str(p["score"]) + "/100` | 📊 勝率 `" + str(p["win_rate"]) + "%`\n"
-                r += "⏱ 持有時間 *" + p["timeframe"] + "*\n"
-                r += "💰 即時價 `" + str(c["current_price"]) + "` ("
-                r += "📈" if c["chg"] >= 0 else "📉"
-                r += " " + str(round(c["chg"], 2)) + "%)\n"
-                r += "💵 24H量 `$" + str(round(c["vol24"], 1)) + "M`"
-                if c["funding"] is not None:
-                    r += " | 費率 `" + str(c["funding"]) + "%`"
-                if c["ls_ratio"] is not None:
-                    r += " | 多空比 `" + str(round(c["ls_ratio"], 2)) + "`"
-                r += "\n"
-                # ⭐ 相對強度
-                if c.get("rs_btc") is not None:
-                    rs = c["rs_btc"]
-                    if rs > 5:
-                        rs_label = "💪 強於BTC"
-                    elif rs > 0:
-                        rs_label = "📊 略強"
-                    elif rs > -5:
-                        rs_label = "📊 略弱"
-                    else:
-                        rs_label = "🔻 弱於BTC"
-                    r += "📈 相對強度 `" + str(rs) + "%` " + rs_label + "\n"
-                # ⭐ 市場類型
-                if c.get("mkt_label"):
-                    r += "🏛 市場類型 `" + c["mkt_label"] + "`\n"
-                # ⭐ BTC 相關性
-                if c.get("btc_corr") is not None:
-                    corr = c["btc_corr"]
-                    if corr >= 0.7:
-                        corr_label = "🔗 高度跟漲BTC"
-                    elif corr >= 0.4:
-                        corr_label = "📎 中度相關"
-                    elif corr <= -0.3:
-                        corr_label = "🔄 BTC反向"
-                    else:
-                        corr_label = "🆓 獨立走勢"
-                    r += "🔗 與BTC相關性 `" + str(corr) + "` " + corr_label + "\n"
-                # ⭐ 信號有效期
-                r += "⏳ 信號有效至 `" + c.get("expiry_time", "?") + "`\n"
-                # ⭐ 進場時機
-                r += "📍 進場時機 " + c.get("timing_emoji", "") + " _" + c.get("timing_reason", "") + "_\n"
-                # ⭐ K 線型態
-                if c.get("pattern"):
-                    r += "🕯 K線型態 `" + c["pattern"] + "`\n"
 
-                # ⭐ 多指標重疊買點
-                if c.get("confluence_zones"):
-                    r += "*🎯 多指標重疊強位*\n"
-                    for z in c["confluence_zones"][:2]:
-                        type_emoji = "🟢支撐" if z["type"] == "support" else "🔴阻力"
-                        r += "  • `" + str(z["price"]) + "` " + type_emoji
-                        r += " (" + str(z["count"]) + "個指標重疊)\n"
-                        r += "    _" + " + ".join(z["indicators"][:4]) + "_\n"
-                # ⭐ 流動性陷阱警示
-                if c.get("upside_liq") or c.get("downside_liq"):
-                    r += "*⚠️ 流動性陷阱區*\n"
-                    if c.get("upside_liq"):
-                        r += "  上方止損集中 `" + " / ".join(str(x) for x in c["upside_liq"][:2]) + "`\n"
-                    if c.get("downside_liq"):
-                        r += "  下方止損集中 `" + " / ".join(str(x) for x in c["downside_liq"][:2]) + "`\n"
-                # ⭐ SMC：結構突破
-                if c.get("bos_dir"):
-                    bos_emoji = "🟢" if "BULL" in c["bos_dir"] else "🔴"
-                    r += "🏗 結構突破 " + bos_emoji + " 位於 `" + str(c["bos_level"]) + "`\n"
-                # ⭐ SMC：訂單塊
-                relevant_ob = c.get("bull_ob") if sig["direction_en"] == "LONG" else c.get("bear_ob")
-                if relevant_ob:
-                    r += "📦 機構訂單塊：\n"
-                    for ob in relevant_ob[:1]:
-                        r += "  `" + str(ob["low"]) + " - " + str(ob["high"]) + "`\n"
-                # ⭐ SMC：FVG
-                relevant_fvg = c.get("bull_fvg") if sig["direction_en"] == "LONG" else c.get("bear_fvg")
-                if relevant_fvg:
-                    r += "🕳 公允價值缺口：\n"
-                    for fvg in relevant_fvg[:1]:
-                        r += "  `" + str(fvg["bottom"]) + " - " + str(fvg["top"]) + "`\n"
+                # === 標題區 ===
+                r += medal + " *" + c["symbol"].replace("/USDT", "") + " " + direction_zh + " " + direction_emoji + "*\n"
+
+                # === 進場品質徽章（最醒目）===
+                grade = p.get("entry_grade", "C")
+                grade_text = {
+                    "A": "🅰️ *A 級進場機會* — 強烈推薦",
+                    "B": "🅱️ *B 級進場機會* — 建議跟進",
+                    "C": "🆑 *C 級進場機會* — 謹慎參與",
+                }.get(grade, "")
+                r += grade_text + "\n"
+
+                # === 一句話總結 ===
+                r += "_" + direction_zh + " · " + p["timeframe"] + " · 預估勝率 " + str(p["win_rate"]) + "%_\n"
+                r += "─────────────\n"
+
+                # === 為什麼推薦（最重要）===
+                r += "💭 *分析師說明*\n"
+                # 從 pros 挑最強的 4 個理由，用自然語氣串起來
+                if p.get("pros"):
+                    top_pros = p["pros"][:4]
+                    for pro in top_pros:
+                        r += "  " + pro + "\n"
+                # 風險點
+                if p.get("cons"):
+                    r += "\n⚠️ *需要留意*\n"
+                    for con in p["cons"][:3]:
+                        r += "  " + con + "\n"
                 r += "\n"
-                if p["factors"]:
-                    r += "*✅ 優勢*\n"
-                    for f in p["factors"][:5]:
-                        r += "  " + f + "\n"
-                if p["risks"]:
-                    r += "*⚠️ 風險*\n"
-                    for x in p["risks"]:
-                        r += "  " + x + "\n"
-                r += "\n*📋 專業下單計劃*\n"
-                r += "🎯 進場 `" + str(p["entry"]) + "` _" + p["entry_note"] + "_\n"
-                r += "🏁 止盈1 `" + str(p["tp1"]) + "` (1:" + str(p["rr1"]) + ") 平25% *保本*\n"
-                r += "💰 止盈2 `" + str(p["tp2"]) + "` (1:" + str(p["rr2"]) + ") 平35%\n"
-                r += "🏆 止盈3 `" + str(p["tp3"]) + "` (1:" + str(p["rr3"]) + ") 平25%\n"
-                r += "🚀 止盈4 `" + str(p["tp4"]) + "` (1:" + str(p["rr4"]) + ") 移動止損15%\n"
-                r += "🛑 止損 `" + str(p["sl"]) + "` _(" + p.get("sl_label", "智能") + " + " + p.get("atr_label", "") + ")_\n"
-                if p.get("chand_exit"):
-                    r += "🔗 移動止損參考 `" + str(p["chand_exit"]) + "` _(Chandelier)_\n"
-                # 倉位調整提醒
+
+                # === 下單指令（明確）===
+                r += "📝 *下單指令*\n"
+                r += "  *訂單類型*：" + p.get("order_type_label", "") + "\n"
+                r += "  *執行方式*：" + p.get("order_instruction", "") + "\n"
+                if p.get("order_type") == "LIMIT":
+                    r += "  *有效時間*：" + str(p.get("order_valid_hours", 8)) + " 小時內未成交請取消\n"
+                r += "\n"
+
+                # === 價格規劃（清晰）===
+                r += "📊 *價格規劃*\n"
+                r += "  • 當前價：`" + str(c["current_price"]) + "`\n"
+                r += "  • 進場價：`" + str(p["entry"]) + "`\n"
+                r += "  • 止損價：`" + str(p["sl"]) + "` (" + p.get("sl_label", "智能") + ")\n"
+                # 計算止損百分比
+                if sig["direction_en"] == "LONG":
+                    sl_pct = (p["entry"] - p["sl"]) / p["entry"] * 100
+                else:
+                    sl_pct = (p["sl"] - p["entry"]) / p["entry"] * 100
+                r += "  • 止損幅度：`" + str(round(sl_pct, 2)) + "%`\n"
+                r += "\n"
+
+                # === 分批止盈計劃 ===
+                r += "🎯 *分批止盈計劃*\n"
+                if sig["direction_en"] == "LONG":
+                    tp1_pct = (p["tp1"] - p["entry"]) / p["entry"] * 100
+                    tp2_pct = (p["tp2"] - p["entry"]) / p["entry"] * 100
+                    tp3_pct = (p["tp3"] - p["entry"]) / p["entry"] * 100
+                    tp4_pct = (p["tp4"] - p["entry"]) / p["entry"] * 100
+                else:
+                    tp1_pct = (p["entry"] - p["tp1"]) / p["entry"] * 100
+                    tp2_pct = (p["entry"] - p["tp2"]) / p["entry"] * 100
+                    tp3_pct = (p["entry"] - p["tp3"]) / p["entry"] * 100
+                    tp4_pct = (p["entry"] - p["tp4"]) / p["entry"] * 100
+                r += "  ① `" + str(p["tp1"]) + "` (+`" + str(round(tp1_pct, 2)) + "%`) 平 25% _保本出場_\n"
+                r += "  ② `" + str(p["tp2"]) + "` (+`" + str(round(tp2_pct, 2)) + "%`) 平 35%\n"
+                r += "  ③ `" + str(p["tp3"]) + "` (+`" + str(round(tp3_pct, 2)) + "%`) 平 25%\n"
+                r += "  ④ `" + str(p["tp4"]) + "` (+`" + str(round(tp4_pct, 2)) + "%`) 移動止損守剩 15%\n"
+                r += "\n"
+
+                # === 倉位建議 ===
+                r += "💼 *倉位建議*\n"
+                r += "  建議使用資金的 *" + str(p["position"]) + "%*"
                 orig_pos = p.get("original_position", p["position"])
                 if p["position"] < orig_pos:
-                    r += "💼 倉位 `" + str(p["position"]) + "%` 資金"
-                    r += " _(原 " + str(orig_pos) + "% × 品質係數)_\n"
-                else:
-                    r += "💼 倉位 `" + str(p["position"]) + "%` 資金\n"
-                if not p.get("has_confirmation"):
-                    r += "⏳ _建議等下根 K 線收盤確認後再進場_\n"
+                    r += " _(根據" + grade + "級調整)_"
                 r += "\n"
-            r += "━━━━━━━━━━━━━━━━━━━━\n"
-            r += "💡 *資深交易員守則*\n"
-            r += "• 🅰️ A 級進場：正常倉位，跟單\n"
-            r += "• 🅱️ B 級進場：減半倉位\n"
-            r += "• 🆑 C 級進場：1/3 倉，謹慎\n"
-            r += "• 🆖 D 級進場：已自動過濾\n"
-            r += "• 嚴守止損，絕不抗單\n"
-            r += "• 四段止盈：25/35/25/15%\n"
-            r += "• 單筆風險 ≤1-2% 總資金\n"
-            r += "• 連虧 2 次該幣種暫停 24h\n"
-            # ⭐ 時段警示
+                r += "  風報比 1:" + str(p["rr2"]) + " 至 1:" + str(p["rr4"]) + "\n"
+
+                # === 確認 K 線提醒 ===
+                if not p.get("has_confirmation"):
+                    r += "\n⏳ _目前尚未出現確認 K 線，建議等待下根 1H K 收盤後再進場_\n"
+
+                r += "\n"
+
+            # === 整體交易守則 ===
+            r += "━━━━━━━━━━━━━━━\n"
+            r += "💡 *使用建議*\n"
+            r += "• A 級信號可正常倉位跟進\n"
+            r += "• B 級信號減半倉跟進\n"
+            r += "• C 級信號用 1/3 倉試水\n"
+            r += "• 嚴守止損，到價就出場\n"
+            r += "• 達 TP1 立即移止損至成本價（保本）\n"
+
+            # === 時段警示 ===
             avoid_warnings = self.should_avoid_trading()
             if avoid_warnings:
-                r += "\n*⚠️ 當前時段風險*\n"
+                r += "\n⚠️ *當前時段提醒*\n"
                 for w in avoid_warnings:
-                    r += "• " + w + "\n"
-            r += "\n⚠️ _僅供參考_"
+                    r += "  " + w + "\n"
+
+            r += "\n_⚠️ 加密貨幣風險極高，本訊息僅為策略參考_\n"
+            r += "_⚠️ 黑潮船長將自動追蹤本輪信號並通知關鍵價位_"
             return r
         except Exception as e:
             return "❌ 黑潮船長失敗：" + str(e)

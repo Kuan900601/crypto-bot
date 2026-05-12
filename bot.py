@@ -131,24 +131,25 @@ def fav_menu(chat_id):
 
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user_name = update.effective_user.first_name or "朋友"
     text = (
-        "🤖 *加密貨幣 AI 分析機器人 v19.0*\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
-        "🎯 *黑潮船長* — 專業交易設置\n"
-        "  • VWAP + SuperTrend 新指標\n"
-        "  • BTC 相關性分析\n"
-        "  • 信號有效期追蹤\n"
-        "  • 三段止盈 + 智能止損\n\n"
-        "⚡ *異動掃描* — 漲跌量 TOP 5\n"
-        "🌐 *市場情緒* — 中文新聞時事\n"
-        "🚀 *深度分析* — 即時價 + 突破警示\n"
-        "⭐ *我的自選* — 持久化儲存\n"
-        "📊 *多週期 K 線位* — 支撐阻力\n"
-        "🔭 *趨勢總覽* — 多空力道\n"
-        "📜 *推播歷史* — 信號追蹤\n"
-        "🔔 *智能推播* — 每 5 分鐘掃描\n\n"
-        "_v19：進場品質ABCD、深度進場分析、Smart SL、連虧暫停、BTC健康度_\n\n"
-        "選擇下方功能 👇"
+        "👋 *" + user_name + "，歡迎回來*\n"
+        "━━━━━━━━━━━━━━━\n"
+        "我是 *黑潮策略 Bot*，你的專屬交易助理\n\n"
+        "*🌊 我可以為你做什麼*\n"
+        "• 24 小時掃描 30 個主流幣\n"
+        "• 給你 *A/B/C 級進場機會*\n"
+        "• 明確告訴你掛限價還是市價\n"
+        "• 全程追蹤你的信號，逐點通知\n"
+        "• BTC 大幅波動時主動警告\n"
+        "• 帶你管理倉位與風險\n\n"
+        "*🎯 推薦使用流程*\n"
+        "1️⃣ 開啟「黑潮船長推播」接收信號\n"
+        "2️⃣ 開啟「定時市場簡報」掌握全局\n"
+        "3️⃣ 用「倉位計算」算好下單金額\n"
+        "4️⃣ 跟單後讓我幫你追蹤\n\n"
+        "_⚠️ 加密貨幣風險極高，所有建議僅供參考_\n"
+        "_⚠️ 嚴守止損是你最重要的工具_"
     )
     await update.message.reply_text(text, reply_markup=main_menu(), parse_mode="Markdown")
 
@@ -1036,13 +1037,29 @@ def main():
         interval=120,
         first=30
     )
+    # ⭐ 每 5 分鐘檢查 BTC 緊急狀況
+    async def btc_emergency_checker(ctx):
+        await check_btc_emergency(ctx)
+    app.job_queue.run_repeating(
+        btc_emergency_checker,
+        interval=300,
+        first=180
+    )
+    # ⭐ 每 3 分鐘檢查進場價接近
+    async def near_entry_checker(ctx):
+        await check_near_entry(ctx)
+    app.job_queue.run_repeating(
+        near_entry_checker,
+        interval=180,
+        first=90
+    )
     # ⭐ 定時市場簡報（每小時檢查一次）
     app.job_queue.run_repeating(
         daily_report_check,
         interval=3600,
         first=120
     )
-    logger.info("🤖 Bot v19.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
+    logger.info("🤖 Bot v20.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
