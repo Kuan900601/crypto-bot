@@ -648,6 +648,385 @@ class CryptoAnalyzer:
             warnings.append("💤 亞洲深夜，流動性低")
         return warnings
 
+
+    # ⭐ 進場品質評分（A/B/C/D）- 不只信號好，進場時機也要對
+    def entry_quality_grade(self, direction, current_price, sig1h, sw_res, sw_sup,
+                              vol_ratio, has_confirmation_candle):
+        """
+        評估「現在進場」的品質
+        - A 級：已近支撐 + 確認訊號 + 量能配合
+        - B 級：位置合理 + 部分確認
+        - C 級：可進場但有風險
+        - D 級：不建議進場（追高或脫離支撐）
+        """
+        grade_score = 0
+        grade_reasons = []
+
+        if direction == "LONG":
+            # 1. 是否近支撐（最重要）
+            if sw_sup:
+                dist_to_sup = (current_price - sw_sup[0]) / current_price * 100
+                if dist_to_sup < 0.5:
+                    grade_score += 30
+                    grade_reasons.append("✅ 已測支撐位（距離<0.5%）")
+                elif dist_to_sup < 1.5:
+                    grade_score += 20
+                    grade_reasons.append("✅ 接近支撐位（距離<1.5%）")
+                elif dist_to_sup < 3:
+                    grade_score += 10
+                    grade_reasons.append("📊 位置可接受（距支撐<3%）")
+                else:
+                    grade_score -= 10
+                    grade_reasons.append("⚠️ 距支撐過遠（>3%）")
+            # 2. 是否脫離 EMA 過遠（追高風險）
+            ema20 = sig1h.get("e20", current_price)
+            distance_pct = (current_price - ema20) / ema20 * 100
+            if -1 < distance_pct < 3:
+                grade_score += 15
+                grade_reasons.append("✅ 距EMA20合理")
+            elif distance_pct > 5:
+                grade_score -= 15
+                grade_reasons.append("⚠️ 脫離EMA20過遠（追高風險）")
+            # 3. RSI 是否過熱
+            rsi = sig1h.get("rsi", 50)
+            if rsi > 75:
+                grade_score -= 20
+                grade_reasons.append("🔴 RSI過熱(>75)，反轉風險")
+            elif rsi < 40:
+                grade_score += 15
+                grade_reasons.append("✅ RSI低位有上漲空間")
+            elif rsi < 60:
+                grade_score += 10
+                grade_reasons.append("📊 RSI中性區")
+            # 4. 量能配合
+            if vol_ratio > 1.5:
+                grade_score += 15
+                grade_reasons.append("✅ 量能爆發")
+            elif vol_ratio > 1.2:
+                grade_score += 8
+                grade_reasons.append("📊 量能正常")
+            elif vol_ratio < 0.7:
+                grade_score -= 10
+                grade_reasons.append("⚠️ 縮量警示")
+            # 5. 確認 K 線
+            if has_confirmation_candle:
+                grade_score += 15
+                grade_reasons.append("✅ 有確認 K 線")
+        else:  # SHORT
+            if sw_res:
+                dist_to_res = (sw_res[0] - current_price) / current_price * 100
+                if dist_to_res < 0.5:
+                    grade_score += 30
+                    grade_reasons.append("✅ 已測阻力位")
+                elif dist_to_res < 1.5:
+                    grade_score += 20
+                    grade_reasons.append("✅ 接近阻力位")
+                elif dist_to_res < 3:
+                    grade_score += 10
+                    grade_reasons.append("📊 位置可接受")
+                else:
+                    grade_score -= 10
+                    grade_reasons.append("⚠️ 距阻力過遠")
+            ema20 = sig1h.get("e20", current_price)
+            distance_pct = (ema20 - current_price) / ema20 * 100
+            if -1 < distance_pct < 3:
+                grade_score += 15
+                grade_reasons.append("✅ 距EMA20合理")
+            elif distance_pct > 5:
+                grade_score -= 15
+                grade_reasons.append("⚠️ 脫離EMA20過遠（殺低風險）")
+            rsi = sig1h.get("rsi", 50)
+            if rsi < 25:
+                grade_score -= 20
+                grade_reasons.append("🔴 RSI過冷(<25)，反彈風險")
+            elif rsi > 60:
+                grade_score += 15
+                grade_reasons.append("✅ RSI高位有下跌空間")
+            elif rsi > 40:
+                grade_score += 10
+                grade_reasons.append("📊 RSI中性區")
+            if vol_ratio > 1.5:
+                grade_score += 15
+                grade_reasons.append("✅ 量能爆發")
+            elif vol_ratio > 1.2:
+                grade_score += 8
+                grade_reasons.append("📊 量能正常")
+            elif vol_ratio < 0.7:
+                grade_score -= 10
+                grade_reasons.append("⚠️ 縮量警示")
+            if has_confirmation_candle:
+                grade_score += 15
+                grade_reasons.append("✅ 有確認 K 線")
+
+        # 評級
+        if grade_score >= 60:
+            grade, pos_mult, desc = "A", 1.0, "🟢 完美進場時機"
+        elif grade_score >= 40:
+            grade, pos_mult, desc = "B", 0.7, "🟡 良好進場時機"
+        elif grade_score >= 20:
+            grade, pos_mult, desc = "C", 0.4, "🟠 可進場但風險較高"
+        else:
+            grade, pos_mult, desc = "D", 0.0, "🔴 不建議進場（等更好時機）"
+
+        return {
+            "grade": grade,
+            "score": grade_score,
+            "pos_mult": pos_mult,
+            "desc": desc,
+            "reasons": grade_reasons
+        }
+
+    # ⭐ 確認 K 線檢測（避免假突破）
+    def has_confirmation_candle(self, df, direction, ref_level):
+        """檢查最近 1-2 根 K 線是否確認方向"""
+        try:
+            recent = df.tail(3)
+            last = recent.iloc[-1]
+            prev = recent.iloc[-2]
+            o, h, l, c = float(last["open"]), float(last["high"]), float(last["low"]), float(last["close"])
+            po, pc = float(prev["open"]), float(prev["close"])
+            if direction == "LONG":
+                # 看漲確認：陽線收盤且高於前一根
+                if c > o and c > pc and c > ref_level:
+                    return True
+                # 強烈反轉：錘子線在支撐
+                body = abs(c - o)
+                lower_shadow = min(c, o) - l
+                if lower_shadow > body * 2 and c > o:
+                    return True
+            else:
+                if c < o and c < pc and c < ref_level:
+                    return True
+                body = abs(c - o)
+                upper_shadow = h - max(c, o)
+                if upper_shadow > body * 2 and c < o:
+                    return True
+            return False
+        except Exception:
+            return False
+
+    # ⭐ BTC 健康度檢查（避免逆勢開單）
+    def btc_health_check(self, btc_df, btc_ticker):
+        """評估 BTC 當前是否健康，決定是否適合開新單"""
+        try:
+            if btc_df is None or len(btc_df) < 50:
+                return "UNKNOWN", "BTC 數據缺失"
+            chg = float(btc_ticker.get("priceChangePercent", 0)) if btc_ticker else 0
+            rl, regime, adx_v = self.market_regime(btc_df)
+            rsi_v = self.safe_val(self.rsi(btc_df), 50)
+            # BTC 急跌：不開新多
+            if chg < -3:
+                return "BAD_FOR_LONG", "BTC 大跌中 (" + str(round(chg, 1)) + "%)，避開做多"
+            if chg > 3:
+                return "BAD_FOR_SHORT", "BTC 大漲中 (" + str(round(chg, 1)) + "%)，避開做空"
+            # BTC 趨勢確認
+            if regime == "STRONG_BULL":
+                return "GOOD_FOR_LONG", "BTC 強多頭，有利做多"
+            elif regime == "STRONG_BEAR":
+                return "GOOD_FOR_SHORT", "BTC 強空頭，有利做空"
+            elif regime == "RANGING":
+                return "NEUTRAL", "BTC 震盪，謹慎"
+            return "OK", "BTC 狀態正常"
+        except Exception:
+            return "UNKNOWN", "BTC 檢查失敗"
+
+    # ⭐ Smart Stop Loss（多重保護止損）
+    def smart_stop_loss(self, direction, entry, df, atr_v, sw_res, sw_sup,
+                        chandelier_long, chandelier_short, atr_mult=1.5):
+        """
+        智能止損 - 取最寬鬆的保護位
+        """
+        candidates = []
+        labels = []
+        if direction == "LONG":
+            # 1. ATR 止損
+            atr_sl = entry - atr_v * atr_mult
+            candidates.append(atr_sl)
+            labels.append(("ATR", atr_sl))
+            # 2. 最近結構性低點下方
+            if sw_sup:
+                struct_sl = sw_sup[0] * 0.995
+                candidates.append(struct_sl)
+                labels.append(("結構", struct_sl))
+            # 3. Chandelier
+            if chandelier_long:
+                candidates.append(chandelier_long)
+                labels.append(("Chandelier", chandelier_long))
+            # 4. 最近 20 根 K 線最低點
+            recent_low = float(df.tail(20)["low"].min()) * 0.997
+            candidates.append(recent_low)
+            labels.append(("近期低點", recent_low))
+            # 取最寬鬆但合理（不能超過進場價 5%）
+            valid = [c for c in candidates if c < entry and (entry - c) / entry < 0.05]
+            if valid:
+                sl = min(valid)  # 取最寬鬆
+            else:
+                sl = entry * 0.97  # 兜底 3%
+        else:
+            atr_sl = entry + atr_v * atr_mult
+            candidates.append(atr_sl)
+            labels.append(("ATR", atr_sl))
+            if sw_res:
+                struct_sl = sw_res[0] * 1.005
+                candidates.append(struct_sl)
+                labels.append(("結構", struct_sl))
+            if chandelier_short:
+                candidates.append(chandelier_short)
+                labels.append(("Chandelier", chandelier_short))
+            recent_high = float(df.tail(20)["high"].max()) * 1.003
+            candidates.append(recent_high)
+            labels.append(("近期高點", recent_high))
+            valid = [c for c in candidates if c > entry and (c - entry) / entry < 0.05]
+            if valid:
+                sl = max(valid)
+            else:
+                sl = entry * 1.03
+        # 找出實際採用的標籤
+        chosen_label = "智能"
+        for lbl, val in labels:
+            if abs(val - sl) / sl < 0.001:
+                chosen_label = lbl
+                break
+        return round(sl, 4), chosen_label
+
+    # ⭐ 進場理由深度分析（為什麼選這裡）
+    def entry_reasoning(self, direction, sig1h, sig4h, sw_res, sw_sup,
+                         vol_ratio, funding, ls_ratio, fg_val,
+                         has_bos, has_ob, has_fvg, rs_btc, btc_health):
+        """產生詳細的進場理由 + 風險"""
+        pros = []  # 支持理由
+        cons = []  # 風險點
+
+        # === 方向理由 ===
+        if direction == "LONG":
+            # 趨勢
+            if sig1h.get("regime") == "STRONG_BULL":
+                pros.append("🎯 1H 強多頭結構（趨勢明確）")
+            elif sig1h.get("regime") == "BULL":
+                pros.append("📈 1H 多頭結構")
+            if sig4h.get("regime") in ("STRONG_BULL", "BULL"):
+                pros.append("📈 4H 同向確認")
+            elif sig4h.get("regime") in ("STRONG_BEAR", "BEAR"):
+                cons.append("⚠️ 4H 趨勢與 1H 相反")
+
+            # 動能
+            if sig1h.get("adx", 0) >= 30:
+                pros.append("⚡ ADX " + str(int(sig1h["adx"])) + " 趨勢強勁")
+            elif sig1h.get("adx", 0) < 20:
+                cons.append("⚠️ ADX 偏低，趨勢可能轉震盪")
+            if sig1h.get("st_dir") == 1:
+                pros.append("🟢 SuperTrend 看多")
+            if sig1h.get("rsi", 50) < 60 and sig1h.get("rsi", 50) > 40:
+                pros.append("📊 RSI " + str(int(sig1h["rsi"])) + " 中性區（有上漲空間）")
+            elif sig1h.get("rsi", 50) > 75:
+                cons.append("🔴 RSI " + str(int(sig1h["rsi"])) + " 過熱，回調風險")
+
+            # 位置
+            if sw_sup:
+                p = sig1h["price"]
+                dist = (p - sw_sup[0]) / p * 100
+                if dist < 1:
+                    pros.append("🎯 緊鄰支撐位 `" + str(sw_sup[0]) + "`")
+                elif dist > 3:
+                    cons.append("⚠️ 距支撐 " + str(round(dist, 1)) + "%，回調空間大")
+
+            # SMC
+            if has_bos:
+                pros.append("🏗 1H 結構突破上行（BOS）")
+            if has_ob:
+                pros.append("📦 在機構訂單塊（OB）進場區")
+            if has_fvg:
+                pros.append("🕳 在公允價值缺口（FVG）回補區")
+
+            # 量能
+            if vol_ratio >= 1.5:
+                pros.append("🔥 量能爆發 " + str(round(vol_ratio, 1)) + "x（買盤積極）")
+            elif vol_ratio < 0.7:
+                cons.append("📉 量能萎縮（缺乏支撐）")
+
+            # 反向指標（資金費率/多空比）
+            if funding is not None and funding < -0.02:
+                pros.append("🔄 資金費率 " + str(funding) + "% 偏負（空頭擁擠，逆向）")
+            elif funding is not None and funding > 0.08:
+                cons.append("⚠️ 資金費率過高 " + str(funding) + "%（多頭擁擠）")
+            if ls_ratio is not None and ls_ratio < 0.7:
+                pros.append("🔄 多空比 " + str(round(ls_ratio, 2)) + " 散戶看空（逆向）")
+
+            # 情緒
+            if fg_val <= 25:
+                pros.append("😨 極度恐懼區（逆向買點）")
+            elif fg_val >= 75:
+                cons.append("🤑 極度貪婪區（追高風險）")
+
+            # 相對 BTC
+            if rs_btc is not None and rs_btc > 5:
+                pros.append("💪 強於 BTC " + str(round(rs_btc, 1)) + "%（領漲）")
+            elif rs_btc is not None and rs_btc < -5:
+                cons.append("📉 弱於 BTC " + str(abs(round(rs_btc, 1))) + "%（落後）")
+
+            # BTC 健康度
+            if btc_health == "GOOD_FOR_LONG":
+                pros.append("👍 BTC 同步多頭")
+            elif btc_health == "BAD_FOR_LONG":
+                cons.append("🚨 BTC 大跌中，做多風險極高")
+
+        else:  # SHORT
+            if sig1h.get("regime") == "STRONG_BEAR":
+                pros.append("🎯 1H 強空頭結構")
+            elif sig1h.get("regime") == "BEAR":
+                pros.append("📉 1H 空頭結構")
+            if sig4h.get("regime") in ("STRONG_BEAR", "BEAR"):
+                pros.append("📉 4H 同向確認")
+            elif sig4h.get("regime") in ("STRONG_BULL", "BULL"):
+                cons.append("⚠️ 4H 趨勢與 1H 相反")
+            if sig1h.get("adx", 0) >= 30:
+                pros.append("⚡ ADX " + str(int(sig1h["adx"])) + " 趨勢強勁")
+            elif sig1h.get("adx", 0) < 20:
+                cons.append("⚠️ ADX 偏低")
+            if sig1h.get("st_dir") == -1:
+                pros.append("🔴 SuperTrend 看空")
+            if sig1h.get("rsi", 50) > 40 and sig1h.get("rsi", 50) < 60:
+                pros.append("📊 RSI " + str(int(sig1h["rsi"])) + " 中性區")
+            elif sig1h.get("rsi", 50) < 25:
+                cons.append("🔴 RSI 過冷，反彈風險")
+            if sw_res:
+                p = sig1h["price"]
+                dist = (sw_res[0] - p) / p * 100
+                if dist < 1:
+                    pros.append("🎯 緊鄰阻力位 `" + str(sw_res[0]) + "`")
+                elif dist > 3:
+                    cons.append("⚠️ 距阻力 " + str(round(dist, 1)) + "%")
+            if has_bos:
+                pros.append("🏗 1H 結構跌破下行（BOS）")
+            if has_ob:
+                pros.append("📦 在看跌訂單塊區")
+            if has_fvg:
+                pros.append("🕳 在看跌 FVG 區")
+            if vol_ratio >= 1.5:
+                pros.append("💥 量能爆發 " + str(round(vol_ratio, 1)) + "x（賣壓集中）")
+            elif vol_ratio < 0.7:
+                cons.append("📉 量能萎縮")
+            if funding is not None and funding > 0.02:
+                pros.append("🔄 資金費率 " + str(funding) + "% 偏正（多頭擁擠，逆向）")
+            elif funding is not None and funding < -0.08:
+                cons.append("⚠️ 資金費率過負（空頭擁擠）")
+            if ls_ratio is not None and ls_ratio > 2.5:
+                pros.append("🔄 多空比 " + str(round(ls_ratio, 2)) + " 散戶看多（逆向）")
+            if fg_val >= 75:
+                pros.append("🤑 極度貪婪區（逆向賣點）")
+            elif fg_val <= 25:
+                cons.append("😨 極度恐懼區（殺低風險）")
+            if rs_btc is not None and rs_btc < -5:
+                pros.append("📉 弱於 BTC " + str(abs(round(rs_btc, 1))) + "%（領跌）")
+            elif rs_btc is not None and rs_btc > 5:
+                cons.append("💪 強於 BTC，做空風險")
+            if btc_health == "GOOD_FOR_SHORT":
+                pros.append("👍 BTC 同步空頭")
+            elif btc_health == "BAD_FOR_SHORT":
+                cons.append("🚨 BTC 大漲中，做空風險極高")
+
+        return pros, cons
+
     # ⭐ VWAP（成交量加權平均價 - 機構進出場位）
     def vwap(self, df):
         try:
@@ -1571,7 +1950,8 @@ class CryptoAnalyzer:
     def professional_setup(self, sig1h, sig4h, sig15m, df1h, df4h, df_daily,
                             sw_res_1h, sw_sup_1h, sw_res_4h, sw_sup_4h,
                             vol_ratio, funding, ls_ratio, fg_val, current_price,
-                            rs_btc=None, upside_liq=None, downside_liq=None):
+                            rs_btc=None, upside_liq=None, downside_liq=None,
+                            btc_df=None, btc_ticker=None):
         direction = sig1h["direction_en"]
         if direction == "NEUTRAL":
             return None, "信號中性"
@@ -1600,6 +1980,16 @@ class CryptoAnalyzer:
         # 風報比放寬到 1.3
         if sig1h["rr"] < 1.3:
             return None, "風報比不足"
+
+        # ⭐ BTC 健康度檢查（避免逆勢開單）
+        btc_health = "UNKNOWN"
+        btc_health_msg = ""
+        if btc_df is not None and btc_ticker is not None:
+            btc_health, btc_health_msg = self.btc_health_check(btc_df, btc_ticker)
+            if direction == "LONG" and btc_health == "BAD_FOR_LONG":
+                return None, btc_health_msg
+            if direction == "SHORT" and btc_health == "BAD_FOR_SHORT":
+                return None, btc_health_msg
 
         # ===== 評分（基礎 50） =====
         score = 50
@@ -1819,29 +2209,19 @@ class CryptoAnalyzer:
             # 進場：優先看支撐位
             if ref_sup and (p - ref_sup[0]) / p < 0.005:
                 entry = round(p * 0.999, 4)
-                entry_note = "立即進場（已近支撐）"
+                entry_note = "立即進場（已測支撐）"
             elif ref_sup and (p - ref_sup[0]) / p < 0.015:
                 entry = round(ref_sup[0] * 1.002, 4)
-                entry_note = "等回測支撐進場"
+                entry_note = "限價單等回測支撐"
             else:
                 entry = round(p * 0.997, 4)
                 entry_note = "等回調 0.3% 進場"
 
-            # ⭐ 多重止損保護（取最近的安全位）
-            sl_candidates = []
-            # 1. 支撐位下方
-            if ref_sup:
-                sl_candidates.append(ref_sup[0] * 0.997)
-            # 2. 動態 ATR
-            sl_candidates.append(p - ref_atr * atr_mult)
-            # 3. Chandelier
-            if chand_long:
-                sl_candidates.append(chand_long)
-            # 4. 避開流動性區
-            if downside_liq:
-                # 止損放在流動性區下方（避免被獵殺）
-                sl_candidates.append(downside_liq[0] * 0.998)
-            sl = round(max([s for s in sl_candidates if s < p * 0.98] or [p * 0.98]), 4)
+            # ⭐ Smart Stop Loss（多重保護）
+            sl, sl_label = self.smart_stop_loss(
+                "LONG", entry, df1h, ref_atr, sw_res_1h, sw_sup_1h,
+                chand_long, chand_short, atr_mult
+            )
 
             # ⭐ 四段止盈（職業交易員的階梯式）
             risk = entry - sl
@@ -1862,23 +2242,19 @@ class CryptoAnalyzer:
         else:
             if ref_res and (ref_res[0] - p) / p < 0.005:
                 entry = round(p * 1.001, 4)
-                entry_note = "立即進場（已近阻力）"
+                entry_note = "立即進場（已測阻力）"
             elif ref_res and (ref_res[0] - p) / p < 0.015:
                 entry = round(ref_res[0] * 0.998, 4)
-                entry_note = "等反彈阻力進場"
+                entry_note = "限價單等反彈阻力"
             else:
                 entry = round(p * 1.003, 4)
                 entry_note = "等反彈 0.3% 進場"
 
-            sl_candidates = []
-            if ref_res:
-                sl_candidates.append(ref_res[0] * 1.003)
-            sl_candidates.append(p + ref_atr * atr_mult)
-            if chand_short:
-                sl_candidates.append(chand_short)
-            if upside_liq:
-                sl_candidates.append(upside_liq[0] * 1.002)
-            sl = round(min([s for s in sl_candidates if s > p * 1.02] or [p * 1.02]), 4)
+            # ⭐ Smart Stop Loss
+            sl, sl_label = self.smart_stop_loss(
+                "SHORT", entry, df1h, ref_atr, sw_res_1h, sw_sup_1h,
+                chand_long, chand_short, atr_mult
+            )
 
             risk = sl - entry
             tp1 = round(entry - risk * 1.0, 4)
@@ -1921,6 +2297,50 @@ class CryptoAnalyzer:
         else:
             risk_level = "🟠 中高風險"
 
+        # ⭐ 確認 K 線檢測
+        ref_level = entry
+        has_conf = self.has_confirmation_candle(df1h, direction, ref_level)
+
+        # ⭐ 進場品質評分（A/B/C/D）
+        entry_grade = self.entry_quality_grade(
+            direction, p, sig1h, sw_res_1h, sw_sup_1h, vol_ratio, has_conf
+        )
+
+        # 如果是 D 級，直接拒絕
+        if entry_grade["grade"] == "D":
+            return None, "進場時機 D 級（" + entry_grade["desc"] + "）"
+
+        # ⭐ 進場理由深度分析
+        bull_ob_ck, bear_ob_ck = self.find_order_blocks(df1h)
+        bull_fvg_ck, bear_fvg_ck = self.find_fvg(df1h)
+        bos_dir_ck, _ = self.detect_bos(df1h)
+        has_bos = (direction == "LONG" and bos_dir_ck == "BULL_BOS") or (direction == "SHORT" and bos_dir_ck == "BEAR_BOS")
+        has_ob = False
+        if direction == "LONG":
+            for ob in bull_ob_ck:
+                if ob["low"] <= p <= ob["high"] * 1.005:
+                    has_ob = True
+                    break
+        else:
+            for ob in bear_ob_ck:
+                if ob["low"] * 0.995 <= p <= ob["high"]:
+                    has_ob = True
+                    break
+        has_fvg = False
+        relevant_fvg_list = bull_fvg_ck if direction == "LONG" else bear_fvg_ck
+        for fvg in relevant_fvg_list:
+            if fvg["bottom"] <= p <= fvg["top"]:
+                has_fvg = True
+                break
+        pros, cons = self.entry_reasoning(
+            direction, sig1h, sig4h, sw_res_1h, sw_sup_1h,
+            vol_ratio, funding, ls_ratio, fg_val,
+            has_bos, has_ob, has_fvg, rs_btc, btc_health
+        )
+
+        # 倉位根據進場品質調整
+        adjusted_position = round(position * entry_grade["pos_mult"], 1)
+
         plan = {
             "score": round(score, 1),
             "win_rate": win_rate,
@@ -1931,10 +2351,20 @@ class CryptoAnalyzer:
             "tp1": tp1, "tp2": tp2, "tp3": tp3, "tp4": tp4,
             "sl": sl,
             "rr1": rr1, "rr2": rr2, "rr3": rr3, "rr4": rr4,
-            "position": position,
+            "position": adjusted_position,
+            "original_position": position,
             "factors": factors, "risks": risks,
             "atr_label": atr_label,
             "chand_exit": chand_long if direction == "LONG" else chand_short,
+            "sl_label": sl_label,
+            "entry_grade": entry_grade["grade"],
+            "entry_grade_desc": entry_grade["desc"],
+            "entry_grade_score": entry_grade["score"],
+            "entry_grade_reasons": entry_grade["reasons"],
+            "has_confirmation": has_conf,
+            "pros": pros,
+            "cons": cons,
+            "btc_health_msg": btc_health_msg,
         }
         return score, plan
 
@@ -2071,13 +2501,17 @@ class CryptoAnalyzer:
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 ok_count = 0
                 stride = 6
-                # ⭐ BTC 數據緩存（用於相關性計算）
+                # ⭐ BTC 數據緩存（用於相關性 + 健康度檢查）
                 btc_df_cache = None
+                btc_ticker_cache = None
                 for idx, sym in enumerate(self.SCAN_POOL):
                     if sym == "BTC/USDT":
                         r1h = results[idx*stride+1]
+                        r_ticker = results[idx*stride+3]
                         if not isinstance(r1h, Exception):
                             btc_df_cache = r1h
+                        if not isinstance(r_ticker, Exception):
+                            btc_ticker_cache = r_ticker
                         break
                 for i, sym in enumerate(self.SCAN_POOL):
                     df15m = results[i*stride]
@@ -2153,7 +2587,8 @@ class CryptoAnalyzer:
                             sig1h, sig4h, sig15m, df1h, df4h, df_d,
                             sw_res_1h, sw_sup_1h, sw_res_4h, sw_sup_4h,
                             vol_ratio, funding, ls_ratio, fg_val, current_price,
-                            rs_btc=rs_btc, upside_liq=upside_liq, downside_liq=downside_liq
+                            rs_btc=rs_btc, upside_liq=upside_liq, downside_liq=downside_liq,
+                            btc_df=btc_df_cache, btc_ticker=btc_ticker_cache
                         )
                         if result[0] is None:
                             continue
@@ -2237,8 +2672,11 @@ class CryptoAnalyzer:
                 r += medal + " *" + c["symbol"] + "* — " + p["risk_level"] + "\n"
                 r += "━━━━━━━━━━━━━━━━━━\n"
                 r += "🎯 *方向：" + sig["direction"] + "*\n"
-                r += "💯 信心評分 `" + str(p["score"]) + "/100`\n"
-                r += "📊 預估勝率 `" + str(p["win_rate"]) + "%`\n"
+                # ⭐ 進場品質徽章（最重要）
+                grade = p.get("entry_grade", "?")
+                grade_emoji = {"A": "🅰️", "B": "🅱️", "C": "🆑", "D": "🆖"}.get(grade, "❓")
+                r += "🏆 進場品質 " + grade_emoji + " *" + grade + " 級* — " + p.get("entry_grade_desc", "") + "\n"
+                r += "💯 信心評分 `" + str(p["score"]) + "/100` | 📊 勝率 `" + str(p["win_rate"]) + "%`\n"
                 r += "⏱ 持有時間 *" + p["timeframe"] + "*\n"
                 r += "💰 即時價 `" + str(c["current_price"]) + "` ("
                 r += "📈" if c["chg"] >= 0 else "📉"
@@ -2330,17 +2768,29 @@ class CryptoAnalyzer:
                 r += "💰 止盈2 `" + str(p["tp2"]) + "` (1:" + str(p["rr2"]) + ") 平35%\n"
                 r += "🏆 止盈3 `" + str(p["tp3"]) + "` (1:" + str(p["rr3"]) + ") 平25%\n"
                 r += "🚀 止盈4 `" + str(p["tp4"]) + "` (1:" + str(p["rr4"]) + ") 移動止損15%\n"
-                r += "🛑 止損 `" + str(p["sl"]) + "` _(動態 " + p.get("atr_label", "") + ")_\n"
+                r += "🛑 止損 `" + str(p["sl"]) + "` _(" + p.get("sl_label", "智能") + " + " + p.get("atr_label", "") + ")_\n"
                 if p.get("chand_exit"):
                     r += "🔗 移動止損參考 `" + str(p["chand_exit"]) + "` _(Chandelier)_\n"
-                r += "💼 倉位 `" + str(p["position"]) + "%` 資金\n\n"
+                # 倉位調整提醒
+                orig_pos = p.get("original_position", p["position"])
+                if p["position"] < orig_pos:
+                    r += "💼 倉位 `" + str(p["position"]) + "%` 資金"
+                    r += " _(原 " + str(orig_pos) + "% × 品質係數)_\n"
+                else:
+                    r += "💼 倉位 `" + str(p["position"]) + "%` 資金\n"
+                if not p.get("has_confirmation"):
+                    r += "⏳ _建議等下根 K 線收盤確認後再進場_\n"
+                r += "\n"
             r += "━━━━━━━━━━━━━━━━━━━━\n"
-            r += "💡 *交易守則*\n"
+            r += "💡 *資深交易員守則*\n"
+            r += "• 🅰️ A 級進場：正常倉位，跟單\n"
+            r += "• 🅱️ B 級進場：減半倉位\n"
+            r += "• 🆑 C 級進場：1/3 倉，謹慎\n"
+            r += "• 🆖 D 級進場：已自動過濾\n"
             r += "• 嚴守止損，絕不抗單\n"
             r += "• 四段止盈：25/35/25/15%\n"
-            r += "• 信心 ≥75 中線部位較大\n"
-            r += "• 信心 55-75 短線快進快出\n"
             r += "• 單筆風險 ≤1-2% 總資金\n"
+            r += "• 連虧 2 次該幣種暫停 24h\n"
             # ⭐ 時段警示
             avoid_warnings = self.should_avoid_trading()
             if avoid_warnings:
@@ -2353,48 +2803,113 @@ class CryptoAnalyzer:
             return "❌ 黑潮船長失敗：" + str(e)
 
     async def detect_movers(self):
+        """市場異動掃描 — 資深分析師版"""
         try:
-            now = datetime.now(timezone.utc).strftime("%m-%d %H:%M:%S UTC")
+            now = datetime.now(timezone.utc).strftime("%m-%d %H:%M UTC")
             async with aiohttp.ClientSession() as session:
-                tasks = [self.fetch_ticker(session, s) for s in self.SCAN_POOL]
-                tickers = await asyncio.gather(*tasks, return_exceptions=True)
+                tasks = []
+                for s in self.SCAN_POOL:
+                    tasks.append(self.fetch_ticker(session, s))
+                    tasks.append(self.fetch_ohlcv(session, s, "1h", 50))
+                results = await asyncio.gather(*tasks, return_exceptions=True)
             data = []
             for i, sym in enumerate(self.SCAN_POOL):
-                if isinstance(tickers[i], Exception):
+                t = results[i*2]
+                df = results[i*2+1]
+                if isinstance(t, Exception):
                     continue
-                t = tickers[i]
                 try:
                     chg = float(t.get("priceChangePercent", 0))
                     vol = float(t.get("quoteVolume", 0)) / 1e6
                     price = float(t.get("lastPrice", 0))
                     if price == 0:
                         continue
-                    data.append({"symbol": sym, "chg": chg, "vol": vol, "price": price})
+                    # 計算 1H 波動率（量能異常檢測）
+                    vol_ratio = 1.0
+                    rsi_v = 50
+                    if not isinstance(df, Exception):
+                        try:
+                            avg_vol = float(df["volume"].rolling(20).mean().iloc[-1])
+                            curr_vol = float(df["volume"].iloc[-1])
+                            vol_ratio = curr_vol / avg_vol if avg_vol > 0 else 1
+                            rsi_v = self.safe_val(self.rsi(df), 50)
+                        except Exception:
+                            pass
+                    data.append({
+                        "symbol": sym.replace("/USDT", ""),
+                        "chg": chg, "vol": vol, "price": price,
+                        "vol_ratio": vol_ratio, "rsi": round(rsi_v, 0)
+                    })
                 except Exception:
                     continue
             if not data:
                 return "❌ 無法取得任何數據"
+
             top_gainers = sorted(data, key=lambda x: x["chg"], reverse=True)[:5]
             top_losers = sorted(data, key=lambda x: x["chg"])[:5]
             top_volume = sorted(data, key=lambda x: x["vol"], reverse=True)[:5]
-            r = "⚡ *市場異動掃描*\n"
-            r += "🕒 " + now + "\n"
-            r += "━━━━━━━━━━━━━━━━━━━━\n"
-            r += "📡 已掃描 " + str(len(data)) + "/" + str(len(self.SCAN_POOL)) + "\n\n"
+            top_vol_surge = sorted([d for d in data if d["vol_ratio"] > 1.5],
+                                    key=lambda x: x["vol_ratio"], reverse=True)[:5]
+
+            r = "⚡ *市場異動掃描* | " + now + "\n"
+            r += "━━━━━━━━━━━━━━━\n"
+            r += "📡 掃描 " + str(len(data)) + "/" + str(len(self.SCAN_POOL)) + "\n\n"
+
             r += "*🚀 漲幅榜 TOP 5*\n"
             for c in top_gainers:
-                r += "• " + c["symbol"] + " `" + str(round(c["price"], 4)) + "` 📈 `+" + str(round(c["chg"], 2)) + "%`\n"
+                vr = " 量爆`" + str(round(c["vol_ratio"], 1)) + "x`" if c["vol_ratio"] > 1.5 else ""
+                rsi_warn = " ⚠️過熱" if c["rsi"] > 75 else ""
+                r += "• *" + c["symbol"] + "* `" + str(round(c["price"], 4)) + "` 📈`+" + str(round(c["chg"], 2)) + "%`" + vr + rsi_warn + "\n"
+
             r += "\n*📉 跌幅榜 TOP 5*\n"
             for c in top_losers:
-                r += "• " + c["symbol"] + " `" + str(round(c["price"], 4)) + "` 📉 `" + str(round(c["chg"], 2)) + "%`\n"
+                vr = " 量爆`" + str(round(c["vol_ratio"], 1)) + "x`" if c["vol_ratio"] > 1.5 else ""
+                rsi_warn = " ⚠️過冷" if c["rsi"] < 25 else ""
+                r += "• *" + c["symbol"] + "* `" + str(round(c["price"], 4)) + "` 📉`" + str(round(c["chg"], 2)) + "%`" + vr + rsi_warn + "\n"
+
+            if top_vol_surge:
+                r += "\n*🔥 量能爆發 TOP 5*\n"
+                for c in top_vol_surge:
+                    icon = "📈" if c["chg"] >= 0 else "📉"
+                    r += "• *" + c["symbol"] + "* " + icon + "`" + str(round(c["chg"], 1)) + "%`"
+                    r += " 量`" + str(round(c["vol_ratio"], 1)) + "x` 24H`$" + str(round(c["vol"], 0)) + "M`\n"
+
             r += "\n*💵 成交量 TOP 5*\n"
             for c in top_volume:
-                r += "• " + c["symbol"] + " `$" + str(round(c["vol"], 1)) + "M`\n"
-            r += "\n━━━━━━━━━━━━━━━━━━━━\n"
-            r += "💡 異常波動可能伴隨新聞或大戶動向"
+                icon = "📈" if c["chg"] >= 0 else "📉"
+                r += "• *" + c["symbol"] + "* `$" + str(round(c["vol"], 0)) + "M` " + icon + "`" + str(round(c["chg"], 1)) + "%`\n"
+
+            # 專業分析
+            avg_chg = sum(d["chg"] for d in data) / len(data)
+            gainers_count = sum(1 for d in data if d["chg"] > 0)
+            losers_count = sum(1 for d in data if d["chg"] < 0)
+            vol_surge_count = sum(1 for d in data if d["vol_ratio"] > 1.5)
+
+            r += "━━━━━━━━━━━━━━━\n"
+            r += "📊 *市場概況*\n"
+            r += "• 平均漲跌 `" + str(round(avg_chg, 2)) + "%`\n"
+            r += "• 上漲/下跌 `" + str(gainers_count) + "/" + str(losers_count) + "`\n"
+            r += "• 異常爆量幣種 `" + str(vol_surge_count) + "` 個\n\n"
+
+            r += "💡 *分析師判讀*\n"
+            if avg_chg > 3 and vol_surge_count >= 5:
+                r += "🚀 強勁多頭擴散，山寨輪動\n• 策略：追蹤量爆且未過熱的領漲幣"
+            elif avg_chg > 1.5 and gainers_count > losers_count * 2:
+                r += "📈 多頭氣氛濃厚\n• 策略：選擇漲幅+量能榜重疊幣種"
+            elif avg_chg < -3 and vol_surge_count >= 5:
+                r += "💥 恐慌性下跌\n• 策略：避免抄底，等止跌訊號"
+            elif avg_chg < -1.5 and losers_count > gainers_count * 2:
+                r += "📉 整體偏弱\n• 策略：減倉觀望，反彈做空"
+            elif vol_surge_count >= 8:
+                r += "⚡ 多幣種異動，可能有大事件\n• 注意關注新聞動向"
+            elif abs(avg_chg) < 0.5:
+                r += "↔️ 市場膠著，方向未明\n• 策略：減少交易，等突破"
+            else:
+                r += "⚪ 漲跌互現，輪動為主\n• 策略：個股操作，避免重倉"
             return r
         except Exception as e:
             return "❌ 失敗：" + str(e)
+
 
     async def kline_sr_analysis(self, symbol):
         try:
@@ -2453,127 +2968,243 @@ class CryptoAnalyzer:
             return "❌ 失敗：" + str(e)
 
     async def get_market_sentiment(self):
+        """市場情緒總覽 — 資深分析師版"""
         try:
             async with aiohttp.ClientSession() as session:
                 results = await asyncio.gather(
                     self.fetch_news(session),
                     self.fetch_fear_greed(session),
                     self.fetch_global(session),
-                    self.fetch_ohlcv(session, "BTC/USDT", "1h", 100),
-                    self.fetch_ohlcv(session, "ETH/USDT", "1h", 100),
                     self.fetch_ticker(session, "BTC/USDT"),
                     self.fetch_ticker(session, "ETH/USDT"),
+                    self.fetch_ticker(session, "SOL/USDT"),
+                    self.fetch_ohlcv(session, "BTC/USDT", "1h", 100),
+                    self.fetch_ohlcv(session, "ETH/USDT", "1h", 100),
+                    self.fetch_ohlcv(session, "SOL/USDT", "1h", 100),
                     self.ecosystem_pulse(session),
                     self.fetch_btc_dominance(session),
                     self.fetch_crypto_events(session),
+                    self.fetch_funding_rate(session, "BTC/USDT"),
+                    self.fetch_long_short_ratio(session, "BTC/USDT"),
                     return_exceptions=True
                 )
-                # 經濟事件不需要網路
                 econ_events = self.upcoming_econ_events()
+
             news = results[0] if not isinstance(results[0], Exception) else []
             fgl, fgv = results[1] if not isinstance(results[1], Exception) else ("⚪", 50)
             global_data = results[2] if not isinstance(results[2], Exception) else None
-            btc_df = results[3] if not isinstance(results[3], Exception) else None
-            eth_df = results[4] if not isinstance(results[4], Exception) else None
-            btc_ticker = results[5] if not isinstance(results[5], Exception) else {}
-            eth_ticker = results[6] if not isinstance(results[6], Exception) else {}
-            eco_pulse = results[7] if not isinstance(results[7], Exception) else None
-            btc_dom_data = results[8] if not isinstance(results[8], Exception) else (None, None)
-            crypto_events = results[9] if not isinstance(results[9], Exception) else []
-            score, label, items = self.sentiment(news)
-            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-            r = "🌐 *加密市場情緒總覽*\n"
-            r += "🕒 " + now + "\n"
-            r += "━━━━━━━━━━━━━━━━━━━━\n\n"
-            r += "*━━ 🌡 市場溫度 ━━*\n"
-            r += "• 恐懼貪婪 " + fgl + "\n"
-            r += "• 新聞情緒 " + label + " (`" + str(round(score, 2)) + "`)\n"
-            # ⭐ BTC 主導性
-            if btc_dom_data and btc_dom_data[0] is not None:
-                btc_d, btc_d_label = btc_dom_data
-                r += "• BTC.D `" + str(btc_d) + "%` " + btc_d_label + "\n"
-            if global_data:
-                r += "• 總市值 `$" + str(global_data["total_mcap"]) + "B`"
-                ch = global_data["mcap_change"]
-                r += " " + ("📈" if ch >= 0 else "📉") + " `" + str(ch) + "%`\n"
-                r += "• BTC `" + str(global_data["btc_dom"]) + "%` | ETH `" + str(global_data["eth_dom"]) + "%`\n"
-            r += "\n*━━ 📊 龍頭即時走勢 ━━*\n"
-            if btc_df is not None and btc_ticker:
-                rl, _, _ = self.market_regime(btc_df)
-                p = float(btc_ticker.get("lastPrice", btc_df["close"].iloc[-1]))
+            btc_ticker = results[3] if not isinstance(results[3], Exception) else {}
+            eth_ticker = results[4] if not isinstance(results[4], Exception) else {}
+            sol_ticker = results[5] if not isinstance(results[5], Exception) else {}
+            btc_df = results[6] if not isinstance(results[6], Exception) else None
+            eth_df = results[7] if not isinstance(results[7], Exception) else None
+            sol_df = results[8] if not isinstance(results[8], Exception) else None
+            eco_pulse = results[9] if not isinstance(results[9], Exception) else None
+            btc_dom_data = results[10] if not isinstance(results[10], Exception) else (None, None)
+            crypto_events = results[11] if not isinstance(results[11], Exception) else []
+            btc_funding = results[12] if not isinstance(results[12], Exception) else None
+            btc_ls = results[13] if not isinstance(results[13], Exception) else None
+
+            sent_score, sent_label, news_items = self.sentiment(news)
+            now = datetime.now(timezone.utc).strftime("%m-%d %H:%M UTC")
+
+            # ─── 關鍵指標儀表板（一眼看全局）───
+            r = "🌐 *加密市場全景報告* | " + now + "\n"
+            r += "━━━━━━━━━━━━━━━\n"
+
+            # 多空力道判斷（綜合多個指標）
+            bull_score = 0
+            bear_score = 0
+            if fgv >= 60: bull_score += 1
+            elif fgv <= 40: bear_score += 1
+            if sent_score > 0.2: bull_score += 1
+            elif sent_score < -0.2: bear_score += 1
+            if global_data and global_data["mcap_change"] > 1: bull_score += 1
+            elif global_data and global_data["mcap_change"] < -1: bear_score += 1
+            if btc_ticker:
                 bchg = float(btc_ticker.get("priceChangePercent", 0))
-                ic = "📈" if bchg >= 0 else "📉"
-                r += "• BTC `" + str(round(p, 2)) + "` " + ic + " `" + str(round(bchg, 2)) + "%` " + rl + "\n"
-            if eth_df is not None and eth_ticker:
-                rl, _, _ = self.market_regime(eth_df)
-                p = float(eth_ticker.get("lastPrice", eth_df["close"].iloc[-1]))
-                echg = float(eth_ticker.get("priceChangePercent", 0))
-                ic = "📈" if echg >= 0 else "📉"
-                r += "• ETH `" + str(round(p, 2)) + "` " + ic + " `" + str(round(echg, 2)) + "%` " + rl + "\n"
-            r += "\n*━━ 📰 即時新聞時事 (中文) ━━*\n"
-            if items:
-                for i, item in enumerate(items[:8], 1):
-                    time_ago = self.format_published(item.get("published", ""))
-                    line = item["emoji"] + " " + item["title"]
-                    extras = []
-                    if item.get("source"):
-                        extras.append(item["source"])
-                    if time_ago:
-                        extras.append(time_ago)
-                    if extras:
-                        line += " _(" + " · ".join(extras) + ")_"
-                    r += str(i) + ". " + line + "\n"
+                if bchg > 2: bull_score += 1
+                elif bchg < -2: bear_score += 1
+            if btc_dom_data and btc_dom_data[0]:
+                if btc_dom_data[0] > 58: bear_score += 1  # BTC.D 高對山寨不利
+                elif btc_dom_data[0] < 50: bull_score += 1
+
+            if bull_score >= bear_score + 2:
+                mkt_signal = "🟢 *偏多*"
+            elif bear_score >= bull_score + 2:
+                mkt_signal = "🔴 *偏空*"
             else:
-                r += "_新聞 API 暫時無法連線_\n"
-            # ⭐ ETH/SOL 生態脈動
+                mkt_signal = "🟡 *中性*"
+
+            r += "📊 綜合判讀 " + mkt_signal + " (" + str(bull_score) + "多 vs " + str(bear_score) + "空)\n"
+
+            # ─── 關鍵數據（密集顯示）───
+            r += "*━━ 📈 關鍵數據 ━━*\n"
+            r += "• 恐懼貪婪 " + fgl + "\n"
+            r += "• 新聞情緒 " + sent_label + " `" + str(round(sent_score, 2)) + "`\n"
+            if global_data:
+                ch = global_data["mcap_change"]
+                ch_icon = "📈" if ch >= 0 else "📉"
+                r += "• 總市值 `$" + str(global_data["total_mcap"]) + "B` " + ch_icon + " `" + str(ch) + "%`\n"
+                r += "• BTC占比 `" + str(global_data["btc_dom"]) + "%` | ETH占比 `" + str(global_data["eth_dom"]) + "%`\n"
+            if btc_dom_data and btc_dom_data[0] is not None:
+                r += "• BTC.D 走勢 " + btc_dom_data[1] + "\n"
+            if btc_funding is not None:
+                fund_emoji = "🔴" if btc_funding > 0.05 else ("🟢" if btc_funding < -0.05 else "⚪")
+                r += "• BTC 資金費率 " + fund_emoji + " `" + str(btc_funding) + "%`\n"
+            if btc_ls is not None:
+                ls_emoji = "🟠 多擁擠" if btc_ls > 2 else ("🔵 空擁擠" if btc_ls < 0.5 else "⚪")
+                r += "• BTC 多空比 `" + str(round(btc_ls, 2)) + "` " + ls_emoji + "\n"
+
+            # ─── 主流幣快速評分（最重要區塊）───
+            r += "*━━ 🚀 主流幣即時評分 ━━*\n"
+
+            def score_coin(symbol, ticker, df):
+                if df is None or not ticker:
+                    return None
+                try:
+                    p = float(ticker.get("lastPrice", df["close"].iloc[-1]))
+                    chg = float(ticker.get("priceChangePercent", 0))
+                    rsi_v = self.safe_val(self.rsi(df), 50)
+                    adx_v = self.safe_val(self.adx(df), 20)
+                    rl, regime, _ = self.market_regime(df)
+                    # 評分（簡化版）
+                    score = 50
+                    if regime == "STRONG_BULL": score += 20
+                    elif regime == "BULL": score += 10
+                    elif regime == "STRONG_BEAR": score -= 20
+                    elif regime == "BEAR": score -= 10
+                    if adx_v >= 30: score += 5 if regime in ("STRONG_BULL", "BULL") else -5
+                    if rsi_v >= 70: score -= 5
+                    elif rsi_v <= 30: score += 5
+                    score = max(0, min(100, score))
+                    # 評級
+                    if score >= 70: rating = "🟢 強"
+                    elif score >= 55: rating = "🟡 偏多"
+                    elif score >= 45: rating = "⚪ 中性"
+                    elif score >= 30: rating = "🟠 偏空"
+                    else: rating = "🔴 弱"
+                    icon = "📈" if chg >= 0 else "📉"
+                    return {
+                        "price": p, "chg": chg, "rsi": round(rsi_v, 0),
+                        "adx": round(adx_v, 0), "regime": rl,
+                        "score": score, "rating": rating, "icon": icon
+                    }
+                except Exception:
+                    return None
+
+            for sym, ticker, df, label in [
+                ("BTC", btc_ticker, btc_df, "BTC"),
+                ("ETH", eth_ticker, eth_df, "ETH"),
+                ("SOL", sol_ticker, sol_df, "SOL"),
+            ]:
+                s = score_coin(sym, ticker, df)
+                if s:
+                    r += "• *" + label + "* `" + str(round(s["price"], 2)) + "` " + s["icon"]
+                    r += " `" + str(round(s["chg"], 1)) + "%`\n"
+                    r += "  評級 " + s["rating"] + " `" + str(s["score"]) + "/100`"
+                    r += " | RSI`" + str(int(s["rsi"])) + "` ADX`" + str(int(s["adx"])) + "`\n"
+
+            # ─── ETH/SOL 生態（密集顯示）───
             if eco_pulse:
-                r += "\n*━━ 🌐 ETH/SOL 生態脈動 ━━*\n"
-                eth_emoji = "📈" if eco_pulse["eth_avg"] >= 0 else "📉"
-                sol_emoji = "📈" if eco_pulse["sol_avg"] >= 0 else "📉"
-                r += "• ETH 生態平均 " + eth_emoji + " `" + str(eco_pulse["eth_avg"]) + "%`\n"
+                eth_avg = eco_pulse["eth_avg"]
+                sol_avg = eco_pulse["sol_avg"]
+                eth_emoji = "📈" if eth_avg >= 0 else "📉"
+                sol_emoji = "📈" if sol_avg >= 0 else "📉"
+                r += "*━━ 🌐 生態脈動 ━━*\n"
+                r += "• ETH 系 " + eth_emoji + " `" + str(eth_avg) + "%`"
                 if eco_pulse["eth_coins"]:
                     top_eth = sorted(eco_pulse["eth_coins"], key=lambda x: x[1], reverse=True)[:3]
-                    r += "  領漲：" + " · ".join(s + " `" + str(round(c, 1)) + "%`" for s, c in top_eth) + "\n"
-                r += "• SOL 生態平均 " + sol_emoji + " `" + str(eco_pulse["sol_avg"]) + "%`\n"
+                    r += " 領漲：" + " ".join(s + "`" + str(round(c, 1)) + "%`" for s, c in top_eth)
+                r += "\n"
+                r += "• SOL 系 " + sol_emoji + " `" + str(sol_avg) + "%`"
                 if eco_pulse["sol_coins"]:
                     top_sol = sorted(eco_pulse["sol_coins"], key=lambda x: x[1], reverse=True)[:3]
-                    r += "  領漲：" + " · ".join(s + " `" + str(round(c, 1)) + "%`" for s, c in top_sol) + "\n"
-            # ⭐ 重要經濟事件倒數
+                    r += " 領漲：" + " ".join(s + "`" + str(round(c, 1)) + "%`" for s, c in top_sol)
+                r += "\n"
+
+            # ─── 經濟事件（緊湊版）───
             if econ_events:
-                r += "\n*━━ 📅 重要經濟事件倒數 ━━*\n"
+                r += "*━━ 📅 重要事件倒數 ━━*\n"
                 for ev in econ_events[:3]:
-                    r += "• " + ev["impact"] + " *" + ev["name"] + "*\n"
-                    r += "  " + ev["date"] + " (" + str(ev["days"]) + " 天後)\n"
-            # ⭐ 加密幣事件日曆
+                    r += "• " + ev["impact"] + " " + ev["name"] + " — `" + ev["date"] + "` (" + str(ev["days"]) + "天)\n"
+
+            # ─── 加密幣事件日曆 ───
             if crypto_events:
-                r += "\n*━━ 🗓 加密幣事件日曆 ━━*\n"
-                for ev in crypto_events[:6]:
-                    title = ev.get("title", "")[:60]
+                r += "*━━ 🗓 加密幣事件 ━━*\n"
+                for ev in crypto_events[:5]:
+                    title = ev.get("title", "")[:50]
                     date = ev.get("date", "")
-                    source = ev.get("source", "")
-                    type_emoji = "🔓" if ev.get("type") == "Unlock" else ("🚀" if ev.get("type") == "Listing" else ("⚙️" if ev.get("type") == "Upgrade" else "📌"))
-                    r += "• " + type_emoji + " " + title + "\n"
+                    typ = ev.get("type", "")
+                    type_emoji = "🔓" if typ == "Unlock" else ("🚀" if typ == "Listing" else ("⚙️" if typ == "Upgrade" else "📌"))
+                    r += "• " + type_emoji + " " + title
                     if date:
-                        r += "  _" + date + " · " + source + "_\n"
-            r += "\n━━━━━━━━━━━━━━━━━━━━\n"
-            r += "💡 *市場判讀*\n"
-            if fgv <= 25 and score < -0.2:
-                r += "🟢 市場恐慌，逢低分批佈局\n策略：價值幣種定投"
-            elif fgv >= 75 and score > 0.2:
-                r += "🔴 市場過熱，獲利了結\n策略：減倉至 30%"
-            elif fgv <= 40 and score > 0:
-                r += "🔵 偏冷靜，關注突破信號\n策略：突破關鍵阻力跟進"
-            elif fgv >= 60 and score < 0:
-                r += "🟡 情緒分歧，謹慎觀察\n策略：減倉觀望"
+                        r += " `" + date + "`"
+                    r += "\n"
+
+            # ─── 即時新聞 ───
+            if news_items:
+                r += "*━━ 📰 即時新聞 ━━*\n"
+                for i, item in enumerate(news_items[:6], 1):
+                    time_ago = self.format_published(item.get("published", ""))
+                    line = item["emoji"] + " " + item["title"][:70]
+                    if time_ago:
+                        line += " _(" + time_ago + ")_"
+                    r += str(i) + ". " + line + "\n"
+
+            # ─── 今日交易建議（核心）───
+            r += "━━━━━━━━━━━━━━━\n"
+            r += "💡 *今日交易建議*\n"
+
+            if bull_score >= 4 and bear_score <= 1:
+                r += "🟢 強烈偏多訊號\n"
+                r += "• 策略：順勢做多，加碼領漲幣\n"
+                r += "• 重點：強多頭幣種突破回踩進場\n"
+                r += "• 風險：避免追高過熱幣（RSI>75）"
+            elif bull_score >= 3 and bull_score > bear_score:
+                r += "📗 偏多但謹慎\n"
+                r += "• 策略：選擇性做多，分批進場\n"
+                r += "• 重點：等回調支撐再進場\n"
+                r += "• 警示：留意 BTC 走勢是否轉弱"
+            elif bear_score >= 4 and bull_score <= 1:
+                r += "🔴 強烈偏空訊號\n"
+                r += "• 策略：做空反彈位，避免抄底\n"
+                r += "• 重點：強空頭幣種反彈進場做空\n"
+                r += "• 風險：避免在恐慌底部追空"
+            elif bear_score >= 3 and bear_score > bull_score:
+                r += "📕 偏空謹慎\n"
+                r += "• 策略：減倉觀望，反彈做空\n"
+                r += "• 重點：嚴守止損，控制倉位\n"
+                r += "• 警示：跌破關鍵支撐加速下跌"
+            elif fgv <= 25:
+                r += "🔵 極度恐懼區（潛在機會）\n"
+                r += "• 策略：分批佈局價值幣\n"
+                r += "• 重點：BTC/ETH 定投策略\n"
+                r += "• 警示：底部可能延後"
+            elif fgv >= 75:
+                r += "🟠 極度貪婪區（危險訊號）\n"
+                r += "• 策略：減倉至 30%，鎖利為主\n"
+                r += "• 重點：嚴格止盈，不追高\n"
+                r += "• 警示：隨時可能回調"
             else:
-                r += "⚪ 中性盤整\n策略：等突破關鍵價位"
+                r += "⚪ 中性盤整\n"
+                r += "• 策略：等突破訊號，減少交易\n"
+                r += "• 重點：嚴選黑潮船長高分機會\n"
+                r += "• 警示：盤整易雙巴，注意止損"
+
+            # 時段警示
+            avoid_warnings = self.should_avoid_trading()
+            if avoid_warnings:
+                r += "\n⚠️ " + " | ".join(avoid_warnings)
+
             return r
         except Exception as e:
             return "❌ 失敗：" + str(e)
 
     async def trend_watch(self, symbols):
+        """市場趨勢總覽 — 資深分析師版"""
         try:
-            now = datetime.now(timezone.utc).strftime("%m-%d %H:%M:%S UTC")
+            now = datetime.now(timezone.utc).strftime("%m-%d %H:%M UTC")
             async with aiohttp.ClientSession() as session:
                 tasks = []
                 for s in symbols:
@@ -2604,8 +3235,8 @@ class CryptoAnalyzer:
                     regime in ("STRONG_BEAR", "BEAR") and regime_4h in ("STRONG_BEAR", "BEAR")
                 )
                 info = {
-                    "symbol": sym, "price": price, "chg": chg,
-                    "adx": round(adx_v), "rsi": round(rsi_v, 1), "vol": round(vol, 1),
+                    "symbol": sym.replace("/USDT", ""), "price": price, "chg": chg,
+                    "adx": round(adx_v), "rsi": round(rsi_v, 0), "vol": round(vol, 1),
                     "aligned": aligned, "regime_4h": rl_4h
                 }
                 if regime == "STRONG_BULL":
@@ -2618,64 +3249,87 @@ class CryptoAnalyzer:
                     bear.append(info)
                 else:
                     ranging.append(info)
-            r = "🔭 *市場趨勢總覽 — 即時*\n"
-            r += "🕒 " + now + "\n"
-            r += "━━━━━━━━━━━━━━━━━━━━\n"
-            r += "📡 已掃描 " + str(ok_count) + "/" + str(len(symbols)) + " 幣種\n"
+
+            r = "🔭 *市場趨勢總覽* | " + now + "\n"
+            r += "━━━━━━━━━━━━━━━\n"
+            # 多空力道
             bulls_total = len(strong_bull) * 2 + len(bull)
             bears_total = len(strong_bear) * 2 + len(bear)
             total_w = bulls_total + bears_total + 1
             bull_pct = round(bulls_total / total_w * 100)
             bear_pct = round(bears_total / total_w * 100)
-            r += "⚖️ 多空力道 `多 " + str(bull_pct) + "% / 空 " + str(bear_pct) + "%`\n\n"
+            r += "📡 掃描 " + str(ok_count) + " | 多空力道 多`" + str(bull_pct) + "%` vs 空`" + str(bear_pct) + "%`\n"
+            if ok_count == 0:
+                return r + "❌ 抓取全部失敗"
 
             def fmt(coin):
-                aligned_mark = " ✅" if coin["aligned"] else ""
-                line = "• *" + coin["symbol"] + "*" + aligned_mark + " `" + str(round(coin["price"], 4)) + "` "
-                line += ("📈" if coin["chg"] >= 0 else "📉") + " `" + str(round(coin["chg"], 1)) + "%`\n"
-                line += "  ADX:`" + str(coin["adx"]) + "` RSI:`" + str(coin["rsi"]) + "` 量:`$" + str(coin["vol"]) + "M`"
-                if not coin["aligned"]:
-                    line += " | 4H " + coin["regime_4h"]
+                aligned_mark = "✅" if coin["aligned"] else "⚠️"
+                line = "• " + aligned_mark + " *" + coin["symbol"] + "* `" + str(round(coin["price"], 4)) + "` "
+                line += ("📈" if coin["chg"] >= 0 else "📉") + "`" + str(round(coin["chg"], 1)) + "%`"
+                line += " ADX`" + str(coin["adx"]) + "` RSI`" + str(int(coin["rsi"])) + "`"
+                if coin["vol"] >= 100:
+                    line += " 量`$" + str(int(coin["vol"])) + "M`"
                 line += "\n"
                 return line
+
             if strong_bull:
-                r += "🚀 *強多頭* (" + str(len(strong_bull)) + ")\n"
+                r += "*🚀 強多頭 (" + str(len(strong_bull)) + ")*\n"
                 for c in sorted(strong_bull, key=lambda x: x["adx"], reverse=True):
                     r += fmt(c)
-                r += "\n"
             if bull:
-                r += "📈 *多頭* (" + str(len(bull)) + ")\n"
+                r += "*📈 多頭 (" + str(len(bull)) + ")*\n"
                 for c in sorted(bull, key=lambda x: x["chg"], reverse=True):
                     r += fmt(c)
-                r += "\n"
             if ranging:
-                r += "↔️ *震盪* (" + str(len(ranging)) + ")\n"
-                for c in ranging[:8]:
+                r += "*↔️ 震盪 (" + str(len(ranging)) + ")*\n"
+                shown = sorted(ranging, key=lambda x: abs(x["chg"]), reverse=True)[:6]
+                for c in shown:
                     r += fmt(c)
-                if len(ranging) > 8:
-                    r += "  ... 還有 " + str(len(ranging) - 8) + " 個\n"
-                r += "\n"
+                if len(ranging) > 6:
+                    r += "  _還有 " + str(len(ranging) - 6) + " 個震盪中_\n"
             if bear:
-                r += "📉 *空頭* (" + str(len(bear)) + ")\n"
+                r += "*📉 空頭 (" + str(len(bear)) + ")*\n"
                 for c in sorted(bear, key=lambda x: x["chg"]):
                     r += fmt(c)
-                r += "\n"
             if strong_bear:
-                r += "💥 *強空頭* (" + str(len(strong_bear)) + ")\n"
+                r += "*💥 強空頭 (" + str(len(strong_bear)) + ")*\n"
                 for c in sorted(strong_bear, key=lambda x: x["adx"], reverse=True):
                     r += fmt(c)
-                r += "\n"
-            r += "━━━━━━━━━━━━━━━━━━━━\n"
-            r += "✅ = 1H+4H週期一致（高勝率）\n\n"
+
+            r += "━━━━━━━━━━━━━━━\n"
+            r += "✅ 1H+4H 一致 (高勝率) | ⚠️ 週期分歧\n\n"
             r += "💡 *操作建議*\n"
+            # 找出最強和最弱
+            best_long = None
+            best_short = None
+            if strong_bull:
+                best_long = sorted(strong_bull, key=lambda x: (-int(x["aligned"]), -x["adx"]))[0]
+            elif bull:
+                best_long = sorted(bull, key=lambda x: (-int(x["aligned"]), -x["chg"]))[0]
+            if strong_bear:
+                best_short = sorted(strong_bear, key=lambda x: (-int(x["aligned"]), -x["adx"]))[0]
+            elif bear:
+                best_short = sorted(bear, key=lambda x: (-int(x["aligned"]), x["chg"]))[0]
+
             if bull_pct > 60:
-                r += "🟢 市場偏強：優先做多強多頭\n   進場：回調支撐"
+                r += "🟢 市場偏多，優先做多\n"
+                if best_long:
+                    r += "🎯 首選做多：*" + best_long["symbol"] + "* (ADX " + str(best_long["adx"]) + ")\n"
+                r += "   進場：回調至支撐位"
             elif bear_pct > 60:
-                r += "🔴 市場偏弱：優先做空強空頭\n   進場：反彈阻力"
+                r += "🔴 市場偏空，優先做空\n"
+                if best_short:
+                    r += "🎯 首選做空：*" + best_short["symbol"] + "* (ADX " + str(best_short["adx"]) + ")\n"
+                r += "   進場：反彈至阻力位"
             elif len(ranging) > (len(strong_bull) + len(strong_bear) + len(bull) + len(bear)):
-                r += "↔️ 市場盤整：減少交易\n   策略：高拋低吸或觀望"
+                r += "↔️ 市場盤整，減少交易\n"
+                r += "   策略：等待方向明確再進場"
             else:
-                r += "⚪ 多空分歧：嚴選 ✅ 標的\n   只做多週期一致"
+                r += "⚪ 多空分歧，嚴選 ✅ 標的\n"
+                if best_long:
+                    r += "   做多備選：*" + best_long["symbol"] + "*\n"
+                if best_short:
+                    r += "   做空備選：*" + best_short["symbol"] + "*"
             return r
         except Exception as e:
             return "❌ 失敗：" + str(e)

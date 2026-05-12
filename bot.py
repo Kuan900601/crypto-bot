@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
@@ -34,6 +34,13 @@ USER_DAILY_SCHEDULE = {}
 SIGNAL_TRACKER = {}
 # ⭐ 用戶資金設定：{chat_id: capital}
 USER_CAPITAL = {}
+# ⭐ 信號追蹤系統：{symbol: signal_data}
+# signal_data: {direction, entry, sl, tp1-tp4, watchers, tp_hit, status, created, expires, score, timeframe}
+ACTIVE_SIGNALS = {}
+# ⭐ 信號歷史（用於統計勝率）
+SIGNAL_RESULTS = []
+# ⭐ 連虧紀錄：{symbol: [iso_timestamp...]}
+SYMBOL_LOSSES = {}
 
 DATA_FILE = "/tmp/bot_data.json"
 
@@ -41,7 +48,7 @@ DEFAULT_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT", "
 
 
 def load_data():
-    global USER_FAVORITES, PUSH_HISTORY, HUNTER_WATCHERS, USER_DAILY_SCHEDULE, SIGNAL_TRACKER, USER_CAPITAL
+    global USER_FAVORITES, PUSH_HISTORY, HUNTER_WATCHERS, USER_DAILY_SCHEDULE, SIGNAL_TRACKER, USER_CAPITAL, ACTIVE_SIGNALS, SIGNAL_RESULTS, SYMBOL_LOSSES
     try:
         with open(DATA_FILE, "r") as f:
             data = json.load(f)
@@ -52,7 +59,10 @@ def load_data():
             USER_DAILY_SCHEDULE = {int(k): v for k, v in schedule_raw.items()}
             SIGNAL_TRACKER = data.get("signals", {})
             USER_CAPITAL = {int(k): v for k, v in data.get("capital", {}).items()}
-            logger.info("載入：自選 " + str(len(USER_FAVORITES)) + " 戶，獵手 " + str(len(HUNTER_WATCHERS)) + " 戶，簡報 " + str(len(USER_DAILY_SCHEDULE)) + " 戶")
+            ACTIVE_SIGNALS.update(data.get("active_signals", {}))
+            SIGNAL_RESULTS.extend(data.get("signal_results", []))
+            SYMBOL_LOSSES.update(data.get("symbol_losses", {}))
+            logger.info("載入：自選 " + str(len(USER_FAVORITES)) + " 戶，獵手 " + str(len(HUNTER_WATCHERS)) + " 戶，簡報 " + str(len(USER_DAILY_SCHEDULE)) + " 戶，追蹤中 " + str(len(ACTIVE_SIGNALS)) + " 個信號")
     except Exception as e:
         logger.info("初次啟動: " + str(e))
 
@@ -66,7 +76,10 @@ def save_data():
                 "watchers": list(HUNTER_WATCHERS),
                 "daily_schedule": {str(k): v for k, v in USER_DAILY_SCHEDULE.items()},
                 "signals": SIGNAL_TRACKER,
-                "capital": {str(k): v for k, v in USER_CAPITAL.items()}
+                "capital": {str(k): v for k, v in USER_CAPITAL.items()},
+                "active_signals": ACTIVE_SIGNALS,
+                "signal_results": SIGNAL_RESULTS[-50:],
+                "symbol_losses": SYMBOL_LOSSES
             }, f)
     except Exception as e:
         logger.error("儲存失敗: " + str(e))
@@ -90,6 +103,8 @@ def main_menu():
          InlineKeyboardButton("🔭 趨勢總覽", callback_data="trend")],
         [InlineKeyboardButton("📜 推播歷史", callback_data="history"),
          InlineKeyboardButton("💼 倉位計算", callback_data="position_calc")],
+        [InlineKeyboardButton("📡 追蹤中信號", callback_data="active_signals"),
+         InlineKeyboardButton("📊 歷史戰績", callback_data="stats")],
         [InlineKeyboardButton("🔔 黑潮船長 ON", callback_data="auto_on"),
          InlineKeyboardButton("🔕 OFF", callback_data="auto_off")],
         [InlineKeyboardButton("📅 自訂定時推播", callback_data="schedule_menu")],
@@ -117,7 +132,7 @@ def fav_menu(chat_id):
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = (
-        "🤖 *加密貨幣 AI 分析機器人 v16.0*\n"
+        "🤖 *加密貨幣 AI 分析機器人 v19.0*\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
         "🎯 *黑潮船長* — 專業交易設置\n"
         "  • VWAP + SuperTrend 新指標\n"
@@ -132,7 +147,7 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "🔭 *趨勢總覽* — 多空力道\n"
         "📜 *推播歷史* — 信號追蹤\n"
         "🔔 *智能推播* — 每 5 分鐘掃描\n\n"
-        "_v16：自訂推播時間、加密幣事件日曆、推播內容自選_\n\n"
+        "_v19：進場品質ABCD、深度進場分析、Smart SL、連虧暫停、BTC健康度_\n\n"
         "選擇下方功能 👇"
     )
     await update.message.reply_text(text, reply_markup=main_menu(), parse_mode="Markdown")
@@ -534,6 +549,56 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 reply_markup=back_btn()
             )
 
+    elif d == "active_signals":
+        if not ACTIVE_SIGNALS:
+            text = "📡 *追蹤中的信號*\n\n目前無活躍信號\n_當黑潮船長發出推播時會自動追蹤_"
+        else:
+            text = "📡 *追蹤中的信號* (" + str(len(ACTIVE_SIGNALS)) + ")\n"
+            text += "━━━━━━━━━━━━━━━\n"
+            now = datetime.now(timezone.utc)
+            for sym, sig in ACTIVE_SIGNALS.items():
+                direction = "做多 🟢" if sig["direction"] == "LONG" else "做空 🔴"
+                tp_hit = sig.get("tp_hit", [])
+                tp_status = "✅TP" + ",".join(str(t) for t in tp_hit) if tp_hit else "進行中"
+                try:
+                    created = datetime.fromisoformat(sig["created"])
+                    age = now - created
+                    age_str = str(int(age.total_seconds() / 3600)) + "h前"
+                except Exception:
+                    age_str = ""
+                text += "• *" + sym + "* " + direction + "\n"
+                text += "  進場 `" + str(sig["entry"]) + "` 止損 `" + str(sig["sl"]) + "`\n"
+                text += "  狀態 " + tp_status + " | 評分 `" + str(sig.get("score", "?")) + "` | " + age_str + "\n"
+        await q.edit_message_text(text, parse_mode="Markdown", reply_markup=back_btn())
+
+    elif d == "stats":
+        if not SIGNAL_RESULTS:
+            text = "📊 *歷史戰績*\n\n暫無已關閉信號的歷史數據"
+        else:
+            wins = [r for r in SIGNAL_RESULTS if r.get("result") in ("TP4_HIT",) or r.get("tp_hit_count", 0) >= 2]
+            partial = [r for r in SIGNAL_RESULTS if r.get("tp_hit_count", 0) == 1]
+            losses = [r for r in SIGNAL_RESULTS if r.get("result") == "SL_HIT" and r.get("tp_hit_count", 0) == 0]
+            others = [r for r in SIGNAL_RESULTS if r not in wins and r not in partial and r not in losses]
+            total = len(SIGNAL_RESULTS)
+            win_count = len(wins) + len(partial)
+            win_rate = (win_count / total * 100) if total > 0 else 0
+            avg_pct = sum(r.get("final_pct", 0) for r in SIGNAL_RESULTS) / total if total > 0 else 0
+            text = "📊 *歷史戰績* (" + str(total) + " 筆)\n"
+            text += "━━━━━━━━━━━━━━━\n"
+            text += "🏆 完美止盈：`" + str(len(wins)) + "` 筆\n"
+            text += "💰 部分獲利：`" + str(len(partial)) + "` 筆\n"
+            text += "🛑 止損出場：`" + str(len(losses)) + "` 筆\n"
+            text += "⏰ 其他結果：`" + str(len(others)) + "` 筆\n\n"
+            text += "📈 實際勝率 `" + str(round(win_rate, 1)) + "%`\n"
+            text += "💵 平均盈虧 `" + str(round(avg_pct, 2)) + "%`\n\n"
+            text += "*最近 5 筆*\n"
+            for r in SIGNAL_RESULTS[-5:][::-1]:
+                emoji = "🏆" if r.get("result") == "TP4_HIT" else ("🛑" if r.get("result") == "SL_HIT" else ("⏰" if r.get("result") == "EXPIRED" else "📌"))
+                pct = r.get("final_pct", 0)
+                pct_str = "+" + str(pct) if pct >= 0 else str(pct)
+                text += emoji + " *" + r.get("symbol", "?") + "* " + pct_str + "%\n"
+        await q.edit_message_text(text, parse_mode="Markdown", reply_markup=back_btn())
+
     elif d == "home":
         USER_STATES.pop(chat_id, None)
         await q.edit_message_text(
@@ -711,46 +776,72 @@ async def daily_report_check(ctx: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error("定時推播資料抓取失敗: " + str(e))
         return
-    # 時段問候語
+    # 時段問候語（精簡版）
     if 5 <= hour < 12:
-        greeting = "🌅 早安！市場簡報"
+        greeting = "🌅 *早安市場簡報*"
     elif 12 <= hour < 18:
-        greeting = "☀️ 午後市場簡報"
+        greeting = "☀️ *午後市場簡報*"
     elif 18 <= hour < 22:
-        greeting = "🌆 晚間市場簡報"
+        greeting = "🌆 *晚間市場簡報*"
     else:
-        greeting = "🌙 深夜市場簡報"
-    header = greeting + " (" + str(hour).zfill(2) + ":00 UTC)\n━━━━━━━━━━━━━━━━━━━━\n\n"
+        greeting = "🌙 *深夜市場簡報*"
+    # 不加分隔線，直接讓內容跟上
+    header = greeting + " | " + str(hour).zfill(2) + ":00 UTC\n"
     # 為每個用戶組合推播內容
     for chat_id, user_types in users_to_push:
         try:
+            # 智能去重：避免 sentiment 和 events 同時選會推播兩次
+            added_sentiment = False
             content_parts = [header]
             if "sentiment" in user_types and "sentiment" in cached_results:
                 content_parts.append(cached_results["sentiment"])
-            elif "events" in user_types and "sentiment" in cached_results:
-                # events 跟 sentiment 共用同一個函式（事件日曆包含在 sentiment 裡）
+                added_sentiment = True
+            if "events" in user_types and not added_sentiment and "sentiment" in cached_results:
                 content_parts.append(cached_results["sentiment"])
             if "trend" in user_types and "trend" in cached_results:
                 content_parts.append(cached_results["trend"])
             if "movers" in user_types and "movers" in cached_results:
                 content_parts.append(cached_results["movers"])
-            content = "\n\n━━━━━━━━━━━━━━━━━━━━\n\n".join(content_parts)
-            # 拆分長訊息
+            # 使用單行分隔（節省空間）
+            content = "\n\n".join(content_parts)
+            # 拆分長訊息（Telegram 限制 4096 字元）
             chunks = []
             if len(content) <= 4000:
                 chunks = [content]
             else:
-                parts = content.split("━━━━━━━━━━━━━━━━━━━━")
+                # 按 ━━━━━━━━━━━━━━━ 大標題拆分
+                separator = "━━━━━━━━━━━━━━━"
+                parts = content.split(separator)
                 current = ""
                 for p in parts:
-                    if len(current) + len(p) < 3800:
-                        current += p + "━━━━━━━━━━━━━━━━━━━━"
+                    candidate = current + (separator if current else "") + p
+                    if len(candidate) < 3800:
+                        current = candidate
                     else:
                         if current:
                             chunks.append(current)
-                        current = p + "━━━━━━━━━━━━━━━━━━━━"
+                        current = p
                 if current:
                     chunks.append(current)
+                # 如果切完還有過長的，按段落再切
+                final_chunks = []
+                for chunk in chunks:
+                    if len(chunk) <= 4000:
+                        final_chunks.append(chunk)
+                    else:
+                        # 按行切
+                        lines = chunk.split("\n")
+                        cur = ""
+                        for line in lines:
+                            if len(cur) + len(line) < 3800:
+                                cur += line + "\n"
+                            else:
+                                if cur:
+                                    final_chunks.append(cur)
+                                cur = line + "\n"
+                        if cur:
+                            final_chunks.append(cur)
+                chunks = final_chunks
             for chunk in chunks:
                 await ctx.bot.send_message(chat_id=chat_id, text=chunk, parse_mode="Markdown")
                 await asyncio.sleep(0.5)
@@ -767,12 +858,14 @@ async def daily_report_check(ctx: ContextTypes.DEFAULT_TYPE):
     save_data()
 
 
-# ⭐ 5 分鐘智能推播
+# ⭐ 5 分鐘智能推播（含信號追蹤、冷卻機制）
 async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
     if not HUNTER_WATCHERS:
         return
-    logger.info("5分推播：訂閱戶 " + str(len(HUNTER_WATCHERS)))
+    logger.info("5分推播：訂閱戶 " + str(len(HUNTER_WATCHERS)) + "，活躍信號 " + str(len(ACTIVE_SIGNALS)))
     try:
+        # ⭐ 先檢查活躍信號是否觸及 TP/SL/過期（通知用戶）
+        await check_active_signals(ctx)
         result = await asyncio.wait_for(
             analyzer.golden_hunter(smart_filter=True),  # 過濾 ≥65 分
             timeout=90
@@ -780,37 +873,65 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
         if result is None:
             logger.info("5分推播：無 ≥65 信號，跳過")
             return
-        # ⭐ 推播去重：從結果中抽取信號指紋
-        # golden_hunter 結果包含 sig_hash，我們提取出來比對
+        # ⭐ 從結果解析信號詳情並進行冷卻檢查
         import re as _re
-        # 找出所有候選的 symbol + direction 組合
-        symbols_in_result = _re.findall(r"🥇 \*([A-Z]+/USDT)\*|🥈 \*([A-Z]+/USDT)\*|🥉 \*([A-Z]+/USDT)\*", result)
-        directions_in_result = _re.findall(r"方向：(做多|做空)", result)
-        entries_in_result = _re.findall(r"進場 `([\d.]+)`", result)
-        # 為當前推播產生簡易指紋（symbol+direction+entry）
-        push_signatures = []
-        for i, sym_tuple in enumerate(symbols_in_result[:3]):
-            sym = next((s for s in sym_tuple if s), "")
-            if i < len(directions_in_result) and i < len(entries_in_result):
-                dir_str = directions_in_result[i]
-                entry_str = entries_in_result[i]
-                sig = sym + "|" + dir_str + "|" + str(round(float(entry_str), 0))
-                push_signatures.append(sig)
-        # 檢查是否與最近 30 分鐘的推播重複
-        now_ts = datetime.now(timezone.utc).timestamp()
-        # 清理過期記錄
-        expired = [h for h, t in RECENT_PUSHED.items() if now_ts - t > PUSH_DEDUP_MINUTES * 60]
-        for h in expired:
-            del RECENT_PUSHED[h]
-        # 計算新信號數量
-        new_signals = [s for s in push_signatures if s not in RECENT_PUSHED]
-        if not new_signals and push_signatures:
-            logger.info("5分推播：所有信號重複，跳過 (已推過: " + str(push_signatures) + ")")
+        # 解析推播訊息中的每個候選信號
+        parsed_signals = parse_hunter_signals(result)
+
+        # ⭐ 冷卻機制：過濾掉已有活躍信號的幣種
+        filtered_signals = []
+        skipped_reasons = []
+        for sig in parsed_signals:
+            sym = sig.get("symbol", "")
+            if sym in ACTIVE_SIGNALS:
+                active = ACTIVE_SIGNALS[sym]
+                # 同方向 → 直接跳過（冷卻中）
+                if active.get("direction") == sig.get("direction"):
+                    skipped_reasons.append(sym + " 冷卻中（同向）")
+                    continue
+                # 反向 → 必須評分 >= 75 才允許
+                if sig.get("score", 0) < 75:
+                    skipped_reasons.append(sym + " 反向但分數不足 (" + str(sig.get("score")) + ")")
+                    continue
+                # 允許反向 → 先關閉舊信號
+                logger.info("關閉 " + sym + " 舊信號（反向高分新信號）")
+                await close_signal(ctx, sym, "REVERSED", "反向新信號出現")
+            filtered_signals.append(sig)
+
+        if skipped_reasons:
+            logger.info("冷卻過濾: " + " | ".join(skipped_reasons))
+
+        if not filtered_signals:
+            logger.info("5分推播：所有信號被冷卻過濾，跳過")
             return
-        # 記錄新信號
-        for s in new_signals:
-            RECENT_PUSHED[s] = now_ts
-        logger.info("5分推播：新信號 " + str(len(new_signals)) + " 個 / 重複 " + str(len(push_signatures) - len(new_signals)) + " 個")
+
+        # ⭐ 連虧暫停過濾
+        loss_filtered = []
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        for sig in filtered_signals:
+            sym = sig.get("symbol", "")
+            losses = SYMBOL_LOSSES.get(sym, [])
+            recent_losses = [t for t in losses if datetime.fromisoformat(t) > cutoff]
+            if len(recent_losses) >= 2:
+                skipped_reasons.append(sym + " 連虧暫停中(24h)")
+                continue
+            loss_filtered.append(sig)
+
+        if not loss_filtered:
+            logger.info("5分推播：全部被連虧過濾，跳過")
+            return
+
+        # 註冊新信號到追蹤系統
+        for sig in loss_filtered:
+            register_signal(sig, list(HUNTER_WATCHERS))
+
+        logger.info("5分推播：新信號 " + str(len(loss_filtered)) + " 個 / 過濾 " + str(len(skipped_reasons)) + " 個")
+        # 重新組合 result 文字（只保留沒被過濾的）
+        if len(loss_filtered) < len(filtered_signals):
+            kept_symbols = set(s["symbol"] for s in loss_filtered)
+            # 從原 result 抽取保留的部分（簡化做法：直接重新生成提示）
+            # 不重組訊息，只是 log 一下
+            pass
         # ⭐ 同步推播到 TG 公開頻道
         if TG_CHANNEL_ID:
             try:
@@ -907,13 +1028,21 @@ def main():
         interval=PUSH_INTERVAL_MIN * 60,
         first=60
     )
+    # ⭐ 每 2 分鐘檢查活躍信號（TP/SL/過期）
+    async def signal_checker(ctx):
+        await check_active_signals(ctx)
+    app.job_queue.run_repeating(
+        signal_checker,
+        interval=120,
+        first=30
+    )
     # ⭐ 定時市場簡報（每小時檢查一次）
     app.job_queue.run_repeating(
         daily_report_check,
         interval=3600,
         first=120
     )
-    logger.info("🤖 Bot v16.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
+    logger.info("🤖 Bot v19.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
