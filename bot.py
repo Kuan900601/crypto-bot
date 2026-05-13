@@ -13,6 +13,29 @@ from analyzer import CryptoAnalyzer
 # ⭐ 推播間隔：5 分鐘
 PUSH_INTERVAL_MIN = 5
 
+# ⭐ BingX 連結產生器
+def bingx_trade_url(symbol, direction):
+    """
+    產生 BingX 交易頁面深層連結
+    symbol: BTC/USDT 格式
+    direction: LONG / SHORT
+    """
+    pair = symbol.replace("/", "-")  # BingX 用 BTC-USDT
+    # BingX 永續合約交易頁
+    base = "https://bingx.com/zh-tw/perpetual/" + pair
+    return base
+
+def bingx_swap_url(symbol):
+    """BingX 永續合約頁面"""
+    pair = symbol.replace("/", "-")
+    return "https://bingx.com/zh-tw/perpetual/" + pair
+
+def bingx_spot_url(symbol):
+    """BingX 現貨頁面"""
+    pair = symbol.replace("/", "_")
+    return "https://bingx.com/zh-tw/spot/" + pair
+
+
 # ⭐ TG 公開頻道 ID（例如 @kuroshio_alpha，在 Railway 設環境變數 TG_CHANNEL_ID）
 import os as _os
 TG_CHANNEL_ID = _os.environ.get("TG_CHANNEL_ID", "")
@@ -87,27 +110,31 @@ def save_data():
 
 def main_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎯 黑潮船長 (專業設置)", callback_data="hunter")],
-        [InlineKeyboardButton("⭐ 今日為你挑選 (TOP 1)", callback_data="todays_pick")],
-        [InlineKeyboardButton("⚡ 異動掃描", callback_data="movers"),
-         InlineKeyboardButton("🌐 市場情緒", callback_data="sentiment")],
-        [InlineKeyboardButton("🚀 BTC", callback_data="a_BTC/USDT"),
-         InlineKeyboardButton("🚀 ETH", callback_data="a_ETH/USDT"),
-         InlineKeyboardButton("🚀 SOL", callback_data="a_SOL/USDT")],
-        [InlineKeyboardButton("🚀 BNB", callback_data="a_BNB/USDT"),
-         InlineKeyboardButton("🚀 XRP", callback_data="a_XRP/USDT"),
-         InlineKeyboardButton("🚀 DOGE", callback_data="a_DOGE/USDT")],
-        [InlineKeyboardButton("⭐ 我的自選", callback_data="favorites"),
-         InlineKeyboardButton("🔍 自訂幣種", callback_data="custom")],
-        [InlineKeyboardButton("📊 多週期 K 線位", callback_data="kline"),
-         InlineKeyboardButton("🔭 趨勢總覽", callback_data="trend")],
-        [InlineKeyboardButton("📜 推播歷史", callback_data="history"),
-         InlineKeyboardButton("💼 倉位計算", callback_data="position_calc")],
-        [InlineKeyboardButton("📡 追蹤中信號", callback_data="active_signals"),
-         InlineKeyboardButton("📊 歷史戰績", callback_data="stats")],
-        [InlineKeyboardButton("🔔 黑潮船長 ON", callback_data="auto_on"),
+        # 第一排：核心功能（最常用）
+        [InlineKeyboardButton("🌊 黑潮船長 (即時掃描)", callback_data="hunter")],
+        [InlineKeyboardButton("⭐ 今日為你挑選 TOP 1", callback_data="todays_pick")],
+        # 第二排：自動化
+        [InlineKeyboardButton("🔔 黑潮船長推播 ON", callback_data="auto_on"),
          InlineKeyboardButton("🔕 OFF", callback_data="auto_off")],
         [InlineKeyboardButton("📅 自訂定時推播", callback_data="schedule_menu")],
+        # 第三排：信號管理
+        [InlineKeyboardButton("📡 追蹤中信號", callback_data="active_signals"),
+         InlineKeyboardButton("📊 歷史戰績", callback_data="stats")],
+        # 第四排：個別分析
+        [InlineKeyboardButton("⚡ 異動掃描", callback_data="movers"),
+         InlineKeyboardButton("🌐 市場情緒", callback_data="sentiment")],
+        [InlineKeyboardButton("🔭 趨勢總覽", callback_data="trend"),
+         InlineKeyboardButton("📊 多週期分析", callback_data="multi_tf")],
+        # 第五排：快速幣種
+        [InlineKeyboardButton("BTC", callback_data="a_BTC"),
+         InlineKeyboardButton("ETH", callback_data="a_ETH"),
+         InlineKeyboardButton("SOL", callback_data="a_SOL"),
+         InlineKeyboardButton("BNB", callback_data="a_BNB")],
+        # 第六排：工具
+        [InlineKeyboardButton("⭐ 我的自選", callback_data="favorites"),
+         InlineKeyboardButton("🔍 自訂幣種", callback_data="custom")],
+        [InlineKeyboardButton("💼 倉位計算", callback_data="position_calc"),
+         InlineKeyboardButton("📜 推播歷史", callback_data="history")],
     ])
 
 
@@ -131,25 +158,18 @@ def fav_menu(chat_id):
 
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    user_name = update.effective_user.first_name or "朋友"
     text = (
-        "👋 *" + user_name + "，歡迎回來*\n"
+        "🌊 *黑潮策略 — 加密貨幣 AI 分析助理*\n"
         "━━━━━━━━━━━━━━━\n"
-        "我是 *黑潮策略 Bot*，你的專屬交易助理\n\n"
-        "*🌊 我可以為你做什麼*\n"
-        "• 24 小時掃描 30 個主流幣\n"
-        "• 給你 *A/B/C 級進場機會*\n"
-        "• 明確告訴你掛限價還是市價\n"
-        "• 全程追蹤你的信號，逐點通知\n"
-        "• BTC 大幅波動時主動警告\n"
-        "• 帶你管理倉位與風險\n\n"
-        "*🎯 推薦使用流程*\n"
-        "1️⃣ 開啟「黑潮船長推播」接收信號\n"
-        "2️⃣ 開啟「定時市場簡報」掌握全局\n"
-        "3️⃣ 用「倉位計算」算好下單金額\n"
-        "4️⃣ 跟單後讓我幫你追蹤\n\n"
-        "_⚠️ 加密貨幣風險極高，所有建議僅供參考_\n"
-        "_⚠️ 嚴守止損是你最重要的工具_"
+        "我會 24 小時幫你掃描市場，找出 *高勝率交易機會*\n"
+        "全程追蹤每筆信號，即時通知關鍵價位\n\n"
+        "*🎯 v23 升級*\n"
+        "• 多週期嚴格共振過濾\n"
+        "• 紐約倫敦時段加權\n"
+        "• 黑天鵝事件自動暫停\n"
+        "• 反指標訊號自動拒絕\n"
+        "• 異常波動全面保護\n\n"
+        "_⚠️ 加密貨幣風險極高，建議僅供參考_"
     )
     await update.message.reply_text(text, reply_markup=main_menu(), parse_mode="Markdown")
 
@@ -553,10 +573,12 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif d == "active_signals":
         if not ACTIVE_SIGNALS:
             text = "📡 *追蹤中的信號*\n\n目前無活躍信號\n_當黑潮船長發出推播時會自動追蹤_"
+            await q.edit_message_text(text, parse_mode="Markdown", reply_markup=back_btn())
         else:
             text = "📡 *追蹤中的信號* (" + str(len(ACTIVE_SIGNALS)) + ")\n"
             text += "━━━━━━━━━━━━━━━\n"
             now = datetime.now(timezone.utc)
+            kb_rows = []
             for sym, sig in ACTIVE_SIGNALS.items():
                 direction = "做多 🟢" if sig["direction"] == "LONG" else "做空 🔴"
                 tp_hit = sig.get("tp_hit", [])
@@ -567,10 +589,16 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     age_str = str(int(age.total_seconds() / 3600)) + "h前"
                 except Exception:
                     age_str = ""
-                text += "• *" + sym + "* " + direction + "\n"
+                sym_short = sym.replace("/USDT", "")
+                text += "• *" + sym_short + "* " + direction + "\n"
                 text += "  進場 `" + str(sig["entry"]) + "` 止損 `" + str(sig["sl"]) + "`\n"
                 text += "  狀態 " + tp_status + " | 評分 `" + str(sig.get("score", "?")) + "` | " + age_str + "\n"
-        await q.edit_message_text(text, parse_mode="Markdown", reply_markup=back_btn())
+                kb_rows.append([
+                    InlineKeyboardButton("📱 " + sym_short + " 開 BingX", url=bingx_swap_url(sym)),
+                    InlineKeyboardButton("📋 參數", callback_data="copy_" + sym.replace("/", "_"))
+                ])
+            kb_rows.append([InlineKeyboardButton("🏠 返回主選單", callback_data="home")])
+            await q.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb_rows))
 
     elif d == "stats":
         if not SIGNAL_RESULTS:
@@ -599,6 +627,50 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 pct_str = "+" + str(pct) if pct >= 0 else str(pct)
                 text += emoji + " *" + r.get("symbol", "?") + "* " + pct_str + "%\n"
         await q.edit_message_text(text, parse_mode="Markdown", reply_markup=back_btn())
+
+    elif d.startswith("copy_"):
+        sym = d[5:].replace("_", "/")
+        if sym not in ACTIVE_SIGNALS:
+            await q.answer("⚠️ 此信號已過期或已關閉", show_alert=True)
+            return
+        sig = ACTIVE_SIGNALS[sym]
+        sym_short = sym.replace("/USDT", "")
+        direction_zh = "做多/Long" if sig["direction"] == "LONG" else "做空/Short"
+
+        msg = "📋 *" + sym_short + " 下單參數*\n"
+        msg += "━━━━━━━━━━━━━━━\n"
+        msg += "請在 BingX 中設定以下參數：\n\n"
+        msg += "🔸 *交易對*：`" + sym.replace("/", "-") + "`\n"
+        msg += "🔸 *方向*：" + direction_zh + "\n"
+        msg += "🔸 *進場價*：`" + str(sig["entry"]) + "`\n"
+        msg += "🔸 *止損價*：`" + str(sig["sl"]) + "`\n\n"
+        msg += "*📍 階梯止盈設定*\n"
+        msg += "TP1：`" + str(sig["tp1"]) + "` 平 25%\n"
+        if sig.get("tp2", 0) > 0:
+            msg += "TP2：`" + str(sig["tp2"]) + "` 平 35%\n"
+        if sig.get("tp3", 0) > 0:
+            msg += "TP3：`" + str(sig["tp3"]) + "` 平 25%\n"
+        if sig.get("tp4", 0) > 0:
+            msg += "TP4：`" + str(sig["tp4"]) + "` 平 15%\n"
+        msg += "\n*💡 BingX 設定步驟*\n"
+        msg += "1️⃣ 開啟 BingX 該幣交易頁\n"
+        msg += "2️⃣ 選擇 *合約* → 設定槓桿\n"
+        if sig.get("order_type") == "LIMIT":
+            msg += "3️⃣ 選擇 *限價* → 填入進場價\n"
+        else:
+            msg += "3️⃣ 選擇 *市價* 即可\n"
+        msg += "4️⃣ 下單時勾選 *止損/止盈*\n"
+        msg += "5️⃣ 分別填入上方 TP/SL 數值\n\n"
+        msg += "_長按上方的價格可以直接複製_\n"
+        msg += "_確認後回到 TG 讓我幫你追蹤_"
+
+        # 加入返回按鈕和 BingX 連結
+        url = bingx_swap_url(sym)
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📱 開啟 BingX " + sym_short, url=url)],
+            [InlineKeyboardButton("🔙 返回", callback_data="home")]
+        ])
+        await q.edit_message_text(msg, parse_mode="Markdown", reply_markup=kb)
 
     elif d == "home":
         USER_STATES.pop(chat_id, None)
@@ -951,18 +1023,41 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error("頻道推播失敗: " + str(e))
 
+        # ⭐ 為主推播產生 BingX 一鍵下單按鈕（TOP 3 信號）
+        keyboard_rows = []
+        for sig in loss_filtered[:3]:
+            sym = sig.get("symbol", "")
+            direction_zh = "做多" if sig.get("direction") == "LONG" else "做空"
+            sym_short = sym.replace("/USDT", "")
+            # 按鈕 1：跳轉 BingX 永續
+            url = bingx_swap_url(sym)
+            keyboard_rows.append([
+                InlineKeyboardButton(
+                    "📱 " + sym_short + " " + direction_zh + " — 開啟 BingX",
+                    url=url
+                )
+            ])
+            # 按鈕 2：複製下單參數
+            keyboard_rows.append([
+                InlineKeyboardButton(
+                    "📋 複製 " + sym_short + " 下單參數",
+                    callback_data="copy_" + sym.replace("/", "_")
+                )
+            ])
+
         for chat_id in list(HUNTER_WATCHERS):
             try:
                 await ctx.bot.send_message(
                     chat_id=chat_id,
                     text=(
-                        "━━━━━━━━━━━━━━━━━━━━\n"
+                        "━━━━━━━━━━━━━━━\n"
                         "🚢 *黑潮船長 — 即時信號*\n"
-                        "━━━━━━━━━━━━━━━━━━━━\n\n"
+                        "━━━━━━━━━━━━━━━\n\n"
                         + result +
-                        "\n\n_此信號由黑潮策略 AI 系統產生_"
+                        "\n\n_點下方按鈕直接前往 BingX 下單_"
                     ),
-                    parse_mode="Markdown"
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(keyboard_rows) if keyboard_rows else None
                 )
                 # 記錄歷史
                 lines = result.split("\n")
@@ -1053,13 +1148,21 @@ def main():
         interval=180,
         first=90
     )
+    # ⭐ 每 5 分鐘檢查進場後反向訊號（v22 新增）
+    async def reversal_checker(ctx):
+        await check_signal_reversal(ctx)
+    app.job_queue.run_repeating(
+        reversal_checker,
+        interval=300,
+        first=300
+    )
     # ⭐ 定時市場簡報（每小時檢查一次）
     app.job_queue.run_repeating(
         daily_report_check,
         interval=3600,
         first=120
     )
-    logger.info("🤖 Bot v20.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
+    logger.info("🤖 Bot v23.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 

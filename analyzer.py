@@ -493,26 +493,25 @@ class CryptoAnalyzer:
         except Exception:
             return "MIXED", "未知"
 
-    # ⭐ 動態 ATR 倍數（根據波動率自動調整止損距離）
+    # ⭐ 動態 ATR 倍數（v22 加寬，減少被洗）
     def dynamic_atr_mult(self, df):
         try:
             atr_v = self.safe_val(self.atr(df))
             price = float(df["close"].iloc[-1])
             atr_pct = atr_v / price * 100
-            # ATR% 高 = 高波動 → 止損遠
-            # ATR% 低 = 低波動 → 止損近
+            # v22：整體加寬 0.3-0.5，避免假突破被洗
             if atr_pct > 4:
-                return 2.5, "極高波動"
+                return 3.0, "極高波動"
             elif atr_pct > 2.5:
-                return 2.0, "高波動"
+                return 2.3, "高波動"
             elif atr_pct > 1.5:
-                return 1.5, "中等波動"
+                return 1.8, "中等波動"
             elif atr_pct > 0.8:
-                return 1.2, "低波動"
+                return 1.5, "低波動"
             else:
-                return 1.0, "極低波動"
+                return 1.3, "極低波動"
         except Exception:
-            return 1.5, "中等波動"
+            return 1.8, "中等波動"
 
     # ⭐ 信號指紋（用於去重）
     def signal_fingerprint(self, symbol, direction, entry, sl, tp1):
@@ -758,13 +757,13 @@ class CryptoAnalyzer:
                 grade_score += 15
                 grade_reasons.append("✅ 有確認 K 線")
 
-        # 評級
-        if grade_score >= 60:
+        # 評級（v22 標準提高，C 級不發信號）
+        if grade_score >= 65:
             grade, pos_mult, desc = "A", 1.0, "🟢 完美進場時機"
-        elif grade_score >= 40:
-            grade, pos_mult, desc = "B", 0.7, "🟡 良好進場時機"
-        elif grade_score >= 20:
-            grade, pos_mult, desc = "C", 0.4, "🟠 可進場但風險較高"
+        elif grade_score >= 45:
+            grade, pos_mult, desc = "B", 0.6, "🟡 良好進場時機"
+        elif grade_score >= 25:
+            grade, pos_mult, desc = "C", 0.3, "🟠 可進場但風險較高"
         else:
             grade, pos_mult, desc = "D", 0.0, "🔴 不建議進場（等更好時機）"
 
@@ -1026,6 +1025,188 @@ class CryptoAnalyzer:
                 cons.append("🚨 BTC 大漲中，做空風險極高")
 
         return pros, cons
+
+
+    # ⭐ 假突破偵測（最近 3-5 根 K 線是否曾突破又被打回）
+    def fake_breakout_check(self, df, direction, lookback=5):
+        """
+        檢查最近 K 線是否有假突破
+        - 做多：曾突破前高，但收盤回到下方 → 假突破
+        - 做空：曾跌破前低，但收盤回到上方 → 假突破
+        """
+        try:
+            if len(df) < lookback + 2:
+                return False, ""
+            recent = df.tail(lookback + 2)
+            # 之前的高低點（不含最後 lookback 根）
+            prev_high = float(recent.iloc[:-lookback]["high"].max())
+            prev_low = float(recent.iloc[:-lookback]["low"].min())
+            # 最近幾根 K 線
+            recent_bars = recent.tail(lookback)
+            last_close = float(recent_bars["close"].iloc[-1])
+            highest_in_recent = float(recent_bars["high"].max())
+            lowest_in_recent = float(recent_bars["low"].min())
+
+            if direction == "LONG":
+                # 假突破：曾觸及阻力上方，但現價回到下方
+                if highest_in_recent > prev_high * 1.001 and last_close < prev_high * 0.998:
+                    return True, "近期突破 " + str(round(prev_high, 4)) + " 失敗回落"
+            else:
+                # 做空假突破：曾跌破支撐，但現價回到上方
+                if lowest_in_recent < prev_low * 0.999 and last_close > prev_low * 1.002:
+                    return True, "近期跌破 " + str(round(prev_low, 4)) + " 失敗回升"
+            return False, ""
+        except Exception:
+            return False, ""
+
+    # ⭐ 進場後 K 線反向偵測（用於追蹤後警告）
+    def kline_reversal_check(self, df, direction, entry_price):
+        """
+        檢查進場後是否出現強烈反向訊號
+        - 強反向 K 線
+        - 連續 3 根反向 K 線
+        - 跌破/突破關鍵 EMA20
+        """
+        try:
+            if len(df) < 10:
+                return False, ""
+            last3 = df.tail(3)
+            ema20_v = self.safe_val(self.ema(df, 20), entry_price)
+            last_close = float(last3["close"].iloc[-1])
+            warnings = []
+
+            if direction == "LONG":
+                # 1. 強陰線
+                last = last3.iloc[-1]
+                body = float(last["close"]) - float(last["open"])
+                full_range = float(last["high"]) - float(last["low"]) + 1e-9
+                if body < 0 and abs(body) / full_range > 0.7:
+                    warnings.append("出現強陰線")
+                # 2. 連 3 紅變綠
+                reds = sum(1 for i in range(3) if float(last3.iloc[i]["close"]) < float(last3.iloc[i]["open"]))
+                if reds >= 3:
+                    warnings.append("連續 3 根陰線")
+                # 3. 跌破 EMA20
+                if last_close < ema20_v * 0.997:
+                    warnings.append("跌破 EMA20")
+            else:
+                last = last3.iloc[-1]
+                body = float(last["close"]) - float(last["open"])
+                full_range = float(last["high"]) - float(last["low"]) + 1e-9
+                if body > 0 and abs(body) / full_range > 0.7:
+                    warnings.append("出現強陽線")
+                greens = sum(1 for i in range(3) if float(last3.iloc[i]["close"]) > float(last3.iloc[i]["open"]))
+                if greens >= 3:
+                    warnings.append("連續 3 根陽線")
+                if last_close > ema20_v * 1.003:
+                    warnings.append("突破 EMA20")
+            return len(warnings) > 0, " + ".join(warnings)
+        except Exception:
+            return False, ""
+
+
+    # ⭐ 多時間框架嚴格共振（v23：1H + 4H 必須同向，加 1D 趨勢確認）
+    def mtf_alignment(self, df1h, df4h, df_d):
+        """檢查多時間框架是否一致"""
+        try:
+            rl_1h, regime_1h, _ = self.market_regime(df1h)
+            rl_4h, regime_4h, _ = self.market_regime(df4h)
+            # 1D 用 EMA 簡單判斷
+            d_ema20 = self.safe_val(self.ema(df_d, 20))
+            d_ema50 = self.safe_val(self.ema(df_d, 50))
+            d_price = float(df_d["close"].iloc[-1])
+            if d_price > d_ema20 > d_ema50:
+                regime_d = "BULL"
+            elif d_price < d_ema20 < d_ema50:
+                regime_d = "BEAR"
+            else:
+                regime_d = "NEUTRAL"
+            # 共振判斷
+            bullish_count = sum(1 for r in [regime_1h, regime_4h, regime_d]
+                                if r in ("STRONG_BULL", "BULL"))
+            bearish_count = sum(1 for r in [regime_1h, regime_4h, regime_d]
+                                 if r in ("STRONG_BEAR", "BEAR"))
+            if bullish_count >= 3:
+                return "STRONG_BULL_MTF", "三週期強多共振"
+            elif bullish_count >= 2:
+                return "BULL_MTF", "雙週期多頭"
+            elif bearish_count >= 3:
+                return "STRONG_BEAR_MTF", "三週期強空共振"
+            elif bearish_count >= 2:
+                return "BEAR_MTF", "雙週期空頭"
+            return "MIXED", "週期分歧"
+        except Exception:
+            return "UNKNOWN", "未知"
+
+    # ⭐ 交易時段判斷（紐約/倫敦/亞洲）
+    def trading_session(self):
+        """判斷當前交易時段，影響策略選擇"""
+        from datetime import datetime, timezone
+        hour = datetime.now(timezone.utc).hour
+        # 倫敦盤：8-16 UTC（流動性最佳）
+        # 紐約盤：13-21 UTC（波動最大）
+        # 亞洲盤：0-8 UTC（流動性最差）
+        if 13 <= hour <= 16:
+            return "NY_LONDON_OVERLAP", "🔥 紐倫重疊（最佳）", 1.1  # 評分加成
+        elif 8 <= hour <= 12:
+            return "LONDON", "📊 倫敦盤（良好）", 1.05
+        elif 17 <= hour <= 21:
+            return "NY", "📊 紐約盤（良好）", 1.0
+        elif 0 <= hour <= 7:
+            return "ASIA", "💤 亞洲盤（流動性弱）", 0.85
+        else:
+            return "OFF", "🌙 收盤時段", 0.9
+
+    # ⭐ 異常波動偵測（黑天鵝事件保護）
+    def extreme_volatility_check(self, df, threshold=5.0):
+        """檢查最近 K 線是否有異常波動"""
+        try:
+            recent5 = df.tail(5)
+            max_change = ((recent5["high"] - recent5["low"]) / recent5["close"]).max() * 100
+            if max_change > threshold:
+                return True, "最近5根 K 線單根振幅 " + str(round(max_change, 1)) + "% 過大"
+            # 檢查連續 3 根同向大漲/大跌
+            chgs = []
+            for i in range(-3, 0):
+                if i == 0:
+                    continue
+                c = (float(df["close"].iloc[i]) - float(df["close"].iloc[i-1])) / float(df["close"].iloc[i-1]) * 100
+                chgs.append(c)
+            if all(c > 1.5 for c in chgs):
+                return True, "連續 3 根大漲，可能末端"
+            if all(c < -1.5 for c in chgs):
+                return True, "連續 3 根大跌，可能恐慌"
+            return False, ""
+        except Exception:
+            return False, ""
+
+    # ⭐ 反指標檢查（避免明顯違反技術分析的訊號）
+    def anti_indicator_check(self, direction, sig1h):
+        """檢查是否違反基本技術分析原則"""
+        violations = []
+        rsi = sig1h.get("rsi", 50)
+        adx = sig1h.get("adx", 20)
+        if direction == "LONG":
+            if rsi > 78:
+                violations.append("RSI " + str(int(rsi)) + " 嚴重過熱")
+            if rsi > 70 and adx < 20:
+                violations.append("過熱且趨勢弱")
+        else:
+            if rsi < 22:
+                violations.append("RSI " + str(int(rsi)) + " 嚴重過冷")
+            if rsi < 30 and adx < 20:
+                violations.append("過冷且趨勢弱")
+        return violations
+
+    # ⭐ alt 幣 vs BTC 不同標準（alt 波動更大，閾值要寬）
+    def get_volatility_profile(self, symbol):
+        """根據幣種類型決定參數"""
+        if symbol in ("BTC/USDT", "ETH/USDT"):
+            return {"atr_mult_bonus": 0, "rsi_overheat": 75, "rsi_oversold": 25}
+        elif symbol in ("SOL/USDT", "BNB/USDT", "XRP/USDT", "ADA/USDT"):
+            return {"atr_mult_bonus": 0.2, "rsi_overheat": 78, "rsi_oversold": 22}
+        else:
+            return {"atr_mult_bonus": 0.4, "rsi_overheat": 80, "rsi_oversold": 20}
 
     # ⭐ VWAP（成交量加權平均價 - 機構進出場位）
     def vwap(self, df):
@@ -1951,7 +2132,7 @@ class CryptoAnalyzer:
                             sw_res_1h, sw_sup_1h, sw_res_4h, sw_sup_4h,
                             vol_ratio, funding, ls_ratio, fg_val, current_price,
                             rs_btc=None, upside_liq=None, downside_liq=None,
-                            btc_df=None, btc_ticker=None):
+                            btc_df=None, btc_ticker=None, symbol=""):
         direction = sig1h["direction_en"]
         if direction == "NEUTRAL":
             return None, "信號中性"
@@ -1977,9 +2158,31 @@ class CryptoAnalyzer:
         if sig1h.get("squeeze_on", False):
             return None, "Squeeze盤整中"
 
-        # 風報比放寬到 1.3
-        if sig1h["rr"] < 1.3:
-            return None, "風報比不足"
+        # ⭐ 假突破偵測
+        is_fake, fake_msg = self.fake_breakout_check(df1h, direction)
+        if is_fake:
+            return None, "假突破：" + fake_msg
+
+        # ⭐ v23：異常波動保護（黑天鵝事件）
+        extreme, extreme_msg = self.extreme_volatility_check(df1h)
+        if extreme:
+            return None, "異常波動：" + extreme_msg
+
+        # ⭐ v23：多時間框架共振要求
+        mtf_state, mtf_label = self.mtf_alignment(df1h, df4h, df_daily)
+        if direction == "LONG" and mtf_state not in ("STRONG_BULL_MTF", "BULL_MTF"):
+            return None, "MTF 未共振：" + mtf_label
+        if direction == "SHORT" and mtf_state not in ("STRONG_BEAR_MTF", "BEAR_MTF"):
+            return None, "MTF 未共振：" + mtf_label
+
+        # ⭐ v23：反指標檢查
+        anti_violations = self.anti_indicator_check(direction, sig1h)
+        if anti_violations:
+            return None, "反指標：" + ", ".join(anti_violations)
+
+        # 風報比門檻提高到 1.5
+        if sig1h["rr"] < 1.5:
+            return None, "風報比不足 (<1.5)"
 
         # ⭐ BTC 健康度檢查（避免逆勢開單）
         btc_health = "UNKNOWN"
@@ -2167,6 +2370,25 @@ class CryptoAnalyzer:
             score += 8
             factors.append("✅ Squeeze釋放爆破")
 
+        # ⭐ v23：交易時段加成
+        session_code, session_label, session_mult = self.trading_session()
+        if session_mult > 1.0:
+            session_bonus = round((session_mult - 1) * 20, 1)
+            score += session_bonus
+            factors.append("✅ " + session_label + " +" + str(session_bonus))
+        elif session_mult < 0.9:
+            session_penalty = round((1 - session_mult) * 15, 1)
+            score -= session_penalty
+            risks.append("⚠️ " + session_label)
+
+        # ⭐ v23：MTF 共振強度加分
+        if mtf_state == "STRONG_BULL_MTF" and direction == "LONG":
+            score += 8
+            factors.append("✅ 三週期強多共振")
+        elif mtf_state == "STRONG_BEAR_MTF" and direction == "SHORT":
+            score += 8
+            factors.append("✅ 三週期強空共振")
+
         # ⭐ Volume Profile 確認
         poc = sig1h.get("poc")
         if poc:
@@ -2306,9 +2528,9 @@ class CryptoAnalyzer:
             direction, p, sig1h, sw_res_1h, sw_sup_1h, vol_ratio, has_conf
         )
 
-        # 如果是 D 級，直接拒絕
-        if entry_grade["grade"] == "D":
-            return None, "進場時機 D 級（" + entry_grade["desc"] + "）"
+        # v22：D 級和 C 級都拒絕（只發 A/B 級高品質信號）
+        if entry_grade["grade"] in ("C", "D"):
+            return None, "進場時機 " + entry_grade["grade"] + " 級不達標"
 
         # ⭐ 進場理由深度分析
         bull_ob_ck, bear_ob_ck = self.find_order_blocks(df1h)
@@ -2408,6 +2630,9 @@ class CryptoAnalyzer:
             "pros": pros,
             "cons": cons,
             "btc_health_msg": btc_health_msg,
+            "mtf_state": mtf_state,
+            "mtf_label": mtf_label,
+            "session_label": session_label,
         }
         return score, plan
 
@@ -2525,7 +2750,7 @@ class CryptoAnalyzer:
             return "❌ 分析失敗：" + str(e)
 
     # ⭐ 平衡版黑潮船長
-    async def golden_hunter(self, smart_filter=False, min_score=55):
+    async def golden_hunter(self, smart_filter=False, min_score=60):
         try:
             now = datetime.now(timezone.utc).strftime("%m-%d %H:%M:%S UTC")
             candidates = []
@@ -2631,7 +2856,8 @@ class CryptoAnalyzer:
                             sw_res_1h, sw_sup_1h, sw_res_4h, sw_sup_4h,
                             vol_ratio, funding, ls_ratio, fg_val, current_price,
                             rs_btc=rs_btc, upside_liq=upside_liq, downside_liq=downside_liq,
-                            btc_df=btc_df_cache, btc_ticker=btc_ticker_cache
+                            btc_df=btc_df_cache, btc_ticker=btc_ticker_cache,
+                            symbol=sym
                         )
                         if result[0] is None:
                             continue
@@ -2686,8 +2912,12 @@ class CryptoAnalyzer:
                         continue
 
             if smart_filter:
-                # 智能推播：找信心 ≥65 的
-                high_quality = [c for c in candidates if c["plan"]["score"] >= 65]
+                # v22 嚴格篩選：信心 ≥72 + 進場品質 A 或 B 級
+                high_quality = [
+                    c for c in candidates
+                    if c["plan"]["score"] >= 72
+                    and c["plan"].get("entry_grade") in ("A", "B")
+                ]
                 if not high_quality:
                     return None
                 candidates = high_quality
@@ -2738,6 +2968,9 @@ class CryptoAnalyzer:
                     "C": "🆑 *C 級進場機會* — 謹慎參與",
                 }.get(grade, "")
                 r += grade_text + "\n"
+                # ⭐ v23：MTF + 時段資訊
+                if p.get("mtf_label"):
+                    r += "📐 *" + p.get("mtf_label", "") + "* | " + p.get("session_label", "") + "\n"
 
                 # === 一句話總結 ===
                 r += "_" + direction_zh + " · " + p["timeframe"] + " · 預估勝率 " + str(p["win_rate"]) + "%_\n"
