@@ -757,13 +757,15 @@ class CryptoAnalyzer:
                 grade_score += 15
                 grade_reasons.append("✅ 有確認 K 線")
 
-        # 評級（v22 標準提高，C 級不發信號）
-        if grade_score >= 65:
+        # v25：加入 S 級（極佳機會）
+        if grade_score >= 80:
+            grade, pos_mult, desc = "S", 1.2, "💎 極佳進場時機（重倉）"
+        elif grade_score >= 60:
             grade, pos_mult, desc = "A", 1.0, "🟢 完美進場時機"
-        elif grade_score >= 45:
-            grade, pos_mult, desc = "B", 0.6, "🟡 良好進場時機"
-        elif grade_score >= 25:
-            grade, pos_mult, desc = "C", 0.3, "🟠 可進場但風險較高"
+        elif grade_score >= 40:
+            grade, pos_mult, desc = "B", 0.7, "🟡 良好進場時機"
+        elif grade_score >= 20:
+            grade, pos_mult, desc = "C", 0.4, "🟠 可進場但風險較高"
         else:
             grade, pos_mult, desc = "D", 0.0, "🔴 不建議進場（等更好時機）"
 
@@ -1158,7 +1160,7 @@ class CryptoAnalyzer:
             return "OFF", "🌙 收盤時段", 0.9
 
     # ⭐ 異常波動偵測（黑天鵝事件保護）
-    def extreme_volatility_check(self, df, threshold=5.0):
+    def extreme_volatility_check(self, df, threshold=7.0):
         """檢查最近 K 線是否有異常波動"""
         try:
             recent5 = df.tail(5)
@@ -1180,23 +1182,194 @@ class CryptoAnalyzer:
         except Exception:
             return False, ""
 
-    # ⭐ 反指標檢查（避免明顯違反技術分析的訊號）
+    # ⭐ v25 反指標：只拒絕極端違反技術分析的訊號
     def anti_indicator_check(self, direction, sig1h):
-        """檢查是否違反基本技術分析原則"""
+        """強趨勢可漲到 RSI 95，給強勢續航留空間"""
         violations = []
         rsi = sig1h.get("rsi", 50)
         adx = sig1h.get("adx", 20)
+        regime = sig1h.get("regime", "")
+
         if direction == "LONG":
-            if rsi > 78:
-                violations.append("RSI " + str(int(rsi)) + " 嚴重過熱")
-            if rsi > 70 and adx < 20:
-                violations.append("過熱且趨勢弱")
+            # 只在「弱多頭 + 嚴重過熱」才拒絕
+            if rsi > 88 and regime not in ("STRONG_BULL",) and adx < 25:
+                violations.append("RSI " + str(int(rsi)) + " 過熱且趨勢弱")
+            elif rsi > 95:
+                violations.append("RSI " + str(int(rsi)) + " 極端高位")
         else:
-            if rsi < 22:
-                violations.append("RSI " + str(int(rsi)) + " 嚴重過冷")
-            if rsi < 30 and adx < 20:
-                violations.append("過冷且趨勢弱")
+            if rsi < 12 and regime not in ("STRONG_BEAR",) and adx < 25:
+                violations.append("RSI " + str(int(rsi)) + " 過冷且趨勢弱")
+            elif rsi < 5:
+                violations.append("RSI " + str(int(rsi)) + " 極端低位")
         return violations
+
+    # ⭐ v25 強勢續航判斷：用動能而非 RSI
+    def strong_continuation(self, df, direction):
+        """判斷是否處於強勢續航狀態（不受 RSI 過熱限制）"""
+        try:
+            if len(df) < 30:
+                return False, ""
+            recent = df.tail(20)
+            # 計算近 20 根的趨勢強度
+            ups = sum(1 for i in range(len(recent))
+                       if float(recent["close"].iloc[i]) > float(recent["open"].iloc[i]))
+            downs = len(recent) - ups
+            # 計算量能趨勢
+            vol_first = float(recent.head(10)["volume"].mean())
+            vol_last = float(recent.tail(10)["volume"].mean())
+            vol_trend = vol_last / vol_first if vol_first > 0 else 1.0
+            # 計算 EMA20 斜率
+            ema20 = self.ema(df, 20)
+            slope = (float(ema20.iloc[-1]) - float(ema20.iloc[-10])) / float(ema20.iloc[-10])
+
+            if direction == "LONG":
+                # 多頭續航：陽多陰少 + 量能持平 + EMA 上升
+                if ups >= 14 and slope > 0.005 and vol_trend > 0.7:
+                    return True, "強勢續航中（量增配合）"
+                if ups >= 16 and slope > 0.003:
+                    return True, "極強多頭續航"
+            else:
+                if downs >= 14 and slope < -0.005 and vol_trend > 0.7:
+                    return True, "強勢崩跌續航"
+                if downs >= 16 and slope < -0.003:
+                    return True, "極強空頭續航"
+            return False, ""
+        except Exception:
+            return False, ""
+
+
+
+    # ⭐ 策略類型分類（v24 新增 - 不同策略不同邏輯）
+    def classify_strategy(self, direction, sig1h, sig4h, df1h, vol_ratio):
+        """
+        判斷適合的策略類型：
+        - BREAKOUT_RETEST：突破回踩（最高勝率）
+        - MOMENTUM：動能突破
+        - TREND_FOLLOW：趨勢追隨
+        - REVERSAL：反轉抄底
+        - RANGE：區間交易
+        """
+        try:
+            rsi = sig1h.get("rsi", 50)
+            adx = sig1h.get("adx", 20)
+            regime = sig1h.get("regime", "")
+            squeeze_released = sig1h.get("squeeze_released", False)
+            price = sig1h.get("price", 0)
+            ema20 = sig1h.get("e20", price)
+            distance_pct = (price - ema20) / ema20 * 100 if ema20 else 0
+
+            # 突破回踩：價格剛突破又回測 EMA20
+            if direction == "LONG":
+                if regime in ("STRONG_BULL", "BULL") and -1.5 < distance_pct < 1.5 and vol_ratio < 1.3:
+                    return "BREAKOUT_RETEST", "🎯 突破回踩進場（最高勝率模式）"
+                if squeeze_released and adx > 22:
+                    return "MOMENTUM", "🚀 動能爆發進場"
+                if regime in ("STRONG_BULL", "BULL") and adx > 25:
+                    return "TREND_FOLLOW", "📈 順勢進場"
+                if rsi < 32 and regime not in ("STRONG_BEAR", "BEAR"):
+                    return "REVERSAL", "🔄 反轉抄底"
+                return "RANGE", "↔️ 區間操作"
+            else:
+                if regime in ("STRONG_BEAR", "BEAR") and -1.5 < distance_pct < 1.5 and vol_ratio < 1.3:
+                    return "BREAKOUT_RETEST", "🎯 跌破回測進場（最高勝率模式）"
+                if squeeze_released and adx > 22:
+                    return "MOMENTUM", "💥 動能崩跌進場"
+                if regime in ("STRONG_BEAR", "BEAR") and adx > 25:
+                    return "TREND_FOLLOW", "📉 順勢進場"
+                if rsi > 68 and regime not in ("STRONG_BULL", "BULL"):
+                    return "REVERSAL", "🔄 反轉做空"
+                return "RANGE", "↔️ 區間操作"
+        except Exception:
+            return "TREND_FOLLOW", "📊 標準順勢"
+
+    # ⭐ 機構吸籌偵測（v24 新增 - 智錢腳印）
+    def smart_money_detect(self, df, direction):
+        """偵測機構吸籌/出貨腳印"""
+        try:
+            if len(df) < 30:
+                return False, ""
+            recent20 = df.tail(20)
+            # 計算量價特徵
+            vol_avg = float(recent20["volume"].mean())
+            price_range = (float(recent20["high"].max()) - float(recent20["low"].min())) / float(recent20["close"].iloc[-1])
+            # 高量低波動 → 吸籌特徵
+            high_vol_bars = sum(1 for i in range(len(recent20))
+                                  if float(recent20["volume"].iloc[i]) > vol_avg * 1.3)
+            if direction == "LONG":
+                # 吸籌：高量 + 小波動 + 價格在中樞上方
+                if high_vol_bars >= 5 and price_range < 0.05:
+                    return True, "🐋 機構吸籌跡象（高量低波動）"
+                # OBV 上升但價格盤整
+                obv = self.obv(df)
+                obv_recent = obv.tail(20)
+                obv_slope = (obv_recent.iloc[-1] - obv_recent.iloc[0]) / abs(obv_recent.iloc[0] + 1e-9)
+                price_slope = (float(recent20["close"].iloc[-1]) - float(recent20["close"].iloc[0])) / float(recent20["close"].iloc[0])
+                if obv_slope > 0.05 and abs(price_slope) < 0.02:
+                    return True, "🐋 OBV 暗示機構買入"
+            else:
+                if high_vol_bars >= 5 and price_range < 0.05:
+                    return True, "🐋 機構出貨跡象"
+            return False, ""
+        except Exception:
+            return False, ""
+
+    # ⭐ 動態止盈（v24 - 基於 Fibonacci 擴展 + 阻力強度）
+    def dynamic_take_profits(self, direction, entry, sl, df, ref_res, ref_sup, atr_v):
+        """根據實際價格結構動態計算止盈位"""
+        risk = abs(entry - sl)
+        try:
+            if direction == "LONG":
+                # 找最近 30 根 K 線的高點作為 swing high
+                recent_high = float(df.tail(30)["high"].max())
+                # 計算 Fibonacci 擴展
+                fib_1618 = entry + risk * 2.0  # 黃金比例擴展
+                fib_2618 = entry + risk * 3.2  # 瘋狂擴展
+                # TP1: 1:1 風報（保本）
+                tp1 = round(entry + risk * 1.0, 4)
+                # TP2: 最近的阻力或 1:1.8（取近者）
+                if ref_res and ref_res[0] > entry:
+                    tp2_candidates = [ref_res[0], entry + risk * 1.8]
+                    tp2 = min([t for t in tp2_candidates if t > tp1])
+                else:
+                    tp2 = round(entry + risk * 1.8, 4)
+                # TP3: Fib 1.618 或第二阻力
+                if ref_res and len(ref_res) >= 2:
+                    tp3 = max(ref_res[1], fib_1618)
+                else:
+                    tp3 = round(fib_1618, 4)
+                # TP4: Fib 2.618 或近期高點 + ATR
+                tp4_candidates = [fib_2618, recent_high + atr_v]
+                tp4 = round(max(tp4_candidates), 4)
+            else:
+                recent_low = float(df.tail(30)["low"].min())
+                fib_1618 = entry - risk * 2.0
+                fib_2618 = entry - risk * 3.2
+                tp1 = round(entry - risk * 1.0, 4)
+                if ref_sup and ref_sup[0] < entry:
+                    tp2_candidates = [ref_sup[0], entry - risk * 1.8]
+                    tp2 = max([t for t in tp2_candidates if t < tp1])
+                else:
+                    tp2 = round(entry - risk * 1.8, 4)
+                if ref_sup and len(ref_sup) >= 2:
+                    tp3 = min(ref_sup[1], fib_1618)
+                else:
+                    tp3 = round(fib_1618, 4)
+                tp4_candidates = [fib_2618, recent_low - atr_v]
+                tp4 = round(min(tp4_candidates), 4)
+            return round(tp1, 4), round(tp2, 4), round(tp3, 4), round(tp4, 4)
+        except Exception:
+            if direction == "LONG":
+                return (round(entry + risk * 1.0, 4),
+                        round(entry + risk * 2.0, 4),
+                        round(entry + risk * 3.0, 4),
+                        round(entry + risk * 5.0, 4))
+            else:
+                return (round(entry - risk * 1.0, 4),
+                        round(entry - risk * 2.0, 4),
+                        round(entry - risk * 3.0, 4),
+                        round(entry - risk * 5.0, 4))
+
+
 
     # ⭐ alt 幣 vs BTC 不同標準（alt 波動更大，閾值要寬）
     def get_volatility_profile(self, symbol):
@@ -1207,6 +1380,110 @@ class CryptoAnalyzer:
             return {"atr_mult_bonus": 0.2, "rsi_overheat": 78, "rsi_oversold": 22}
         else:
             return {"atr_mult_bonus": 0.4, "rsi_overheat": 80, "rsi_oversold": 20}
+
+
+    # ⭐ v25 即時動能掃描：尋找 5-15 分鐘級別的爆發機會
+    async def momentum_scan(self):
+        """掃描所有幣種，找出最近 5-15 分鐘有大動作的"""
+        try:
+            now = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+            async with aiohttp.ClientSession() as session:
+                tasks = []
+                for sym in self.SCAN_POOL:
+                    tasks.append(self.fetch_ticker(session, sym))
+                    tasks.append(self.fetch_ohlcv(session, sym, "5m", 30))
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            opportunities = []
+            for i, sym in enumerate(self.SCAN_POOL):
+                ticker = results[i * 2]
+                df5m = results[i * 2 + 1]
+                if isinstance(ticker, Exception) or isinstance(df5m, Exception):
+                    continue
+                if df5m is None or len(df5m) < 20:
+                    continue
+                try:
+                    current_price = float(ticker.get("lastPrice", 0))
+                    if not current_price:
+                        continue
+                    # 5 分鐘級動量
+                    chg_5m = (current_price - float(df5m["close"].iloc[-2])) / float(df5m["close"].iloc[-2]) * 100
+                    chg_15m = (current_price - float(df5m["close"].iloc[-4])) / float(df5m["close"].iloc[-4]) * 100
+                    chg_30m = (current_price - float(df5m["close"].iloc[-7])) / float(df5m["close"].iloc[-7]) * 100
+                    # 量能變化
+                    recent_vol = float(df5m["volume"].iloc[-1])
+                    avg_vol = float(df5m["volume"].tail(20).mean())
+                    vol_ratio = recent_vol / avg_vol if avg_vol > 0 else 1.0
+                    # 找出有意義的動作
+                    if abs(chg_5m) >= 1.0 and vol_ratio >= 1.5:
+                        signal_type = "🚀 即時爆發" if chg_5m > 0 else "💥 即時崩跌"
+                        opportunities.append({
+                            "symbol": sym,
+                            "chg_5m": round(chg_5m, 2),
+                            "chg_15m": round(chg_15m, 2),
+                            "chg_30m": round(chg_30m, 2),
+                            "vol_ratio": round(vol_ratio, 1),
+                            "price": current_price,
+                            "signal": signal_type,
+                            "intensity": abs(chg_5m) * vol_ratio
+                        })
+                except Exception:
+                    continue
+            # 排序：強度最大的在前
+            opportunities.sort(key=lambda x: x["intensity"], reverse=True)
+
+            r = "⚡ *即時動能掃描*｜" + now + "\n"
+            r += "━━━━━━━━━━━━━━━\n"
+            if not opportunities:
+                r += "📡 目前沒有顯著爆發信號\n"
+                r += "_市場處於穩定狀態_"
+                return r
+            r += "🔥 偵測到 " + str(len(opportunities)) + " 個動能異動：\n\n"
+            for opp in opportunities[:8]:
+                sym_short = opp["symbol"].replace("/USDT", "")
+                r += opp["signal"] + " *" + sym_short + "*\n"
+                r += "   5分 `" + ("+" if opp["chg_5m"] >= 0 else "") + str(opp["chg_5m"]) + "%`"
+                r += " | 15分 `" + ("+" if opp["chg_15m"] >= 0 else "") + str(opp["chg_15m"]) + "%`"
+                r += " | 30分 `" + ("+" if opp["chg_30m"] >= 0 else "") + str(opp["chg_30m"]) + "%`\n"
+                r += "   價格 `" + str(opp["price"]) + "` | 量爆 `" + str(opp["vol_ratio"]) + "x`\n\n"
+            r += "━━━━━━━━━━━━━━━\n"
+            r += "💡 *使用建議*\n"
+            r += "• 動能信號是短線機會，請務必設止損\n"
+            r += "• 量爆+價漲 = 可能延續\n"
+            r += "• 量爆+價跌 = 可能反轉\n"
+            r += "• 短打建議倉位 ≤ 2%"
+            return r
+        except Exception as e:
+            return "❌ 動能掃描失敗：" + str(e)
+
+    # ⭐ v25 凱利公式：基於勝率和盈虧比計算最佳倉位
+    def kelly_position(self, win_rate_pct, avg_win_pct, avg_loss_pct, capital, max_risk=2.0):
+        """
+        凱利公式：f = (bp - q) / b
+        b = avg_win / avg_loss
+        p = win_rate
+        q = 1 - p
+        實際使用「半凱利」（更保守）
+        """
+        try:
+            p = win_rate_pct / 100
+            q = 1 - p
+            if avg_loss_pct == 0:
+                return None
+            b = avg_win_pct / avg_loss_pct
+            kelly_f = (b * p - q) / b
+            # 半凱利
+            half_kelly = max(0, kelly_f * 0.5)
+            # 限制最大 max_risk%
+            recommended_pct = min(half_kelly * 100, max_risk * 5)  # 不超過 5x max_risk
+            return {
+                "kelly_pct": round(kelly_f * 100, 2),
+                "half_kelly_pct": round(half_kelly * 100, 2),
+                "recommended_pct": round(recommended_pct, 2),
+                "position_value": round(capital * recommended_pct / 100, 2),
+            }
+        except Exception:
+            return None
 
     # ⭐ VWAP（成交量加權平均價 - 機構進出場位）
     def vwap(self, df):
@@ -2150,30 +2427,33 @@ class CryptoAnalyzer:
         if direction == "SHORT" and sig1h["regime"] == "STRONG_BULL" and not has_div:
             return None, "強多頭逆勢且無背離"
 
-        # ADX 放寬到 18
-        if sig1h["adx"] < 18:
-            return None, "ADX過低"
+        # ADX 放寬到 16（v25 - 允許更多機會）
+        if sig1h["adx"] < 16:
+            return None, "ADX過低 (<16)"
 
         # ⭐ Squeeze 過濾：BB 在 KC 內 = 盤整，不交易
         if sig1h.get("squeeze_on", False):
             return None, "Squeeze盤整中"
 
-        # ⭐ 假突破偵測
-        is_fake, fake_msg = self.fake_breakout_check(df1h, direction)
-        if is_fake:
-            return None, "假突破：" + fake_msg
+        # ⭐ v25 假突破偵測（強勢續航時跳過）
+        is_strong, _ = self.strong_continuation(df1h, direction)
+        if not is_strong:
+            is_fake, fake_msg = self.fake_breakout_check(df1h, direction)
+            if is_fake:
+                return None, "假突破：" + fake_msg
 
         # ⭐ v23：異常波動保護（黑天鵝事件）
         extreme, extreme_msg = self.extreme_volatility_check(df1h)
         if extreme:
             return None, "異常波動：" + extreme_msg
 
-        # ⭐ v23：多時間框架共振要求
+        # ⭐ v24：MTF 共振從「強制過濾」改為「強烈加分」
         mtf_state, mtf_label = self.mtf_alignment(df1h, df4h, df_daily)
-        if direction == "LONG" and mtf_state not in ("STRONG_BULL_MTF", "BULL_MTF"):
-            return None, "MTF 未共振：" + mtf_label
-        if direction == "SHORT" and mtf_state not in ("STRONG_BEAR_MTF", "BEAR_MTF"):
-            return None, "MTF 未共振：" + mtf_label
+        # 只在「完全反向」時拒絕（多週期都反方向）
+        if direction == "LONG" and mtf_state == "STRONG_BEAR_MTF":
+            return None, "三週期都看空"
+        if direction == "SHORT" and mtf_state == "STRONG_BULL_MTF":
+            return None, "三週期都看多"
 
         # ⭐ v23：反指標檢查
         anti_violations = self.anti_indicator_check(direction, sig1h)
@@ -2181,8 +2461,8 @@ class CryptoAnalyzer:
             return None, "反指標：" + ", ".join(anti_violations)
 
         # 風報比門檻提高到 1.5
-        if sig1h["rr"] < 1.5:
-            return None, "風報比不足 (<1.5)"
+        if sig1h["rr"] < 1.3:
+            return None, "風報比不足 (<1.3)"
 
         # ⭐ BTC 健康度檢查（避免逆勢開單）
         btc_health = "UNKNOWN"
@@ -2370,6 +2650,60 @@ class CryptoAnalyzer:
             score += 8
             factors.append("✅ Squeeze釋放爆破")
 
+        # ⭐ v24：策略類型分類
+        strategy_type, strategy_label = self.classify_strategy(direction, sig1h, sig4h, df1h, vol_ratio)
+        strategy_bonus = {
+            "BREAKOUT_RETEST": 10,  # 最高勝率
+            "MOMENTUM": 7,
+            "TREND_FOLLOW": 6,
+            "REVERSAL": 3,  # 反轉風險高
+            "RANGE": -3,
+        }.get(strategy_type, 0)
+        if strategy_bonus > 0:
+            score += strategy_bonus
+            factors.append("✅ " + strategy_label + " +" + str(strategy_bonus))
+        elif strategy_bonus < 0:
+            risks.append("⚠️ " + strategy_label)
+
+        # ⭐ v25：強勢續航加分（即使 RSI 過熱也能繼續漲）
+        is_strong_cont, sc_msg = self.strong_continuation(df1h, direction)
+        if is_strong_cont:
+            score += 10
+            factors.append("✅ " + sc_msg)
+
+        # ⭐ v24：機構吸籌偵測
+        smart_money, sm_msg = self.smart_money_detect(df1h, direction)
+        if smart_money:
+            score += 8
+            factors.append("✅ " + sm_msg)
+
+        # ⭐ v24：MTF 共振加分（取代強制過濾）
+        if direction == "LONG":
+            if mtf_state == "STRONG_BULL_MTF":
+                score += 10
+                factors.append("✅ 三週期強多共振")
+            elif mtf_state == "BULL_MTF":
+                score += 5
+                factors.append("✅ 雙週期多頭")
+            elif mtf_state == "MIXED":
+                score -= 2
+                risks.append("⚠️ 多週期分歧")
+            elif mtf_state == "BEAR_MTF":
+                score -= 8
+                risks.append("⚠️ 雙週期空頭逆風")
+        else:
+            if mtf_state == "STRONG_BEAR_MTF":
+                score += 10
+                factors.append("✅ 三週期強空共振")
+            elif mtf_state == "BEAR_MTF":
+                score += 5
+                factors.append("✅ 雙週期空頭")
+            elif mtf_state == "MIXED":
+                score -= 2
+            elif mtf_state == "BULL_MTF":
+                score -= 8
+                risks.append("⚠️ 雙週期多頭逆風")
+
         # ⭐ v23：交易時段加成
         session_code, session_label, session_mult = self.trading_session()
         if session_mult > 1.0:
@@ -2381,13 +2715,7 @@ class CryptoAnalyzer:
             score -= session_penalty
             risks.append("⚠️ " + session_label)
 
-        # ⭐ v23：MTF 共振強度加分
-        if mtf_state == "STRONG_BULL_MTF" and direction == "LONG":
-            score += 8
-            factors.append("✅ 三週期強多共振")
-        elif mtf_state == "STRONG_BEAR_MTF" and direction == "SHORT":
-            score += 8
-            factors.append("✅ 三週期強空共振")
+
 
         # ⭐ Volume Profile 確認
         poc = sig1h.get("poc")
@@ -2445,22 +2773,10 @@ class CryptoAnalyzer:
                 chand_long, chand_short, atr_mult
             )
 
-            # ⭐ 四段止盈（職業交易員的階梯式）
-            risk = entry - sl
-            tp1 = round(entry + risk * 1.0, 4)  # 1:1 保本
-            # TP2-TP4 用實際阻力位 + 風報比
-            if ref_res and len(ref_res) >= 2:
-                tp2 = ref_res[0]
-                tp3 = ref_res[1]
-                tp4 = round(ref_res[1] + ref_atr * 2, 4)
-            elif ref_res:
-                tp2 = ref_res[0]
-                tp3 = round(entry + risk * 3.0, 4)
-                tp4 = round(entry + risk * 5.0, 4)
-            else:
-                tp2 = round(entry + risk * 2.0, 4)
-                tp3 = round(entry + risk * 3.5, 4)
-                tp4 = round(entry + risk * 5.0, 4)
+            # ⭐ v24：動態止盈（Fibonacci 擴展 + 阻力強度）
+            tp1, tp2, tp3, tp4 = self.dynamic_take_profits(
+                "LONG", entry, sl, df1h, ref_res, ref_sup, ref_atr
+            )
         else:
             if ref_res and (ref_res[0] - p) / p < 0.005:
                 entry = round(p * 1.001, 4)
@@ -2478,20 +2794,10 @@ class CryptoAnalyzer:
                 chand_long, chand_short, atr_mult
             )
 
-            risk = sl - entry
-            tp1 = round(entry - risk * 1.0, 4)
-            if ref_sup and len(ref_sup) >= 2:
-                tp2 = ref_sup[0]
-                tp3 = ref_sup[1]
-                tp4 = round(ref_sup[1] - ref_atr * 2, 4)
-            elif ref_sup:
-                tp2 = ref_sup[0]
-                tp3 = round(entry - risk * 3.0, 4)
-                tp4 = round(entry - risk * 5.0, 4)
-            else:
-                tp2 = round(entry - risk * 2.0, 4)
-                tp3 = round(entry - risk * 3.5, 4)
-                tp4 = round(entry - risk * 5.0, 4)
+            # ⭐ v24：動態止盈
+            tp1, tp2, tp3, tp4 = self.dynamic_take_profits(
+                "SHORT", entry, sl, df1h, ref_res, ref_sup, ref_atr
+            )
 
         risk = abs(entry - sl)
         rr1 = round(abs(tp1 - entry) / risk, 2) if risk > 0 else 0
@@ -2528,9 +2834,9 @@ class CryptoAnalyzer:
             direction, p, sig1h, sw_res_1h, sw_sup_1h, vol_ratio, has_conf
         )
 
-        # v22：D 級和 C 級都拒絕（只發 A/B 級高品質信號）
-        if entry_grade["grade"] in ("C", "D"):
-            return None, "進場時機 " + entry_grade["grade"] + " 級不達標"
+        # v24：只拒絕 D 級（C 級也是機會，給用戶選）
+        if entry_grade["grade"] == "D":
+            return None, "進場時機 D 級不達標"
 
         # ⭐ 進場理由深度分析
         bull_ob_ck, bear_ob_ck = self.find_order_blocks(df1h)
@@ -2633,6 +2939,9 @@ class CryptoAnalyzer:
             "mtf_state": mtf_state,
             "mtf_label": mtf_label,
             "session_label": session_label,
+            "strategy_type": strategy_type,
+            "strategy_label": strategy_label,
+            "smart_money": smart_money,
         }
         return score, plan
 
@@ -2912,11 +3221,12 @@ class CryptoAnalyzer:
                         continue
 
             if smart_filter:
-                # v22 嚴格篩選：信心 ≥72 + 進場品質 A 或 B 級
+                # v25 寬鬆篩選：信心 ≥60 OR 強勢續航中
                 high_quality = [
                     c for c in candidates
-                    if c["plan"]["score"] >= 72
-                    and c["plan"].get("entry_grade") in ("A", "B")
+                    if c["plan"]["score"] >= 60
+                    or c["plan"].get("strategy_type") == "BREAKOUT_RETEST"
+                    or c["plan"].get("smart_money", False)
                 ]
                 if not high_quality:
                     return None
@@ -2934,10 +3244,21 @@ class CryptoAnalyzer:
                         "_市場可能盤整或方向不明_")
 
             candidates.sort(key=lambda x: x["plan"]["score"], reverse=True)
-            r = "🌊 *黑潮船長｜本輪交易機會*\n"
-            r += "_播報時間：" + now + "_\n"
+            r = "🌊 *黑潮船長｜交易機會播報*\n"
+            r += "_" + now + "_\n"
             r += "━━━━━━━━━━━━━━━\n"
-            r += "📡 已掃描 " + str(len(self.SCAN_POOL)) + " 個幣種，找到 *" + str(len(candidates)) + "* 個符合條件的機會\n"
+            # ⭐ v24：一句話結論
+            if candidates:
+                top = candidates[0]
+                top_sym = top["symbol"].replace("/USDT", "")
+                top_dir = "做多" if top["sig1h"]["direction_en"] == "LONG" else "做空"
+                top_strat = top["plan"].get("strategy_label", "順勢進場")
+                top_score = top["plan"].get("score", 0)
+                top_pos = top["plan"].get("position", 5)
+                expected_pct = abs(top["plan"]["tp2"] - top["plan"]["entry"]) / top["plan"]["entry"] * 100
+                r += "💡 *建議*：" + top_sym + " " + top_dir + " — " + top_strat + "\n"
+                r += "   倉位 " + str(top_pos) + "%、目標 +" + str(round(expected_pct, 1)) + "%、勝率 " + str(top["plan"]["win_rate"]) + "%\n"
+            r += "📡 掃描 " + str(len(self.SCAN_POOL)) + " 幣，找到 *" + str(len(candidates)) + "* 個機會\n"
             # 整體市場狀態（簡短摘要）
             if candidates:
                 avg_score = sum(c["plan"]["score"] for c in candidates[:3]) / min(3, len(candidates))
@@ -2963,14 +3284,17 @@ class CryptoAnalyzer:
                 # === 進場品質徽章（最醒目）===
                 grade = p.get("entry_grade", "C")
                 grade_text = {
-                    "A": "🅰️ *A 級進場機會* — 強烈推薦",
-                    "B": "🅱️ *B 級進場機會* — 建議跟進",
-                    "C": "🆑 *C 級進場機會* — 謹慎參與",
+                    "A": "🥇 *A 級機會* — 強烈推薦跟進",
+                    "B": "🥈 *B 級機會* — 半倉跟進",
+                    "C": "🥉 *C 級機會* — 1/3 倉試水",
                 }.get(grade, "")
                 r += grade_text + "\n"
-                # ⭐ v23：MTF + 時段資訊
+                # ⭐ v24：策略類型
+                if p.get("strategy_label"):
+                    r += "🎯 " + p.get("strategy_label", "") + "\n"
+                # MTF + 時段資訊
                 if p.get("mtf_label"):
-                    r += "📐 *" + p.get("mtf_label", "") + "* | " + p.get("session_label", "") + "\n"
+                    r += "📐 " + p.get("mtf_label", "") + " | " + p.get("session_label", "") + "\n"
 
                 # === 一句話總結 ===
                 r += "_" + direction_zh + " · " + p["timeframe"] + " · 預估勝率 " + str(p["win_rate"]) + "%_\n"

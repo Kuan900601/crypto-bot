@@ -1,3 +1,4 @@
+
 import asyncio
 import logging
 import os
@@ -36,9 +37,10 @@ def bingx_spot_url(symbol):
     return "https://bingx.com/zh-tw/spot/" + pair
 
 
-# ⭐ TG 公開頻道 ID（例如 @kuroshio_alpha，在 Railway 設環境變數 TG_CHANNEL_ID）
+# ⭐ TG 公開頻道 ID（自動推播所有信息）
+# 預設頻道：@KuroshioSignal（https://t.me/KuroshioSignal）
 import os as _os
-TG_CHANNEL_ID = _os.environ.get("TG_CHANNEL_ID", "")
+TG_CHANNEL_ID = _os.environ.get("TG_CHANNEL_ID", "@KuroshioSignal")
 
 logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -121,8 +123,10 @@ def main_menu():
         [InlineKeyboardButton("📡 追蹤中信號", callback_data="active_signals"),
          InlineKeyboardButton("📊 歷史戰績", callback_data="stats")],
         # 第四排：個別分析
-        [InlineKeyboardButton("⚡ 異動掃描", callback_data="movers"),
-         InlineKeyboardButton("🌐 市場情緒", callback_data="sentiment")],
+        [InlineKeyboardButton("⚡ 即時動能", callback_data="momentum"),
+         InlineKeyboardButton("📊 異動掃描", callback_data="movers")],
+        [InlineKeyboardButton("🌐 市場情緒", callback_data="sentiment"),
+         InlineKeyboardButton("📰 加密快訊", callback_data="news_only")],
         [InlineKeyboardButton("🔭 趨勢總覽", callback_data="trend"),
          InlineKeyboardButton("📊 多週期分析", callback_data="multi_tf")],
         # 第五排：快速幣種
@@ -570,6 +574,59 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 reply_markup=back_btn()
             )
 
+    elif d == "momentum":
+        await q.edit_message_text("⚡ 即時動能掃描中...\n(尋找 5-15 分鐘級爆發機會)")
+        result = await safe_run(analyzer.momentum_scan(), timeout=60)
+        await q.edit_message_text(result, parse_mode="Markdown", reply_markup=back_btn())
+        # 自動推到頻道
+        if TG_CHANNEL_ID:
+            try:
+                await ctx.bot.send_message(chat_id=TG_CHANNEL_ID, text=result, parse_mode="Markdown")
+            except Exception as e:
+                logger.error("動能推播頻道失敗: " + str(e))
+
+    elif d == "news_only":
+        await q.edit_message_text("📰 抓取加密快訊中...")
+        async def get_news_only():
+            import aiohttp as _aiohttp
+            try:
+                async with _aiohttp.ClientSession() as session:
+                    news = await analyzer.fetch_news(session)
+                    events = await analyzer.fetch_crypto_events(session)
+                r = "📰 *加密貨幣最新資訊*\n"
+                r += "━━━━━━━━━━━━━━━\n\n"
+                if news:
+                    score, label, items = analyzer.sentiment(news)
+                    r += "*━━ 📰 即時新聞 ━━*\n"
+                    for i, item in enumerate(items[:8], 1):
+                        time_ago = analyzer.format_published(item.get("published", ""))
+                        r += str(i) + ". " + item["emoji"] + " " + item["title"][:75]
+                        if time_ago:
+                            r += " _(" + time_ago + ")_"
+                        r += "\n"
+                if events:
+                    r += "\n*━━ 🗓 加密幣事件 ━━*\n"
+                    for ev in events[:6]:
+                        title = ev.get("title", "")[:55]
+                        date = ev.get("date", "")
+                        typ = ev.get("type", "")
+                        type_emoji = "🔓" if typ == "Unlock" else ("🚀" if typ == "Listing" else ("⚙️" if typ == "Upgrade" else "📌"))
+                        r += "• " + type_emoji + " " + title
+                        if date:
+                            r += " `" + date + "`"
+                        r += "\n"
+                return r
+            except Exception as e:
+                return "❌ 新聞抓取失敗：" + str(e)
+        result = await safe_run(get_news_only(), timeout=30)
+        await q.edit_message_text(result, parse_mode="Markdown", reply_markup=back_btn())
+        # 自動推到頻道
+        if TG_CHANNEL_ID:
+            try:
+                await ctx.bot.send_message(chat_id=TG_CHANNEL_ID, text=result, parse_mode="Markdown")
+            except Exception as e:
+                logger.error("快訊推播失敗: " + str(e))
+
     elif d == "active_signals":
         if not ACTIVE_SIGNALS:
             text = "📡 *追蹤中的信號*\n\n目前無活躍信號\n_當黑潮船長發出推播時會自動追蹤_"
@@ -1005,24 +1062,7 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
             # 從原 result 抽取保留的部分（簡化做法：直接重新生成提示）
             # 不重組訊息，只是 log 一下
             pass
-        # ⭐ 同步推播到 TG 公開頻道
-        if TG_CHANNEL_ID:
-            try:
-                await ctx.bot.send_message(
-                    chat_id=TG_CHANNEL_ID,
-                    text=(
-                        "━━━━━━━━━━━━━━━━━━━━\n"
-                        "🚢 *黑潮船長 — 即時信號*\n"
-                        "━━━━━━━━━━━━━━━━━━━━\n\n"
-                        + result +
-                        "\n\n_此信號由黑潮策略 AI 系統產生_"
-                    ),
-                    parse_mode="Markdown"
-                )
-                logger.info("頻道推播成功：" + TG_CHANNEL_ID)
-            except Exception as e:
-                logger.error("頻道推播失敗: " + str(e))
-
+        # ⭐ v26：黑潮船長只推私人用戶，不推頻道
         # ⭐ 為主推播產生 BingX 一鍵下單按鈕（TOP 3 信號）
         keyboard_rows = []
         for sig in loss_filtered[:3]:
@@ -1100,6 +1140,450 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
         logger.error("黑潮船長執行失敗: " + str(e))
 
 
+
+# ===== 信號追蹤系統 =====
+
+import re as _re_module
+import hashlib
+
+def parse_hunter_signals(result):
+    """從黑潮船長推播文本解析信號詳情"""
+    signals = []
+    parts = _re_module.split(r"🥇|🥈|🥉", result)
+    for i, part in enumerate(parts[1:], 1):
+        try:
+            sym_match = _re_module.search(r"\*([A-Z0-9]+)\s*(做多|做空)", part)
+            if not sym_match:
+                sym_match = _re_module.search(r"\*([A-Z0-9]+/USDT)\*", part)
+                if not sym_match:
+                    continue
+                sym_raw = sym_match.group(1)
+            else:
+                sym_raw = sym_match.group(1)
+            if "/USDT" not in sym_raw:
+                sym = sym_raw + "/USDT"
+            else:
+                sym = sym_raw
+            # 方向
+            dir_match = _re_module.search(r"(做多|做空)", part)
+            if not dir_match:
+                continue
+            direction = "LONG" if dir_match.group(1) == "做多" else "SHORT"
+            # 評分
+            score_match = _re_module.search(r"信心評分 `(\d+\.?\d*)/100`", part)
+            if not score_match:
+                score_match = _re_module.search(r"信心 `(\d+\.?\d*)/100`", part)
+            score = float(score_match.group(1)) if score_match else 0
+            # 進場價
+            entry_match = _re_module.search(r"進場.{0,5}`([\d.]+)`", part)
+            entry = float(entry_match.group(1)) if entry_match else 0
+            # 止盈 1-4
+            tp1_match = _re_module.search(r"止盈1?\s*`([\d.]+)`|①\s*`([\d.]+)`", part)
+            tp2_match = _re_module.search(r"止盈2\s*`([\d.]+)`|②\s*`([\d.]+)`", part)
+            tp3_match = _re_module.search(r"止盈3\s*`([\d.]+)`|③\s*`([\d.]+)`", part)
+            tp4_match = _re_module.search(r"止盈4\s*`([\d.]+)`|④\s*`([\d.]+)`", part)
+            sl_match = _re_module.search(r"止損.{0,5}`([\d.]+)`", part)
+            # 持有時間
+            tf_match = _re_module.search(r"持有時間 \*([^*]+)\*|\*?(短線|中線)", part)
+            timeframe = tf_match.group(1).strip() if (tf_match and tf_match.group(1)) else "短線"
+            # 進場品質
+            grade_match = _re_module.search(r"([SABCD])\s*級", part)
+            entry_grade = grade_match.group(1) if grade_match else "C"
+            # 訂單類型
+            order_match = _re_module.search(r"(市價單|限價單)", part)
+            order_type = "MARKET" if (order_match and order_match.group(1) == "市價單") else "LIMIT"
+            if not (entry and tp1_match and sl_match):
+                continue
+            def _grp(m):
+                return float(m.group(1) or m.group(2))
+            signals.append({
+                "symbol": sym, "direction": direction, "score": score,
+                "entry": entry,
+                "tp1": _grp(tp1_match),
+                "tp2": _grp(tp2_match) if tp2_match else 0,
+                "tp3": _grp(tp3_match) if tp3_match else 0,
+                "tp4": _grp(tp4_match) if tp4_match else 0,
+                "sl": float(sl_match.group(1)),
+                "timeframe": timeframe,
+                "entry_grade": entry_grade,
+                "order_type": order_type,
+            })
+        except Exception as e:
+            logger.error("解析信號失敗: " + str(e))
+    return signals
+
+
+def register_signal(sig, watchers):
+    """註冊新信號到追蹤系統"""
+    sym = sig["symbol"]
+    # 過期時間
+    if "中線" in sig.get("timeframe", ""):
+        expire_hours = 72
+    else:
+        expire_hours = 8
+    now = datetime.now(timezone.utc)
+    ACTIVE_SIGNALS[sym] = {
+        "direction": sig["direction"],
+        "entry": sig["entry"],
+        "sl": sig["sl"],
+        "tp1": sig["tp1"], "tp2": sig.get("tp2", 0),
+        "tp3": sig.get("tp3", 0), "tp4": sig.get("tp4", 0),
+        "watchers": list(watchers),
+        "tp_hit": [],
+        "status": "ACTIVE",
+        "created": now.isoformat(),
+        "expires": (now + timedelta(hours=expire_hours)).isoformat(),
+        "score": sig.get("score", 0),
+        "timeframe": sig.get("timeframe", "短線"),
+        "entry_grade": sig.get("entry_grade", "C"),
+        "order_type": sig.get("order_type", "MARKET"),
+    }
+    save_data()
+    logger.info("註冊信號: " + sym + " " + sig["direction"] + " 評分 " + str(sig.get("score")) + " 等級 " + str(sig.get("entry_grade", "C")))
+
+
+async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None):
+    """關閉信號並通知用戶（v26 不再推播到頻道）"""
+    if symbol not in ACTIVE_SIGNALS:
+        return
+    sig = ACTIVE_SIGNALS.pop(symbol)
+    direction = sig["direction"]
+    entry = sig["entry"]
+    # 計算結果百分比
+    cp = current_price or entry
+    if reason_code == "SL_HIT":
+        final_pct = -abs(entry - sig["sl"]) / entry * 100
+    elif reason_code == "TP4_HIT":
+        final_pct = abs(sig["tp4"] - entry) / entry * 100 * (1 if direction == "LONG" else -1)
+    else:
+        final_pct = (cp - entry) / entry * 100 * (1 if direction == "LONG" else -1)
+
+    sym_short = symbol.replace("/USDT", "")
+    direction_zh = "做多" if direction == "LONG" else "做空"
+
+    if reason_code == "TP4_HIT":
+        msg = "🎉 *" + sym_short + " " + direction_zh + " — 完美下車*\n"
+        msg += "━━━━━━━━━━━━━━━\n"
+        msg += "已達最後止盈\n進場 `" + str(entry) + "` → 出場 `" + str(sig["tp4"]) + "`\n"
+        msg += "完整收益約 *+" + str(round(final_pct, 2)) + "%*"
+    elif reason_code == "SL_HIT":
+        tp_hit = sig.get("tp_hit", [])
+        if tp_hit:
+            msg = "🛡 *" + sym_short + " — 觸及保護位*\n"
+            msg += "已先達 TP" + str(max(tp_hit)) + "，剩餘倉位觸發止損\n"
+            msg += "雖然回吐部分利潤，整體應仍盈利"
+        else:
+            msg = "🛑 *" + sym_short + " " + direction_zh + " — 觸發止損*\n"
+            msg += "━━━━━━━━━━━━━━━\n"
+            msg += "請立即出場\n進場 `" + str(entry) + "` → 止損 `" + str(sig["sl"]) + "`\n"
+            msg += "本次虧損 *" + str(round(final_pct, 2)) + "%*\n\n"
+            msg += "_該幣 24 小時內若再虧損將暫停推送_"
+    elif reason_code == "EXPIRED":
+        msg = "⏰ *" + sym_short + " — 信號失效*\n"
+        msg += "━━━━━━━━━━━━━━━\n"
+        msg += "持有時間已過，建議：\n"
+        msg += "  • 有獲利 → 立即移動止損守利\n"
+        msg += "  • 無獲利 → 出場觀望\n"
+        msg += "  • 尚未進場 → 取消掛單"
+    elif reason_code == "REVERSED":
+        msg = "🔄 *" + sym_short + " — 反向信號*\n"
+        msg += "━━━━━━━━━━━━━━━\n"
+        msg += "偵測到高品質反向信號，原方向已關閉\n"
+        msg += "新的反向信號將在下一則推送\n"
+        msg += "若已進場原方向：有獲利立即出，虧損等下根 K 線"
+    else:
+        msg = "📌 *" + sym_short + " 信號結束*\n" + reason_msg
+
+    # 連虧紀錄
+    if reason_code == "SL_HIT" and not sig.get("tp_hit"):
+        if symbol not in SYMBOL_LOSSES:
+            SYMBOL_LOSSES[symbol] = []
+        SYMBOL_LOSSES[symbol].append(datetime.now(timezone.utc).isoformat())
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+        SYMBOL_LOSSES[symbol] = [t for t in SYMBOL_LOSSES[symbol]
+                                  if datetime.fromisoformat(t) > cutoff]
+
+    # 只通知訂閱者，不推頻道（v26）
+    for chat_id in sig.get("watchers", []):
+        try:
+            await ctx.bot.send_message(chat_id=chat_id, text=msg, parse_mode="Markdown")
+        except Exception as e:
+            logger.error("通知關閉失敗 " + str(chat_id) + ": " + str(e))
+
+    # 記錄歷史
+    SIGNAL_RESULTS.append({
+        "symbol": symbol, "direction": direction, "entry": entry,
+        "result": reason_code, "final_pct": round(final_pct, 2),
+        "tp_hit_count": len(sig.get("tp_hit", [])),
+        "score": sig.get("score", 0),
+        "closed_at": datetime.now(timezone.utc).isoformat(),
+    })
+    save_data()
+
+
+async def notify_tp_hit(ctx, symbol, tp_level, current_price):
+    """通知 TP 達標（v26 不推頻道）"""
+    if symbol not in ACTIVE_SIGNALS:
+        return
+    sig = ACTIVE_SIGNALS[symbol]
+    if tp_level in sig["tp_hit"]:
+        return
+    sig["tp_hit"].append(tp_level)
+    direction = sig["direction"]
+    entry = sig["entry"]
+    tp_price = sig["tp" + str(tp_level)]
+    profit_pct = abs(tp_price - entry) / entry * 100
+    sym_short = symbol.replace("/USDT", "")
+    direction_zh = "做多" if direction == "LONG" else "做空"
+
+    tp_messages = {
+        1: ("✅", "達到 TP1 保本點", "*立即平 25% 倉位*", "止損移到成本價 `" + str(entry) + "`"),
+        2: ("💰", "達到 TP2 鎖利", "*平 35% 倉位*", "止損移到 TP1 `" + str(sig.get("tp1", entry)) + "`"),
+        3: ("🏆", "達到 TP3 大勝", "*平 25% 倉位*", "止損移到 TP2 `" + str(sig.get("tp2", entry)) + "`"),
+        4: ("🎯", "達到 TP4 滿貫", "*平剩餘 15%*", "本輪交易圓滿結束"),
+    }
+    emoji, title, action, sl_advice = tp_messages[tp_level]
+    msg = emoji + " *" + sym_short + " " + direction_zh + " — " + title + "*\n"
+    msg += "━━━━━━━━━━━━━━━\n"
+    msg += "進場 `" + str(entry) + "` → 現價 `" + str(current_price) + "`\n"
+    msg += "浮盈 *+" + str(round(profit_pct, 2)) + "%*\n\n"
+    msg += "📌 立即動作：" + action + "\n"
+    msg += "📌 後續：" + sl_advice
+    if tp_level < 4:
+        remaining_tps = []
+        for t in range(tp_level + 1, 5):
+            if sig.get("tp" + str(t), 0) > 0:
+                remaining_tps.append("TP" + str(t) + " `" + str(sig["tp" + str(t)]) + "`")
+        if remaining_tps:
+            msg += "\n\n🎯 剩餘：" + " · ".join(remaining_tps)
+
+    # 只通知訂閱者
+    for chat_id in sig.get("watchers", []):
+        try:
+            await ctx.bot.send_message(chat_id=chat_id, text=msg, parse_mode="Markdown")
+        except Exception as e:
+            logger.error("通知 TP 失敗 " + str(chat_id) + ": " + str(e))
+
+    if tp_level == 4:
+        await close_signal(ctx, symbol, "TP4_HIT", "達最終止盈")
+    else:
+        save_data()
+
+
+async def check_active_signals(ctx):
+    """檢查所有活躍信號的當前狀態"""
+    if not ACTIVE_SIGNALS:
+        return
+    import aiohttp as _aiohttp
+    now = datetime.now(timezone.utc)
+    symbols_to_check = list(ACTIVE_SIGNALS.keys())
+    try:
+        async with _aiohttp.ClientSession() as session:
+            tasks = [analyzer.fetch_ticker(session, sym) for sym in symbols_to_check]
+            tickers = await asyncio.gather(*tasks, return_exceptions=True)
+        for i, sym in enumerate(symbols_to_check):
+            if sym not in ACTIVE_SIGNALS:
+                continue
+            sig = ACTIVE_SIGNALS[sym]
+            ticker = tickers[i]
+            if isinstance(ticker, Exception):
+                continue
+            price = float(ticker.get("lastPrice", 0))
+            if price == 0:
+                continue
+            direction = sig["direction"]
+            entry = sig["entry"]
+            sl = sig["sl"]
+            # 止損
+            if direction == "LONG" and price <= sl:
+                await close_signal(ctx, sym, "SL_HIT", "觸及止損", price)
+                continue
+            if direction == "SHORT" and price >= sl:
+                await close_signal(ctx, sym, "SL_HIT", "觸及止損", price)
+                continue
+            # 止盈（從高到低）
+            tp_hit = sig.get("tp_hit", [])
+            for level in [4, 3, 2, 1]:
+                if level in tp_hit:
+                    continue
+                tp_price = sig.get("tp" + str(level), 0)
+                if tp_price == 0:
+                    continue
+                if direction == "LONG" and price >= tp_price:
+                    await notify_tp_hit(ctx, sym, level, price)
+                    break
+                if direction == "SHORT" and price <= tp_price:
+                    await notify_tp_hit(ctx, sym, level, price)
+                    break
+            # 過期
+            if sym in ACTIVE_SIGNALS:
+                try:
+                    expires = datetime.fromisoformat(sig["expires"])
+                    if now > expires:
+                        await close_signal(ctx, sym, "EXPIRED", "信號過期", price)
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.error("檢查活躍信號失敗: " + str(e))
+
+
+# BTC 緊急警告（市場信息 → 推頻道）
+LAST_BTC_ALERT_TIME = {"value": 0}
+BTC_ALERT_THRESHOLD = 2.5
+
+async def check_btc_emergency(ctx):
+    """BTC 大幅變動警告"""
+    if not ACTIVE_SIGNALS:
+        return
+    import aiohttp as _aiohttp
+    try:
+        async with _aiohttp.ClientSession() as session:
+            btc_ticker = await analyzer.fetch_ticker(session, "BTC/USDT")
+            btc_df = await analyzer.fetch_ohlcv(session, "BTC/USDT", "5m", 12)
+        if btc_df is not None and len(btc_df) >= 6:
+            recent_chg = (float(btc_df["close"].iloc[-1]) - float(btc_df["close"].iloc[-6])) / float(btc_df["close"].iloc[-6]) * 100
+            now_ts = datetime.now(timezone.utc).timestamp()
+            if now_ts - LAST_BTC_ALERT_TIME["value"] < 1800:
+                return
+            if abs(recent_chg) >= BTC_ALERT_THRESHOLD:
+                LAST_BTC_ALERT_TIME["value"] = now_ts
+                direction_word = "急漲" if recent_chg > 0 else "急跌"
+                affected = set()
+                for sym, sig in ACTIVE_SIGNALS.items():
+                    for w in sig.get("watchers", []):
+                        affected.add(w)
+                if not affected:
+                    return
+                msg = "🚨 *BTC 30 分鐘" + direction_word + "* — 警示通知\n"
+                msg += "━━━━━━━━━━━━━━━\n"
+                msg += "30 分鐘變動 *" + str(round(recent_chg, 2)) + "%*\n"
+                msg += "現價 `" + str(round(float(btc_ticker.get("lastPrice", 0)), 2)) + "`\n\n"
+                msg += "📌 持倉影響\n你持有 " + str(len(ACTIVE_SIGNALS)) + " 個追蹤信號\n"
+                if recent_chg < 0:
+                    msg += "  • 做多：考慮緊縮止損\n"
+                    msg += "  • 做空：注意止盈時機\n"
+                else:
+                    msg += "  • 做多：注意止盈時機\n"
+                    msg += "  • 做空：考慮緊縮止損\n"
+                for u in affected:
+                    try:
+                        await ctx.bot.send_message(chat_id=u, text=msg, parse_mode="Markdown")
+                    except Exception:
+                        pass
+    except Exception as e:
+        logger.error("BTC 監控失敗: " + str(e))
+
+
+# 進場價接近提醒
+LAST_NEAR_ENTRY_ALERT = {}
+
+async def check_near_entry(ctx):
+    """檢查活躍信號的進場價接近，提醒用戶"""
+    if not ACTIVE_SIGNALS:
+        return
+    import aiohttp as _aiohttp
+    try:
+        async with _aiohttp.ClientSession() as session:
+            for sym, sig in list(ACTIVE_SIGNALS.items()):
+                if sig.get("tp_hit"):
+                    continue
+                try:
+                    ticker = await analyzer.fetch_ticker(session, sym)
+                    current = float(ticker.get("lastPrice", 0))
+                    entry = sig.get("entry", 0)
+                    if not current or not entry:
+                        continue
+                    dist_pct = abs(current - entry) / entry * 100
+                    if dist_pct < 0.3:
+                        last_alert = LAST_NEAR_ENTRY_ALERT.get(sym, 0)
+                        now_ts = datetime.now(timezone.utc).timestamp()
+                        if now_ts - last_alert > 1800:
+                            LAST_NEAR_ENTRY_ALERT[sym] = now_ts
+                            sym_short = sym.replace("/USDT", "")
+                            direction_zh = "做多" if sig["direction"] == "LONG" else "做空"
+                            msg = "⏰ *" + sym_short + " 即將觸及進場價*\n"
+                            msg += "━━━━━━━━━━━━━━━\n"
+                            msg += "現價 `" + str(current) + "`\n"
+                            msg += "進場價 `" + str(entry) + "` (差距 " + str(round(dist_pct, 2)) + "%)\n\n"
+                            msg += "📌 請準備：\n"
+                            msg += "  • 已掛限價單 → 等待自動成交\n"
+                            msg += "  • 尚未下單 → 立即準備 " + direction_zh + " 倉位"
+                            for u in sig.get("watchers", []):
+                                try:
+                                    await ctx.bot.send_message(chat_id=u, text=msg, parse_mode="Markdown")
+                                except Exception:
+                                    pass
+                except Exception:
+                    continue
+    except Exception as e:
+        logger.error("進場價監控失敗: " + str(e))
+
+
+# 反向警告
+LAST_REVERSAL_ALERT = {}
+
+async def check_signal_reversal(ctx):
+    """檢查活躍信號是否出現即時反向訊號"""
+    if not ACTIVE_SIGNALS:
+        return
+    import aiohttp as _aiohttp
+    try:
+        async with _aiohttp.ClientSession() as session:
+            for sym, sig in list(ACTIVE_SIGNALS.items()):
+                if sig.get("tp_hit"):
+                    continue
+                try:
+                    created = datetime.fromisoformat(sig["created"])
+                    age_min = (datetime.now(timezone.utc) - created).total_seconds() / 60
+                    if age_min < 15 or age_min > 240:
+                        continue
+                    last_alert = LAST_REVERSAL_ALERT.get(sym, 0)
+                    now_ts = datetime.now(timezone.utc).timestamp()
+                    if now_ts - last_alert < 3600:
+                        continue
+                    df = await analyzer.fetch_ohlcv(session, sym, "15m", 30)
+                    if df is None or len(df) < 10:
+                        continue
+                    has_reversal, reasons = analyzer.kline_reversal_check(df, sig["direction"], sig["entry"])
+                    if has_reversal:
+                        LAST_REVERSAL_ALERT[sym] = now_ts
+                        sym_short = sym.replace("/USDT", "")
+                        direction_zh = "做多" if sig["direction"] == "LONG" else "做空"
+                        ticker = await analyzer.fetch_ticker(session, sym)
+                        current = float(ticker.get("lastPrice", 0))
+                        entry = sig["entry"]
+                        if sig["direction"] == "LONG":
+                            change_pct = (current - entry) / entry * 100
+                        else:
+                            change_pct = (entry - current) / entry * 100
+                        msg = "⚠️ *" + sym_short + " 反向警告*\n"
+                        msg += "━━━━━━━━━━━━━━━\n"
+                        msg += direction_zh + " 倉位現況：\n"
+                        msg += "進場 `" + str(entry) + "` → 現價 `" + str(current) + "`\n"
+                        msg += "目前 *" + ("+" if change_pct >= 0 else "") + str(round(change_pct, 2)) + "%*\n\n"
+                        msg += "📌 偵測訊號：" + reasons + "\n\n"
+                        msg += "📌 建議：\n"
+                        if change_pct > 0:
+                            msg += "  • 有浮盈 → 立即移止損鎖利\n"
+                            msg += "  • 或部分平倉 50% 落袋"
+                        elif change_pct > -0.5:
+                            msg += "  • 未到止損 → 等下根 K 線\n"
+                            msg += "  • 繼續惡化考慮主動出場"
+                        else:
+                            msg += "  • 浮虧較深 → 建議主動出場\n"
+                            msg += "  • 不要硬撐到止損價"
+                        for u in sig.get("watchers", []):
+                            try:
+                                await ctx.bot.send_message(chat_id=u, text=msg, parse_mode="Markdown")
+                            except Exception:
+                                pass
+                except Exception as e:
+                    logger.error("反向檢查失敗 " + sym + ": " + str(e))
+    except Exception as e:
+        logger.error("反向監控失敗: " + str(e))
+
+
+
 def main():
     load_data()
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -1148,7 +1632,7 @@ def main():
         interval=180,
         first=90
     )
-    # ⭐ 每 5 分鐘檢查進場後反向訊號（v22 新增）
+    # ⭐ 每 5 分鐘檢查進場後反向訊號
     async def reversal_checker(ctx):
         await check_signal_reversal(ctx)
     app.job_queue.run_repeating(
@@ -1156,13 +1640,119 @@ def main():
         interval=300,
         first=300
     )
+
+    # ⭐ v25 每 30 分鐘自動推播即時動能到頻道
+    async def auto_momentum_channel(ctx):
+        if not TG_CHANNEL_ID:
+            return
+        try:
+            result = await asyncio.wait_for(analyzer.momentum_scan(), timeout=60)
+            # 只有發現信號才推播
+            if "目前沒有顯著爆發信號" not in result:
+                await ctx.bot.send_message(chat_id=TG_CHANNEL_ID, text=result, parse_mode="Markdown")
+                logger.info("即時動能自動推播完成")
+        except Exception as e:
+            logger.error("即時動能自動推播失敗: " + str(e))
+    app.job_queue.run_repeating(
+        auto_momentum_channel,
+        interval=1800,  # 30 分鐘
+        first=600
+    )
+
+    # ⭐ v25 每 2 小時推播加密快訊到頻道
+    async def auto_news_channel(ctx):
+        if not TG_CHANNEL_ID:
+            return
+        try:
+            import aiohttp as _aiohttp
+            async with _aiohttp.ClientSession() as session:
+                news = await analyzer.fetch_news(session)
+                events = await analyzer.fetch_crypto_events(session)
+            r = "📰 *加密快訊整點報*\n━━━━━━━━━━━━━━━\n\n"
+            if news:
+                score, label, items = analyzer.sentiment(news)
+                r += "*📰 即時新聞*\n"
+                for i, item in enumerate(items[:6], 1):
+                    time_ago = analyzer.format_published(item.get("published", ""))
+                    r += str(i) + ". " + item["emoji"] + " " + item["title"][:70]
+                    if time_ago:
+                        r += " _(" + time_ago + ")_"
+                    r += "\n"
+            if events:
+                r += "\n*🗓 事件預告*\n"
+                for ev in events[:5]:
+                    title = ev.get("title", "")[:55]
+                    date = ev.get("date", "")
+                    typ = ev.get("type", "")
+                    type_emoji = "🔓" if typ == "Unlock" else ("🚀" if typ == "Listing" else ("⚙️" if typ == "Upgrade" else "📌"))
+                    r += "• " + type_emoji + " " + title
+                    if date:
+                        r += " `" + date + "`"
+                    r += "\n"
+            await ctx.bot.send_message(chat_id=TG_CHANNEL_ID, text=r, parse_mode="Markdown")
+            logger.info("加密快訊整點報已推播")
+        except Exception as e:
+            logger.error("快訊推播失敗: " + str(e))
+    app.job_queue.run_repeating(
+        auto_news_channel,
+        interval=7200,  # 2 小時
+        first=900
+    )
+
+    # ⭐ v25 每 4 小時推播市場情緒到頻道
+    async def auto_sentiment_channel(ctx):
+        if not TG_CHANNEL_ID:
+            return
+        try:
+            result = await asyncio.wait_for(analyzer.get_market_sentiment(), timeout=40)
+            await ctx.bot.send_message(chat_id=TG_CHANNEL_ID, text=result, parse_mode="Markdown")
+            logger.info("市場情緒已推播頻道")
+        except Exception as e:
+            logger.error("情緒推播失敗: " + str(e))
+    app.job_queue.run_repeating(
+        auto_sentiment_channel,
+        interval=14400,  # 4 小時
+        first=1200
+    )
+
+    # ⭐ v25 每 1 小時推播趨勢總覽到頻道
+    async def auto_trend_channel(ctx):
+        if not TG_CHANNEL_ID:
+            return
+        try:
+            result = await asyncio.wait_for(analyzer.trend_watch(DEFAULT_SYMBOLS), timeout=40)
+            await ctx.bot.send_message(chat_id=TG_CHANNEL_ID, text=result, parse_mode="Markdown")
+            logger.info("趨勢總覽已推播頻道")
+        except Exception as e:
+            logger.error("趨勢推播失敗: " + str(e))
+    app.job_queue.run_repeating(
+        auto_trend_channel,
+        interval=3600,  # 1 小時
+        first=1500
+    )
+
+    # ⭐ v25 每 1 小時推播異動掃描到頻道
+    async def auto_movers_channel(ctx):
+        if not TG_CHANNEL_ID:
+            return
+        try:
+            result = await asyncio.wait_for(analyzer.detect_movers(), timeout=30)
+            await ctx.bot.send_message(chat_id=TG_CHANNEL_ID, text=result, parse_mode="Markdown")
+            logger.info("異動掃描已推播頻道")
+        except Exception as e:
+            logger.error("異動推播失敗: " + str(e))
+    app.job_queue.run_repeating(
+        auto_movers_channel,
+        interval=3600,  # 1 小時
+        first=1800
+    )
     # ⭐ 定時市場簡報（每小時檢查一次）
     app.job_queue.run_repeating(
         daily_report_check,
         interval=3600,
         first=120
     )
-    logger.info("🤖 Bot v23.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
+    logger.info("🤖 Bot v26.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
