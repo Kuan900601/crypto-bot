@@ -8,13 +8,26 @@ from datetime import datetime, timezone, timedelta
 
 class CryptoAnalyzer:
 
+    # v27 擴大掃描池：30 → 50（含熱門 meme/AI/L2/L1）
     SCAN_POOL = [
+        # 主流
         "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT",
         "DOGE/USDT", "ADA/USDT", "AVAX/USDT", "LINK/USDT", "MATIC/USDT",
         "DOT/USDT", "UNI/USDT", "ATOM/USDT", "LTC/USDT", "BCH/USDT",
+        # L1/L2 熱門
         "NEAR/USDT", "APT/USDT", "ARB/USDT", "OP/USDT", "INJ/USDT",
-        "SUI/USDT", "TIA/USDT", "FIL/USDT", "PEPE/USDT", "SHIB/USDT",
-        "AAVE/USDT", "MKR/USDT", "TRX/USDT", "ICP/USDT", "ETC/USDT",
+        "SUI/USDT", "TIA/USDT", "FIL/USDT", "TRX/USDT", "ICP/USDT",
+        # DeFi
+        "AAVE/USDT", "MKR/USDT", "ETC/USDT", "CRV/USDT", "LDO/USDT",
+        # Meme / 高熱度
+        "PEPE/USDT", "SHIB/USDT", "WIF/USDT", "BONK/USDT", "FLOKI/USDT",
+        # AI / 新敘事
+        "FET/USDT", "RNDR/USDT", "WLD/USDT", "TAO/USDT", "AR/USDT",
+        # Solana 生態
+        "JUP/USDT", "PYTH/USDT", "JTO/USDT",
+        # 其他
+        "STX/USDT", "IMX/USDT", "GRT/USDT", "ENS/USDT", "ORDI/USDT",
+        "SEI/USDT", "MANTA/USDT",
     ]
 
     TF_BINANCE = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d"}
@@ -3221,13 +3234,20 @@ class CryptoAnalyzer:
                         continue
 
             if smart_filter:
-                # v25 寬鬆篩選：信心 ≥60 OR 強勢續航中
-                high_quality = [
-                    c for c in candidates
-                    if c["plan"]["score"] >= 60
-                    or c["plan"].get("strategy_type") == "BREAKOUT_RETEST"
-                    or c["plan"].get("smart_money", False)
-                ]
+                # v27 更寬鬆：信心 ≥55 OR 突破回踩 OR 機構吸籌 OR 強勢續航 OR 動能爆發
+                high_quality = []
+                for c in candidates:
+                    p = c["plan"]
+                    if p["score"] >= 55:
+                        high_quality.append(c)
+                        continue
+                    strat = p.get("strategy_type", "")
+                    if strat in ("BREAKOUT_RETEST", "MOMENTUM"):
+                        high_quality.append(c)
+                        continue
+                    if p.get("smart_money", False):
+                        high_quality.append(c)
+                        continue
                 if not high_quality:
                     return None
                 candidates = high_quality
@@ -3271,7 +3291,7 @@ class CryptoAnalyzer:
                 r += market_tone + "\n"
             r += "\n"
 
-            for rank, c in enumerate(candidates[:3], 1):
+            for rank, c in enumerate(candidates[:5], 1):
                 sig = c["sig1h"]
                 p = c["plan"]
                 direction_zh = "做多" if sig["direction_en"] == "LONG" else "做空"

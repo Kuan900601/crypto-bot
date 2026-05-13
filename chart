@@ -1,0 +1,237 @@
+"""
+K 線圖繪製模組
+產生 PNG 圖片給 Telegram 推播使用
+"""
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+from io import BytesIO
+
+
+def plot_signal_chart(df, symbol, timeframe, direction,
+                       entry=None, sl=None, tp1=None, tp2=None, tp3=None, tp4=None,
+                       support_levels=None, resistance_levels=None,
+                       title_suffix=""):
+    """
+    繪製附帶交易計劃的 K 線圖
+
+    df: pandas DataFrame, 含 open/high/low/close/volume
+    symbol: "BTC/USDT"
+    timeframe: "1H"
+    direction: "LONG" or "SHORT"
+    entry/sl/tp1-4: 價位
+    support_levels: list of floats，支撐位
+    resistance_levels: list of floats，阻力位
+    """
+    # 限制資料量
+    df = df.tail(80).reset_index(drop=True)
+    n = len(df)
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 7),
+                                     gridspec_kw={'height_ratios': [3, 1]},
+                                     facecolor='#0f1419')
+
+    # === K 線 ===
+    for i in range(n):
+        row = df.iloc[i]
+        o = float(row['open'])
+        c = float(row['close'])
+        h = float(row['high'])
+        l = float(row['low'])
+        color = '#26a69a' if c >= o else '#ef5350'
+        ax1.plot([i, i], [l, h], color=color, linewidth=1)
+        body_height = abs(c - o) or c * 0.0001
+        ax1.add_patch(Rectangle(
+            (i - 0.35, min(o, c)), 0.7, body_height,
+            facecolor=color, edgecolor=color
+        ))
+
+    # === EMA 線 ===
+    if n >= 20:
+        ema20 = df['close'].ewm(span=20).mean()
+        ax1.plot(range(n), ema20, color='#ffd700', linewidth=1.3, label='EMA20', alpha=0.85)
+    if n >= 50:
+        ema50 = df['close'].ewm(span=50).mean()
+        ax1.plot(range(n), ema50, color='#ba68c8', linewidth=1.3, label='EMA50', alpha=0.85)
+
+    current = float(df['close'].iloc[-1])
+
+    # 計算 Y 範圍（包含所有特殊價位，避免被裁掉）
+    all_prices = [float(df['high'].max()), float(df['low'].min())]
+    for v in [entry, sl, tp1, tp2, tp3, tp4]:
+        if v:
+            all_prices.append(v)
+    if support_levels:
+        all_prices.extend(support_levels[:2])
+    if resistance_levels:
+        all_prices.extend(resistance_levels[:2])
+    y_min = min(all_prices) * 0.985
+    y_max = max(all_prices) * 1.015
+    ax1.set_ylim(y_min, y_max)
+    ax1.set_xlim(-1, n + 12)  # 右邊預留空間給標籤
+
+    label_x = n - 0.5  # 標籤位置
+
+    # === 支撐阻力（背景） ===
+    if support_levels:
+        for i, s in enumerate(support_levels[:2]):
+            if y_min <= s <= y_max:
+                ax1.axhline(y=s, color='#4caf50', linestyle='--', linewidth=1, alpha=0.5)
+                ax1.text(label_x, s, f'  S{i+1} {s:g}', color='#81c784',
+                          fontsize=8, va='center', alpha=0.9)
+    if resistance_levels:
+        for i, r in enumerate(resistance_levels[:2]):
+            if y_min <= r <= y_max:
+                ax1.axhline(y=r, color='#f44336', linestyle='--', linewidth=1, alpha=0.5)
+                ax1.text(label_x, r, f'  R{i+1} {r:g}', color='#e57373',
+                          fontsize=8, va='center', alpha=0.9)
+
+    # === 進場價（白色實線，最醒目） ===
+    if entry:
+        ax1.axhline(y=entry, color='#ffffff', linestyle='-', linewidth=2, alpha=0.95)
+        ax1.text(label_x, entry, f'  ENTRY {entry:g}', color='#ffffff',
+                  fontsize=10, va='center', weight='bold')
+
+    # === 止損（紅色虛線） ===
+    if sl:
+        ax1.axhline(y=sl, color='#ff1744', linestyle=':', linewidth=2, alpha=0.9)
+        ax1.text(label_x, sl, f'  SL {sl:g}', color='#ff1744',
+                  fontsize=10, va='center', weight='bold')
+        # 標示止損區域
+        if entry:
+            if direction == "LONG":
+                ax1.fill_between(range(-1, n + 12), sl, entry, color='#ff1744', alpha=0.05)
+            else:
+                ax1.fill_between(range(-1, n + 12), entry, sl, color='#ff1744', alpha=0.05)
+
+    # === 止盈（綠色虛線） ===
+    tp_data = [(tp1, 'TP1'), (tp2, 'TP2'), (tp3, 'TP3'), (tp4, 'TP4')]
+    for tp, label in tp_data:
+        if tp and y_min <= tp <= y_max:
+            ax1.axhline(y=tp, color='#00e676', linestyle=':', linewidth=1.5, alpha=0.85)
+            ax1.text(label_x, tp, f'  {label} {tp:g}', color='#00e676',
+                      fontsize=9, va='center', weight='bold')
+
+    # 標示止盈區域
+    if entry and tp4 and y_min <= tp4 <= y_max:
+        if direction == "LONG":
+            ax1.fill_between(range(-1, n + 12), entry, tp4, color='#00e676', alpha=0.05)
+        else:
+            ax1.fill_between(range(-1, n + 12), tp4, entry, color='#00e676', alpha=0.05)
+
+    # === 現價標記 ===
+    ax1.scatter([n - 1], [current], color='#ffeb3b', s=80, zorder=5,
+                  edgecolor='#0f1419', linewidth=1.5)
+
+    # === 樣式 ===
+    ax1.set_facecolor('#0f1419')
+    ax1.tick_params(colors='#888', labelsize=8)
+    for spine in ['top', 'right']:
+        ax1.spines[spine].set_visible(False)
+    for spine in ['bottom', 'left']:
+        ax1.spines[spine].set_color('#444')
+    ax1.grid(True, alpha=0.08, color='#888')
+    ax1.legend(loc='upper left', framealpha=0.3, fontsize=8,
+                facecolor='#0f1419', labelcolor='white', edgecolor='#444')
+
+    direction_emoji = "LONG ↑" if direction == "LONG" else "SHORT ↓"
+    direction_color = '#26a69a' if direction == "LONG" else '#ef5350'
+    title = f'{symbol}  {timeframe}  |  {direction_emoji}'
+    if title_suffix:
+        title += f'  |  {title_suffix}'
+    ax1.set_title(title, color=direction_color, fontsize=13, weight='bold', pad=10)
+
+    # === 成交量 ===
+    colors_vol = ['#26a69a' if df['close'].iloc[i] >= df['open'].iloc[i] else '#ef5350'
+                    for i in range(n)]
+    ax2.bar(range(n), df['volume'], color=colors_vol, alpha=0.7)
+    # 量能均線
+    if n >= 20:
+        vol_ma = df['volume'].rolling(20).mean()
+        ax2.plot(range(n), vol_ma, color='#ffd700', linewidth=1, alpha=0.7)
+    ax2.set_xlim(-1, n + 12)
+    ax2.set_facecolor('#0f1419')
+    ax2.tick_params(colors='#888', labelsize=8)
+    for spine in ['top', 'right']:
+        ax2.spines[spine].set_visible(False)
+    for spine in ['bottom', 'left']:
+        ax2.spines[spine].set_color('#444')
+    ax2.grid(True, alpha=0.08, color='#888', axis='y')
+    ax2.set_ylabel('Volume', color='#888', fontsize=9)
+
+    plt.tight_layout()
+
+    buf = BytesIO()
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='#0f1419')
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+def plot_simple_chart(df, symbol, timeframe, title_suffix=""):
+    """簡化版 K 線圖（不含交易計劃）"""
+    df = df.tail(80).reset_index(drop=True)
+    n = len(df)
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 6),
+                                     gridspec_kw={'height_ratios': [3, 1]},
+                                     facecolor='#0f1419')
+
+    for i in range(n):
+        row = df.iloc[i]
+        o, c, h, l = float(row['open']), float(row['close']), float(row['high']), float(row['low'])
+        color = '#26a69a' if c >= o else '#ef5350'
+        ax1.plot([i, i], [l, h], color=color, linewidth=1)
+        body_height = abs(c - o) or c * 0.0001
+        ax1.add_patch(Rectangle(
+            (i - 0.35, min(o, c)), 0.7, body_height,
+            facecolor=color, edgecolor=color
+        ))
+
+    if n >= 20:
+        ema20 = df['close'].ewm(span=20).mean()
+        ax1.plot(range(n), ema20, color='#ffd700', linewidth=1.3, label='EMA20', alpha=0.85)
+    if n >= 50:
+        ema50 = df['close'].ewm(span=50).mean()
+        ax1.plot(range(n), ema50, color='#ba68c8', linewidth=1.3, label='EMA50', alpha=0.85)
+
+    current = float(df['close'].iloc[-1])
+    ax1.scatter([n - 1], [current], color='#ffeb3b', s=80, zorder=5,
+                  edgecolor='#0f1419', linewidth=1.5)
+
+    ax1.set_facecolor('#0f1419')
+    ax1.tick_params(colors='#888', labelsize=8)
+    for spine in ['top', 'right']:
+        ax1.spines[spine].set_visible(False)
+    for spine in ['bottom', 'left']:
+        ax1.spines[spine].set_color('#444')
+    ax1.grid(True, alpha=0.08, color='#888')
+    ax1.legend(loc='upper left', framealpha=0.3, fontsize=8,
+                facecolor='#0f1419', labelcolor='white', edgecolor='#444')
+    title = f'{symbol}  {timeframe}'
+    if title_suffix:
+        title += f'  |  {title_suffix}'
+    ax1.set_title(title, color='white', fontsize=13, weight='bold', pad=10)
+
+    colors_vol = ['#26a69a' if df['close'].iloc[i] >= df['open'].iloc[i] else '#ef5350'
+                    for i in range(n)]
+    ax2.bar(range(n), df['volume'], color=colors_vol, alpha=0.7)
+    if n >= 20:
+        vol_ma = df['volume'].rolling(20).mean()
+        ax2.plot(range(n), vol_ma, color='#ffd700', linewidth=1, alpha=0.7)
+    ax2.set_facecolor('#0f1419')
+    ax2.tick_params(colors='#888', labelsize=8)
+    for spine in ['top', 'right']:
+        ax2.spines[spine].set_visible(False)
+    for spine in ['bottom', 'left']:
+        ax2.spines[spine].set_color('#444')
+    ax2.grid(True, alpha=0.08, color='#888', axis='y')
+    ax2.set_ylabel('Volume', color='#888', fontsize=9)
+
+    plt.tight_layout()
+    buf = BytesIO()
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='#0f1419')
+    plt.close(fig)
+    buf.seek(0)
+    return buf

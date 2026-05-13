@@ -1,4 +1,3 @@
-
 import asyncio
 import logging
 import os
@@ -10,6 +9,12 @@ from telegram.ext import (
     ContextTypes, MessageHandler, filters
 )
 from analyzer import CryptoAnalyzer
+try:
+    from chart import plot_signal_chart, plot_simple_chart
+    CHART_ENABLED = True
+except Exception as _e:
+    CHART_ENABLED = False
+    logging.warning("Chart 模組載入失敗: " + str(_e))
 
 # ⭐ 推播間隔：5 分鐘
 PUSH_INTERVAL_MIN = 5
@@ -178,6 +183,61 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, reply_markup=main_menu(), parse_mode="Markdown")
 
 
+async def send_chart_with_caption(ctx, chat_id, df, symbol, timeframe, direction,
+                                    entry, sl, tp1, tp2, tp3, tp4,
+                                    support_levels, resistance_levels,
+                                    caption, title_suffix=""):
+    """發送 K 線圖 + 說明"""
+    if not CHART_ENABLED or df is None:
+        # 降級：純文字推播
+        try:
+            await ctx.bot.send_message(chat_id=chat_id, text=caption, parse_mode="Markdown")
+        except Exception as e:
+            logger.error("純文字推播失敗 " + str(chat_id) + ": " + str(e))
+        return
+    try:
+        buf = plot_signal_chart(
+            df, symbol, timeframe, direction,
+            entry=entry, sl=sl, tp1=tp1, tp2=tp2, tp3=tp3, tp4=tp4,
+            support_levels=support_levels,
+            resistance_levels=resistance_levels,
+            title_suffix=title_suffix
+        )
+        # Telegram caption 上限 1024 字元
+        short_caption = caption if len(caption) <= 1000 else caption[:1000] + "..."
+        await ctx.bot.send_photo(
+            chat_id=chat_id, photo=buf,
+            caption=short_caption, parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error("附圖推播失敗: " + str(e))
+        # 降級
+        try:
+            await ctx.bot.send_message(chat_id=chat_id, text=caption, parse_mode="Markdown")
+        except Exception:
+            pass
+
+
+async def send_simple_chart(ctx, chat_id, df, symbol, timeframe, caption=""):
+    """發送無交易計劃的 K 線圖"""
+    if not CHART_ENABLED or df is None:
+        if caption:
+            try:
+                await ctx.bot.send_message(chat_id=chat_id, text=caption, parse_mode="Markdown")
+            except Exception:
+                pass
+        return
+    try:
+        buf = plot_simple_chart(df, symbol, timeframe)
+        short_caption = caption if len(caption) <= 1000 else caption[:1000] + "..."
+        await ctx.bot.send_photo(
+            chat_id=chat_id, photo=buf,
+            caption=short_caption, parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error("簡圖推播失敗: " + str(e))
+
+
 async def safe_run(coro, timeout=30):
     try:
         return await asyncio.wait_for(coro, timeout=timeout)
@@ -268,18 +328,71 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_id = q.message.chat_id
 
     if d.startswith("a_"):
-        symbol = d[2:]
-        await q.edit_message_text("⏳ 分析 " + symbol + "...")
-        result = await safe_run(analyzer.full_analysis(symbol), timeout=30)
-        keyboard = [[InlineKeyboardButton("⭐ 加入自選", callback_data="favadd_" + symbol),
+        symbol_short = d[2:]
+        sym_full = symbol_short + "/USDT" if "/" not in symbol_short else symbol_short
+        await q.edit_message_text("⏳ 分析 " + sym_full + "...")
+        result = await safe_run(analyzer.full_analysis(sym_full), timeout=30)
+        keyboard = [[InlineKeyboardButton("⭐ 加入自選", callback_data="favadd_" + sym_full),
                      InlineKeyboardButton("🏠 主選單", callback_data="home")]]
+        # 先發文字
         await q.edit_message_text(result, parse_mode="Markdown",
                                   reply_markup=InlineKeyboardMarkup(keyboard))
+        # 附 K 線圖
+        if CHART_ENABLED:
+            try:
+                import aiohttp as _aiohttp
+                async with _aiohttp.ClientSession() as session:
+                    df = await analyzer.fetch_ohlcv(session, sym_full, "1h", 100)
+                    if df is not None:
+                        sw_res, sw_sup = analyzer.swing_sr(df)
+                        await send_simple_chart(
+                            ctx, chat_id, df, sym_full, "1H",
+                            caption="📊 *" + symbol_short + "* K 線（1H）"
+                        )
+            except Exception as e:
+                logger.error("分析圖失敗 " + sym_full + ": " + str(e))
 
     elif d == "hunter":
         await q.edit_message_text("🎯 專業黑潮船長掃描中...\n(掃描 30 幣種約 20-30 秒)")
         result = await safe_run(analyzer.golden_hunter(), timeout=90)
         await q.edit_message_text(result, parse_mode="Markdown", reply_markup=back_btn())
+        # 為 TOP 3 信號附 K 線圖
+        if CHART_ENABLED and result and "📡" in result:
+            try:
+                import re as _re_re
+                import aiohttp as _aiohttp_chart
+                # 從結果解析 TOP 3 候選
+                parsed = parse_hunter_signals(result)
+                if parsed:
+                    async with _aiohttp_chart.ClientSession() as session:
+                        for sig in parsed[:3]:
+                            sym = sig.get("symbol", "")
+                            try:
+                                df = await analyzer.fetch_ohlcv(session, sym, "1h", 100)
+                                if df is not None:
+                                    sw_res, sw_sup = analyzer.swing_sr(df)
+                                    sym_short = sym.replace("/USDT", "")
+                                    grade = sig.get("entry_grade", "")
+                                    direction = sig.get("direction", "LONG")
+                                    title_suffix = grade + " GRADE" if grade else ""
+                                    caption = (
+                                        "📊 *" + sym_short + " " + ("Long" if direction == "LONG" else "Short") + "*\n"
+                                        "Entry: `" + str(sig.get("entry", 0)) + "` | SL: `" + str(sig.get("sl", 0)) + "`"
+                                    )
+                                    await send_chart_with_caption(
+                                        ctx, chat_id, df, sym, "1H", direction,
+                                        entry=sig.get("entry"), sl=sig.get("sl"),
+                                        tp1=sig.get("tp1"), tp2=sig.get("tp2"),
+                                        tp3=sig.get("tp3"), tp4=sig.get("tp4"),
+                                        support_levels=sw_sup[:2] if sw_sup else [],
+                                        resistance_levels=sw_res[:2] if sw_res else [],
+                                        caption=caption, title_suffix=title_suffix
+                                    )
+                                    await asyncio.sleep(0.3)
+                            except Exception:
+                                continue
+            except Exception as e:
+                logger.error("hunter 附圖失敗: " + str(e))
 
     elif d == "todays_pick":
         await q.edit_message_text("⭐ 為你挑選今日最佳機會中...")
@@ -1085,8 +1198,33 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
                 )
             ])
 
+        # ⭐ v27 為每個信號附 K 線圖（最多 3 張）
+        chart_data_list = []
+        if CHART_ENABLED:
+            try:
+                import aiohttp as _aiohttp
+                async with _aiohttp.ClientSession() as session:
+                    for sig in loss_filtered[:3]:
+                        sym = sig.get("symbol", "")
+                        try:
+                            df = await analyzer.fetch_ohlcv(session, sym, "1h", 100)
+                            if df is not None:
+                                # 簡化的支撐阻力
+                                sw_res, sw_sup = analyzer.swing_sr(df)
+                                chart_data_list.append({
+                                    "sig": sig,
+                                    "df": df,
+                                    "sw_res": sw_res[:2] if sw_res else [],
+                                    "sw_sup": sw_sup[:2] if sw_sup else [],
+                                })
+                        except Exception as e:
+                            logger.error("圖表資料抓取失敗 " + sym + ": " + str(e))
+            except Exception as e:
+                logger.error("圖表批次抓取失敗: " + str(e))
+
         for chat_id in list(HUNTER_WATCHERS):
             try:
+                # 主訊息（含全部分析）
                 await ctx.bot.send_message(
                     chat_id=chat_id,
                     text=(
@@ -1099,6 +1237,33 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
                     parse_mode="Markdown",
                     reply_markup=InlineKeyboardMarkup(keyboard_rows) if keyboard_rows else None
                 )
+                # 附上 K 線圖
+                for chart_data in chart_data_list:
+                    sig = chart_data["sig"]
+                    sym = sig.get("symbol", "")
+                    sym_short = sym.replace("/USDT", "")
+                    direction = sig.get("direction", "LONG")
+                    grade = sig.get("entry_grade", "")
+                    title_suffix = grade + " GRADE" if grade else ""
+                    caption = (
+                        "📊 *" + sym_short + " " + ("Long" if direction == "LONG" else "Short") + " " + grade + " " + "Grade*\n"
+                        "Entry: `" + str(sig.get("entry", 0)) + "`\n"
+                        "SL: `" + str(sig.get("sl", 0)) + "` | TP1: `" + str(sig.get("tp1", 0)) + "`"
+                    )
+                    await send_chart_with_caption(
+                        ctx, chat_id, chart_data["df"], sym, "1H", direction,
+                        entry=sig.get("entry"),
+                        sl=sig.get("sl"),
+                        tp1=sig.get("tp1"),
+                        tp2=sig.get("tp2"),
+                        tp3=sig.get("tp3"),
+                        tp4=sig.get("tp4"),
+                        support_levels=chart_data["sw_sup"],
+                        resistance_levels=chart_data["sw_res"],
+                        caption=caption,
+                        title_suffix=title_suffix
+                    )
+                    await asyncio.sleep(0.3)
                 # 記錄歷史
                 lines = result.split("\n")
                 for j, line in enumerate(lines):
@@ -1752,7 +1917,7 @@ def main():
         interval=3600,
         first=120
     )
-    logger.info("🤖 Bot v26.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
+    logger.info("🤖 Bot v27.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
