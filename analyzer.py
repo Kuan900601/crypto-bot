@@ -6,6 +6,227 @@ import re
 from datetime import datetime, timezone, timedelta
 
 
+
+# ===== K 線圖繪製模組（v28 內嵌，避免漏傳）=====
+try:
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+    _CHART_OK = True
+except ImportError:
+    _CHART_OK = False
+    logging.warning("matplotlib 未安裝，圖表功能停用")
+
+from io import BytesIO
+
+
+def plot_signal_chart(df, symbol, timeframe, direction,
+                       entry=None, sl=None, tp1=None, tp2=None, tp3=None, tp4=None,
+                       support_levels=None, resistance_levels=None,
+                       title_suffix=""):
+    """繪製附帶交易計劃的 K 線圖"""
+    if not _CHART_OK:
+        return None
+    df = df.tail(80).reset_index(drop=True)
+    n = len(df)
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 7),
+                                     gridspec_kw={'height_ratios': [3, 1]},
+                                     facecolor='#0f1419')
+    for i in range(n):
+        row = df.iloc[i]
+        o, c, h, l = float(row['open']), float(row['close']), float(row['high']), float(row['low'])
+        color = '#26a69a' if c >= o else '#ef5350'
+        ax1.plot([i, i], [l, h], color=color, linewidth=1)
+        body = abs(c - o) or c * 0.0001
+        ax1.add_patch(Rectangle((i - 0.35, min(o, c)), 0.7, body, facecolor=color, edgecolor=color))
+    if n >= 20:
+        ema20 = df['close'].ewm(span=20).mean()
+        ax1.plot(range(n), ema20, color='#ffd700', linewidth=1.3, label='EMA20', alpha=0.85)
+    if n >= 50:
+        ema50 = df['close'].ewm(span=50).mean()
+        ax1.plot(range(n), ema50, color='#ba68c8', linewidth=1.3, label='EMA50', alpha=0.85)
+    current = float(df['close'].iloc[-1])
+    all_prices = [float(df['high'].max()), float(df['low'].min())]
+    for v in [entry, sl, tp1, tp2, tp3, tp4]:
+        if v: all_prices.append(v)
+    if support_levels:
+        all_prices.extend([s for s in support_levels[:2] if s])
+    if resistance_levels:
+        all_prices.extend([r for r in resistance_levels[:2] if r])
+    y_min = min(all_prices) * 0.985
+    y_max = max(all_prices) * 1.015
+    ax1.set_ylim(y_min, y_max)
+    ax1.set_xlim(-1, n + 12)
+    label_x = n - 0.5
+    if support_levels:
+        for i, s in enumerate(support_levels[:2]):
+            if s and y_min <= s <= y_max:
+                ax1.axhline(y=s, color='#4caf50', linestyle='--', linewidth=1, alpha=0.5)
+                ax1.text(label_x, s, '  S' + str(i+1) + ' ' + ('%g' % s), color='#81c784',
+                          fontsize=8, va='center', alpha=0.9)
+    if resistance_levels:
+        for i, r in enumerate(resistance_levels[:2]):
+            if r and y_min <= r <= y_max:
+                ax1.axhline(y=r, color='#f44336', linestyle='--', linewidth=1, alpha=0.5)
+                ax1.text(label_x, r, '  R' + str(i+1) + ' ' + ('%g' % r), color='#e57373',
+                          fontsize=8, va='center', alpha=0.9)
+    if entry:
+        ax1.axhline(y=entry, color='#ffffff', linestyle='-', linewidth=2, alpha=0.95)
+        ax1.text(label_x, entry, '  ENTRY ' + ('%g' % entry), color='#ffffff',
+                  fontsize=10, va='center', weight='bold')
+    if sl:
+        ax1.axhline(y=sl, color='#ff1744', linestyle=':', linewidth=2, alpha=0.9)
+        ax1.text(label_x, sl, '  SL ' + ('%g' % sl), color='#ff1744',
+                  fontsize=10, va='center', weight='bold')
+    for tp, label in [(tp1, 'TP1'), (tp2, 'TP2'), (tp3, 'TP3'), (tp4, 'TP4')]:
+        if tp and y_min <= tp <= y_max:
+            ax1.axhline(y=tp, color='#00e676', linestyle=':', linewidth=1.5, alpha=0.85)
+            ax1.text(label_x, tp, '  ' + label + ' ' + ('%g' % tp), color='#00e676',
+                      fontsize=9, va='center', weight='bold')
+    ax1.scatter([n - 1], [current], color='#ffeb3b', s=80, zorder=5,
+                  edgecolor='#0f1419', linewidth=1.5)
+    ax1.set_facecolor('#0f1419')
+    ax1.tick_params(colors='#888', labelsize=8)
+    for spine in ['top', 'right']: ax1.spines[spine].set_visible(False)
+    for spine in ['bottom', 'left']: ax1.spines[spine].set_color('#444')
+    ax1.grid(True, alpha=0.08, color='#888')
+    ax1.legend(loc='upper left', framealpha=0.3, fontsize=8,
+                facecolor='#0f1419', labelcolor='white', edgecolor='#444')
+    direction_color = '#26a69a' if direction == "LONG" else '#ef5350'
+    direction_text = "LONG ↑" if direction == "LONG" else "SHORT ↓"
+    title = symbol + '  ' + timeframe + '  |  ' + direction_text
+    if title_suffix:
+        title += '  |  ' + title_suffix
+    ax1.set_title(title, color=direction_color, fontsize=13, weight='bold', pad=10)
+    colors_vol = ['#26a69a' if df['close'].iloc[i] >= df['open'].iloc[i] else '#ef5350' for i in range(n)]
+    ax2.bar(range(n), df['volume'], color=colors_vol, alpha=0.7)
+    if n >= 20:
+        vol_ma = df['volume'].rolling(20).mean()
+        ax2.plot(range(n), vol_ma, color='#ffd700', linewidth=1, alpha=0.7)
+    ax2.set_xlim(-1, n + 12)
+    ax2.set_facecolor('#0f1419')
+    ax2.tick_params(colors='#888', labelsize=8)
+    for spine in ['top', 'right']: ax2.spines[spine].set_visible(False)
+    for spine in ['bottom', 'left']: ax2.spines[spine].set_color('#444')
+    ax2.grid(True, alpha=0.08, color='#888', axis='y')
+    ax2.set_ylabel('Volume', color='#888', fontsize=9)
+    plt.tight_layout()
+    buf = BytesIO()
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='#0f1419')
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+def plot_simple_chart(df, symbol, timeframe, title_suffix=""):
+    """簡化版 K 線圖（不含交易計劃）"""
+    if not _CHART_OK:
+        return None
+    df = df.tail(80).reset_index(drop=True)
+    n = len(df)
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 6),
+                                     gridspec_kw={'height_ratios': [3, 1]},
+                                     facecolor='#0f1419')
+    for i in range(n):
+        row = df.iloc[i]
+        o, c, h, l = float(row['open']), float(row['close']), float(row['high']), float(row['low'])
+        color = '#26a69a' if c >= o else '#ef5350'
+        ax1.plot([i, i], [l, h], color=color, linewidth=1)
+        body = abs(c - o) or c * 0.0001
+        ax1.add_patch(Rectangle((i - 0.35, min(o, c)), 0.7, body, facecolor=color, edgecolor=color))
+    if n >= 20:
+        ema20 = df['close'].ewm(span=20).mean()
+        ax1.plot(range(n), ema20, color='#ffd700', linewidth=1.3, label='EMA20', alpha=0.85)
+    if n >= 50:
+        ema50 = df['close'].ewm(span=50).mean()
+        ax1.plot(range(n), ema50, color='#ba68c8', linewidth=1.3, label='EMA50', alpha=0.85)
+    current = float(df['close'].iloc[-1])
+    ax1.scatter([n - 1], [current], color='#ffeb3b', s=80, zorder=5,
+                  edgecolor='#0f1419', linewidth=1.5)
+    ax1.set_facecolor('#0f1419')
+    ax1.tick_params(colors='#888', labelsize=8)
+    for spine in ['top', 'right']: ax1.spines[spine].set_visible(False)
+    for spine in ['bottom', 'left']: ax1.spines[spine].set_color('#444')
+    ax1.grid(True, alpha=0.08, color='#888')
+    ax1.legend(loc='upper left', framealpha=0.3, fontsize=8,
+                facecolor='#0f1419', labelcolor='white', edgecolor='#444')
+    title = symbol + '  ' + timeframe
+    if title_suffix:
+        title += '  |  ' + title_suffix
+    ax1.set_title(title, color='white', fontsize=13, weight='bold', pad=10)
+    colors_vol = ['#26a69a' if df['close'].iloc[i] >= df['open'].iloc[i] else '#ef5350' for i in range(n)]
+    ax2.bar(range(n), df['volume'], color=colors_vol, alpha=0.7)
+    if n >= 20:
+        vol_ma = df['volume'].rolling(20).mean()
+        ax2.plot(range(n), vol_ma, color='#ffd700', linewidth=1, alpha=0.7)
+    ax2.set_facecolor('#0f1419')
+    ax2.tick_params(colors='#888', labelsize=8)
+    for spine in ['top', 'right']: ax2.spines[spine].set_visible(False)
+    for spine in ['bottom', 'left']: ax2.spines[spine].set_color('#444')
+    ax2.grid(True, alpha=0.08, color='#888', axis='y')
+    ax2.set_ylabel('Volume', color='#888', fontsize=9)
+    plt.tight_layout()
+    buf = BytesIO()
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='#0f1419')
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+def plot_multi_coin_chart(coin_data_list, title="Top Movers"):
+    """多幣種小圖組合（用於異動掃描、動能掃描等）"""
+    if not _CHART_OK or not coin_data_list:
+        return None
+    n_coins = min(len(coin_data_list), 6)
+    rows = (n_coins + 1) // 2
+    fig, axes = plt.subplots(rows, 2, figsize=(11, 2.5 * rows), facecolor='#0f1419')
+    if rows == 1:
+        axes = [axes]
+    for idx in range(n_coins):
+        row, col = idx // 2, idx % 2
+        ax = axes[row][col] if rows > 1 else axes[col]
+        coin = coin_data_list[idx]
+        df = coin['df'].tail(50).reset_index(drop=True)
+        sym = coin['symbol'].replace('/USDT', '')
+        chg = coin.get('chg', 0)
+        for i in range(len(df)):
+            r = df.iloc[i]
+            o, c, h, l = float(r['open']), float(r['close']), float(r['high']), float(r['low'])
+            color = '#26a69a' if c >= o else '#ef5350'
+            ax.plot([i, i], [l, h], color=color, linewidth=0.8)
+            body = abs(c - o) or c * 0.0001
+            ax.add_patch(Rectangle((i - 0.3, min(o, c)), 0.6, body, facecolor=color, edgecolor=color))
+        if len(df) >= 20:
+            ema = df['close'].ewm(span=20).mean()
+            ax.plot(range(len(df)), ema, color='#ffd700', linewidth=1, alpha=0.7)
+        chg_color = '#26a69a' if chg >= 0 else '#ef5350'
+        chg_str = ('+' if chg >= 0 else '') + ('%.2f' % chg) + '%'
+        ax.set_title(sym + '  ' + chg_str, color=chg_color, fontsize=11, weight='bold')
+        ax.set_facecolor('#0f1419')
+        ax.tick_params(colors='#666', labelsize=7)
+        for spine in ['top', 'right']: ax.spines[spine].set_visible(False)
+        for spine in ['bottom', 'left']: ax.spines[spine].set_color('#333')
+        ax.grid(True, alpha=0.08, color='#666')
+    # 隱藏多餘的 subplot
+    if n_coins % 2 == 1 and rows > 1:
+        axes[-1][1].set_visible(False)
+    if n_coins == 1 and rows == 1:
+        axes[1].set_visible(False)
+    fig.suptitle(title, color='white', fontsize=13, weight='bold', y=1.02)
+    plt.tight_layout()
+    buf = BytesIO()
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='#0f1419')
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+def plot_btc_overview(df, symbol="BTC/USDT", timeframe="1H"):
+    """BTC 大盤總覽圖（用於市場情緒、趨勢總覽）"""
+    return plot_simple_chart(df, symbol, timeframe)
+
+
 class CryptoAnalyzer:
 
     # v27 擴大掃描池：30 → 50（含熱門 meme/AI/L2/L1）

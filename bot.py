@@ -10,7 +10,9 @@ from telegram.ext import (
 )
 from analyzer import CryptoAnalyzer
 try:
-    from chart import plot_signal_chart, plot_simple_chart
+    from chart import (plot_signal_chart, plot_simple_chart,
+                         plot_movers_chart, plot_momentum_chart,
+                         plot_trend_distribution, plot_dual_chart)
     CHART_ENABLED = True
 except Exception as _e:
     CHART_ENABLED = False
@@ -238,6 +240,29 @@ async def send_simple_chart(ctx, chat_id, df, symbol, timeframe, caption=""):
         logger.error("簡圖推播失敗: " + str(e))
 
 
+async def send_chart_buf(ctx, chat_id, buf, caption=""):
+    """通用：發送圖表 + caption"""
+    if not buf:
+        if caption:
+            try:
+                await ctx.bot.send_message(chat_id=chat_id, text=caption, parse_mode="Markdown")
+            except Exception:
+                pass
+        return
+    try:
+        short_caption = caption if len(caption) <= 1000 else caption[:1000] + "..."
+        await ctx.bot.send_photo(
+            chat_id=chat_id, photo=buf,
+            caption=short_caption, parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error("圖表推播失敗: " + str(e))
+        try:
+            await ctx.bot.send_message(chat_id=chat_id, text=caption, parse_mode="Markdown")
+        except Exception:
+            pass
+
+
 async def safe_run(coro, timeout=30):
     try:
         return await asyncio.wait_for(coro, timeout=timeout)
@@ -418,6 +443,31 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("⏳ 掃描異動...")
         result = await safe_run(analyzer.detect_movers(), timeout=30)
         await q.edit_message_text(result, parse_mode="Markdown", reply_markup=back_btn())
+        # 附漲跌榜圖
+        if CHART_ENABLED:
+            try:
+                import aiohttp as _aio
+                async with _aio.ClientSession() as session:
+                    tasks = [analyzer.fetch_ticker(session, s) for s in analyzer.SCAN_POOL]
+                    tickers = await asyncio.gather(*tasks, return_exceptions=True)
+                data = []
+                for i, sym in enumerate(analyzer.SCAN_POOL):
+                    t = tickers[i]
+                    if isinstance(t, Exception):
+                        continue
+                    try:
+                        chg = float(t.get("priceChangePercent", 0))
+                        sym_short = sym.replace("/USDT", "")
+                        data.append((sym_short, chg))
+                    except Exception:
+                        continue
+                gainers = sorted(data, key=lambda x: x[1], reverse=True)[:8]
+                losers = sorted(data, key=lambda x: x[1])[:8]
+                now_str = datetime.now(timezone.utc).strftime("%H:%M UTC")
+                buf = plot_movers_chart(gainers, losers, "MARKET MOVERS  |  " + now_str)
+                await send_chart_buf(ctx, chat_id, buf, "📊 *24H 漲跌排行榜*")
+            except Exception as e:
+                logger.error("movers 圖表失敗: " + str(e))
 
     elif d == "kline":
         USER_STATES[chat_id] = "WAIT_KLINE"
@@ -431,11 +481,43 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("⏳ 掃描趨勢...")
         result = await safe_run(analyzer.trend_watch(DEFAULT_SYMBOLS), timeout=40)
         await q.edit_message_text(result, parse_mode="Markdown", reply_markup=back_btn())
+        # 附趨勢分布圖
+        if CHART_ENABLED:
+            try:
+                # 從文字結果提取分類數量
+                import re as _re_trend
+                sb_m = _re_trend.search(r"強多頭.*?\((\d+)\)", result)
+                b_m = _re_trend.search(r"\*📈 多頭.*?\((\d+)\)", result)
+                r_m = _re_trend.search(r"震盪.*?\((\d+)\)", result)
+                bear_m = _re_trend.search(r"\*📉 空頭.*?\((\d+)\)", result)
+                sbe_m = _re_trend.search(r"強空頭.*?\((\d+)\)", result)
+                sb = int(sb_m.group(1)) if sb_m else 0
+                b = int(b_m.group(1)) if b_m else 0
+                r_c = int(r_m.group(1)) if r_m else 0
+                be = int(bear_m.group(1)) if bear_m else 0
+                sbe = int(sbe_m.group(1)) if sbe_m else 0
+                if sb + b + r_c + be + sbe > 0:
+                    buf = plot_trend_distribution(sb, b, r_c, be, sbe)
+                    await send_chart_buf(ctx, chat_id, buf, "🔭 *趨勢分布圖*")
+            except Exception as e:
+                logger.error("trend 圖表失敗: " + str(e))
 
     elif d == "sentiment":
         await q.edit_message_text("⏳ 分析情緒...")
         result = await safe_run(analyzer.get_market_sentiment(), timeout=20)
         await q.edit_message_text(result, parse_mode="Markdown", reply_markup=back_btn())
+        # 附 BTC + ETH 雙圖
+        if CHART_ENABLED:
+            try:
+                import aiohttp as _aio
+                async with _aio.ClientSession() as session:
+                    df_btc = await analyzer.fetch_ohlcv(session, "BTC/USDT", "1h", 100)
+                    df_eth = await analyzer.fetch_ohlcv(session, "ETH/USDT", "1h", 100)
+                if df_btc is not None and df_eth is not None:
+                    buf = plot_dual_chart(df_btc, df_eth)
+                    await send_chart_buf(ctx, chat_id, buf, "🌐 *市場脈動 — BTC & ETH*")
+            except Exception as e:
+                logger.error("sentiment 圖表失敗: " + str(e))
 
     elif d == "custom":
         USER_STATES[chat_id] = "WAIT_SYMBOL"
@@ -691,12 +773,97 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("⚡ 即時動能掃描中...\n(尋找 5-15 分鐘級爆發機會)")
         result = await safe_run(analyzer.momentum_scan(), timeout=60)
         await q.edit_message_text(result, parse_mode="Markdown", reply_markup=back_btn())
-        # 自動推到頻道
-        if TG_CHANNEL_ID:
+        # 附動能 TOP 3 多圖（5m 級別）
+        if CHART_ENABLED and "目前沒有顯著爆發信號" not in result:
+            try:
+                import re as _re_mom
+                import aiohttp as _aiohttp_mom
+                mom_coins = []
+                for line in result.split("\n"):
+                    m = _re_mom.search(r"\*([A-Z0-9]+)\*", line)
+                    if m and ("爆發" in line or "崩跌" in line):
+                        chg_m = _re_mom.search(r"5分 `([+-]?\d+\.?\d*)%`", line)
+                        if chg_m:
+                            mom_coins.append((m.group(1) + "/USDT", float(chg_m.group(1))))
+                mom_coins = mom_coins[:6]
+                if mom_coins:
+                    coin_data = []
+                    async with _aiohttp_mom.ClientSession() as session:
+                        for sym, chg in mom_coins:
+                            try:
+                                df = await analyzer.fetch_ohlcv(session, sym, "5m", 60)
+                                if df is not None:
+                                    coin_data.append({"symbol": sym, "df": df, "chg": chg})
+                            except Exception:
+                                continue
+                    if coin_data:
+                        buf = plot_multi_coin_chart(coin_data, title="Momentum Breakouts (5m)")
+                        if buf:
+                            await ctx.bot.send_photo(chat_id=chat_id, photo=buf,
+                                                       caption="⚡ *即時動能 5m 走勢*",
+                                                       parse_mode="Markdown")
+                            if TG_CHANNEL_ID:
+                                try:
+                                    buf2 = plot_multi_coin_chart(coin_data, title="Momentum Breakouts (5m)")
+                                    if buf2:
+                                        await ctx.bot.send_photo(chat_id=TG_CHANNEL_ID, photo=buf2,
+                                                                  caption="⚡ *即時動能 5m 走勢*",
+                                                                  parse_mode="Markdown")
+                                except Exception:
+                                    pass
+            except Exception as e:
+                logger.error("動能附圖失敗: " + str(e))
+        # 推到頻道
+        if TG_CHANNEL_ID and "目前沒有顯著爆發信號" not in result:
             try:
                 await ctx.bot.send_message(chat_id=TG_CHANNEL_ID, text=result, parse_mode="Markdown")
             except Exception as e:
                 logger.error("動能推播頻道失敗: " + str(e))
+        # 附動能圖（重新抓資料生成）
+        if CHART_ENABLED:
+            try:
+                import aiohttp as _aio
+                async with _aio.ClientSession() as session:
+                    tasks = []
+                    for sym in analyzer.SCAN_POOL:
+                        tasks.append(analyzer.fetch_ticker(session, sym))
+                        tasks.append(analyzer.fetch_ohlcv(session, sym, "5m", 30))
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                opportunities = []
+                for i, sym in enumerate(analyzer.SCAN_POOL):
+                    ticker = results[i * 2]
+                    df5m = results[i * 2 + 1]
+                    if isinstance(ticker, Exception) or isinstance(df5m, Exception):
+                        continue
+                    if df5m is None or len(df5m) < 8:
+                        continue
+                    try:
+                        current_price = float(ticker.get("lastPrice", 0))
+                        if not current_price:
+                            continue
+                        chg_5m = (current_price - float(df5m["close"].iloc[-2])) / float(df5m["close"].iloc[-2]) * 100
+                        chg_15m = (current_price - float(df5m["close"].iloc[-4])) / float(df5m["close"].iloc[-4]) * 100
+                        chg_30m = (current_price - float(df5m["close"].iloc[-7])) / float(df5m["close"].iloc[-7]) * 100
+                        recent_vol = float(df5m["volume"].iloc[-1])
+                        avg_vol = float(df5m["volume"].tail(20).mean())
+                        vol_ratio = recent_vol / avg_vol if avg_vol > 0 else 1.0
+                        if abs(chg_5m) >= 1.0 and vol_ratio >= 1.5:
+                            opportunities.append({
+                                "symbol": sym, "chg_5m": round(chg_5m, 2),
+                                "chg_15m": round(chg_15m, 2), "chg_30m": round(chg_30m, 2),
+                                "vol_ratio": round(vol_ratio, 1),
+                                "intensity": abs(chg_5m) * vol_ratio
+                            })
+                    except Exception:
+                        continue
+                opportunities.sort(key=lambda x: x["intensity"], reverse=True)
+                if opportunities:
+                    now_str = datetime.now(timezone.utc).strftime("%H:%M UTC")
+                    buf = plot_momentum_chart(opportunities, "MOMENTUM SCAN  |  " + now_str)
+                    if buf:
+                        await send_chart_buf(ctx, chat_id, buf, "⚡ *即時動能榜（5m / 15m / 30m）*")
+            except Exception as e:
+                logger.error("momentum 圖表失敗: " + str(e))
 
     elif d == "news_only":
         await q.edit_message_text("📰 抓取加密快訊中...")
@@ -1812,9 +1979,51 @@ def main():
             return
         try:
             result = await asyncio.wait_for(analyzer.momentum_scan(), timeout=60)
-            # 只有發現信號才推播
             if "目前沒有顯著爆發信號" not in result:
                 await ctx.bot.send_message(chat_id=TG_CHANNEL_ID, text=result, parse_mode="Markdown")
+                # 附動能圖
+                if CHART_ENABLED:
+                    try:
+                        import aiohttp as _aio
+                        async with _aio.ClientSession() as session:
+                            tasks = []
+                            for sym in analyzer.SCAN_POOL:
+                                tasks.append(analyzer.fetch_ticker(session, sym))
+                                tasks.append(analyzer.fetch_ohlcv(session, sym, "5m", 30))
+                            results = await asyncio.gather(*tasks, return_exceptions=True)
+                        opportunities = []
+                        for i, sym in enumerate(analyzer.SCAN_POOL):
+                            ticker = results[i * 2]
+                            df5m = results[i * 2 + 1]
+                            if isinstance(ticker, Exception) or isinstance(df5m, Exception):
+                                continue
+                            if df5m is None or len(df5m) < 8:
+                                continue
+                            try:
+                                cp = float(ticker.get("lastPrice", 0))
+                                if not cp: continue
+                                c5 = (cp - float(df5m["close"].iloc[-2])) / float(df5m["close"].iloc[-2]) * 100
+                                c15 = (cp - float(df5m["close"].iloc[-4])) / float(df5m["close"].iloc[-4]) * 100
+                                c30 = (cp - float(df5m["close"].iloc[-7])) / float(df5m["close"].iloc[-7]) * 100
+                                rv = float(df5m["volume"].iloc[-1])
+                                av = float(df5m["volume"].tail(20).mean())
+                                vr = rv / av if av > 0 else 1.0
+                                if abs(c5) >= 1.0 and vr >= 1.5:
+                                    opportunities.append({"symbol": sym, "chg_5m": round(c5, 2),
+                                                              "chg_15m": round(c15, 2), "chg_30m": round(c30, 2),
+                                                              "vol_ratio": round(vr, 1),
+                                                              "intensity": abs(c5) * vr})
+                            except Exception: continue
+                        opportunities.sort(key=lambda x: x["intensity"], reverse=True)
+                        if opportunities:
+                            now_str = datetime.now(timezone.utc).strftime("%H:%M UTC")
+                            buf = plot_momentum_chart(opportunities, "MOMENTUM  |  " + now_str)
+                            if buf:
+                                await ctx.bot.send_photo(chat_id=TG_CHANNEL_ID, photo=buf,
+                                                            caption="⚡ *即時動能榜*",
+                                                            parse_mode="Markdown")
+                    except Exception as e:
+                        logger.error("auto_momentum 圖失敗: " + str(e))
                 logger.info("即時動能自動推播完成")
         except Exception as e:
             logger.error("即時動能自動推播失敗: " + str(e))
@@ -1871,6 +2080,20 @@ def main():
         try:
             result = await asyncio.wait_for(analyzer.get_market_sentiment(), timeout=40)
             await ctx.bot.send_message(chat_id=TG_CHANNEL_ID, text=result, parse_mode="Markdown")
+            # 附 BTC+ETH 雙圖
+            if CHART_ENABLED:
+                try:
+                    import aiohttp as _aio
+                    async with _aio.ClientSession() as session:
+                        df_btc = await analyzer.fetch_ohlcv(session, "BTC/USDT", "1h", 100)
+                        df_eth = await analyzer.fetch_ohlcv(session, "ETH/USDT", "1h", 100)
+                    if df_btc is not None and df_eth is not None:
+                        buf = plot_dual_chart(df_btc, df_eth)
+                        await ctx.bot.send_photo(chat_id=TG_CHANNEL_ID, photo=buf,
+                                                    caption="🌐 *市場脈動*",
+                                                    parse_mode="Markdown")
+                except Exception as e:
+                    logger.error("auto_sentiment 圖失敗: " + str(e))
             logger.info("市場情緒已推播頻道")
         except Exception as e:
             logger.error("情緒推播失敗: " + str(e))
@@ -1887,6 +2110,27 @@ def main():
         try:
             result = await asyncio.wait_for(analyzer.trend_watch(DEFAULT_SYMBOLS), timeout=40)
             await ctx.bot.send_message(chat_id=TG_CHANNEL_ID, text=result, parse_mode="Markdown")
+            # 附趨勢分布圖
+            if CHART_ENABLED:
+                try:
+                    import re as _re_t
+                    sb_m = _re_t.search(r"強多頭.*?\((\d+)\)", result)
+                    b_m = _re_t.search(r"\*📈 多頭.*?\((\d+)\)", result)
+                    r_m = _re_t.search(r"震盪.*?\((\d+)\)", result)
+                    bear_m = _re_t.search(r"\*📉 空頭.*?\((\d+)\)", result)
+                    sbe_m = _re_t.search(r"強空頭.*?\((\d+)\)", result)
+                    sb = int(sb_m.group(1)) if sb_m else 0
+                    b = int(b_m.group(1)) if b_m else 0
+                    r_c = int(r_m.group(1)) if r_m else 0
+                    be = int(bear_m.group(1)) if bear_m else 0
+                    sbe = int(sbe_m.group(1)) if sbe_m else 0
+                    if sb + b + r_c + be + sbe > 0:
+                        buf = plot_trend_distribution(sb, b, r_c, be, sbe)
+                        await ctx.bot.send_photo(chat_id=TG_CHANNEL_ID, photo=buf,
+                                                    caption="🔭 *趨勢分布*",
+                                                    parse_mode="Markdown")
+                except Exception as e:
+                    logger.error("auto_trend 圖失敗: " + str(e))
             logger.info("趨勢總覽已推播頻道")
         except Exception as e:
             logger.error("趨勢推播失敗: " + str(e))
@@ -1903,6 +2147,32 @@ def main():
         try:
             result = await asyncio.wait_for(analyzer.detect_movers(), timeout=30)
             await ctx.bot.send_message(chat_id=TG_CHANNEL_ID, text=result, parse_mode="Markdown")
+            # 附漲跌榜圖
+            if CHART_ENABLED:
+                try:
+                    import aiohttp as _aio
+                    async with _aio.ClientSession() as session:
+                        tasks = [analyzer.fetch_ticker(session, s) for s in analyzer.SCAN_POOL]
+                        tickers = await asyncio.gather(*tasks, return_exceptions=True)
+                    data = []
+                    for i, sym in enumerate(analyzer.SCAN_POOL):
+                        t = tickers[i]
+                        if isinstance(t, Exception):
+                            continue
+                        try:
+                            chg = float(t.get("priceChangePercent", 0))
+                            data.append((sym.replace("/USDT", ""), chg))
+                        except Exception:
+                            continue
+                    gainers = sorted(data, key=lambda x: x[1], reverse=True)[:8]
+                    losers = sorted(data, key=lambda x: x[1])[:8]
+                    now_str = datetime.now(timezone.utc).strftime("%H:%M UTC")
+                    buf = plot_movers_chart(gainers, losers, "MARKET MOVERS  |  " + now_str)
+                    await ctx.bot.send_photo(chat_id=TG_CHANNEL_ID, photo=buf,
+                                                caption="📊 *24H 漲跌排行*",
+                                                parse_mode="Markdown")
+                except Exception as e:
+                    logger.error("auto_movers 圖失敗: " + str(e))
             logger.info("異動掃描已推播頻道")
         except Exception as e:
             logger.error("異動推播失敗: " + str(e))
@@ -1917,7 +2187,7 @@ def main():
         interval=3600,
         first=120
     )
-    logger.info("🤖 Bot v27.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
+    logger.info("🤖 Bot v28.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
