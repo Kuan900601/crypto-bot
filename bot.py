@@ -1,4 +1,3 @@
-
 import asyncio
 import logging
 import os
@@ -185,17 +184,23 @@ def fav_menu(chat_id):
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = (
-        "🌊 *黑潮策略 — 加密貨幣 AI 分析助理*\n"
+        "🌊 *黑潮策略 — AI 量化交易助理*\n"
         "━━━━━━━━━━━━━━━\n"
-        "我會 24 小時幫你掃描市場，找出 *高勝率交易機會*\n"
+        "24 小時掃描 50 個幣種，找出 *高勝率交易機會*\n"
         "全程追蹤每筆信號，即時通知關鍵價位\n\n"
-        "*🎯 v23 升級*\n"
-        "• 多週期嚴格共振過濾\n"
-        "• 紐約倫敦時段加權\n"
-        "• 黑天鵝事件自動暫停\n"
-        "• 反指標訊號自動拒絕\n"
-        "• 異常波動全面保護\n\n"
-        "_⚠️ 加密貨幣風險極高，建議僅供參考_"
+        "*🎯 v34 — 分級量化系統*\n"
+        "━━━━━━━━━━━━━━━\n"
+        "💎 *S 級* — 夢幻信號（稀有，正常倉）\n"
+        "🥇 *A 級* — 重點推薦（半倉跟單）\n"
+        "🥈 *B 級* — 一般機會（1/3 倉試水）\n"
+        "🥉 *C 級* — 觀察為主（試水單）\n\n"
+        "*📊 量化分析維度*\n"
+        "• 訂單流不平衡 + 流動性掃蕩\n"
+        "• Wyckoff Spring/Upthrust 偵測\n"
+        "• 多週期動能背離 + 共識制\n"
+        "• 期望值篩選 + 自適應門檻\n"
+        "• 主動退出 + 動態止損移動\n\n"
+        "_⚠️ 加密貨幣風險極高，僅供參考_"
     )
     await update.message.reply_text(text, reply_markup=main_menu(), parse_mode="Markdown")
 
@@ -1467,7 +1472,7 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
                     grade = sig.get("entry_grade", "")
                     tier = sig.get("tier", "B")
                     tier_emoji = {"S": "💎", "A": "🥇", "B": "🥈", "C": "🥉"}.get(tier, "")
-                    tier_text = {"S": "S TIER", "A": "A TIER", "B": "B TIER", "C": "C TIER"}.get(tier, "B TIER")
+                    tier_text = {"S": "[S] DIAMOND", "A": "[A] GOLD", "B": "[B] SILVER", "C": "[C] BRONZE"}.get(tier, "[B] SILVER")
                     title_suffix = tier_text + " | " + grade + " GRADE" if grade else tier_text
                     score = sig.get("score", "?")
                     # v33 副標題：tier + 評分
@@ -2443,7 +2448,7 @@ def main():
         interval=3600,
         first=120
     )
-    logger.info("🤖 Bot v33.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
+    logger.info("🤖 Bot v34.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 

@@ -1,5 +1,6 @@
+
 python-telegram-bot[job-queue]==21.6
 aiohttp==3.9.5
 pandas==2.1.4
 numpy==1.26.4
-matplotlib==3.8.2
+matplotlib==3.8.2 

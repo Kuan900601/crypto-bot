@@ -25,148 +25,301 @@ def plot_signal_chart(df, symbol, timeframe, direction,
                        entry=None, sl=None, tp1=None, tp2=None, tp3=None, tp4=None,
                        support_levels=None, resistance_levels=None,
                        title_suffix="", subtitle=""):
-    """v30 終極版：純英文標籤、智能防重疊、清晰可讀"""
-    df = df.tail(80).reset_index(drop=True)
-    n = len(df)
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11.5, 7.5),
-                                     gridspec_kw={'height_ratios': [3.5, 1]},
-                                     facecolor=BG)
+    """v34 專業版：清晰標籤、不重疊、視覺風險回報區、精美樣式"""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle, FancyBboxPatch
+    from io import BytesIO
 
-    # === K 線 ===
+    df = df.tail(60).reset_index(drop=True)  # 從 80 → 60，K 線更粗
+    n = len(df)
+
+    # 建立 figure，更大的尺寸
+    fig = plt.figure(figsize=(13, 8), facecolor=BG)
+    gs = fig.add_gridspec(2, 1, height_ratios=[4, 1], hspace=0.05)
+    ax1 = fig.add_subplot(gs[0])
+    ax2 = fig.add_subplot(gs[1], sharex=ax1)
+
+    # === K 線（v34 更粗更清晰）===
     for i in range(n):
         row = df.iloc[i]
         o, c, h, l = float(row['open']), float(row['close']), float(row['high']), float(row['low'])
-        color = BULL if c >= o else BEAR
-        ax1.plot([i, i], [l, h], color=color, linewidth=1.2)
-        body_height = abs(c - o) or c * 0.0001
+        is_bull = c >= o
+        color = BULL if is_bull else BEAR
+        # 影線
+        ax1.plot([i, i], [l, h], color=color, linewidth=1.5, alpha=0.95, zorder=3)
+        # 實體（更粗）
+        body_h = abs(c - o) or c * 0.0001
+        body_y = min(o, c)
         ax1.add_patch(Rectangle(
-            (i - 0.35, min(o, c)), 0.7, body_height,
-            facecolor=color, edgecolor=color, linewidth=0.5
+            (i - 0.42, body_y), 0.84, body_h,
+            facecolor=color, edgecolor=color, linewidth=0.5,
+            alpha=0.95, zorder=3
         ))
 
+    # === EMA ===
     if n >= 20:
         ema20 = df['close'].ewm(span=20).mean()
-        ax1.plot(range(n), ema20, color=GOLD, linewidth=1.4, label='EMA20', alpha=0.9)
+        ax1.plot(range(n), ema20, color=GOLD, linewidth=1.6,
+                 label='EMA20', alpha=0.95, zorder=4)
     if n >= 50:
         ema50 = df['close'].ewm(span=50).mean()
-        ax1.plot(range(n), ema50, color=PURPLE, linewidth=1.4, label='EMA50', alpha=0.9)
+        ax1.plot(range(n), ema50, color=PURPLE, linewidth=1.6,
+                 label='EMA50', alpha=0.95, zorder=4)
 
     current = float(df['close'].iloc[-1])
 
-    # Y 軸範圍（含 Y 軸標籤預留空間）
+    # === Y 軸範圍計算（含緩衝） ===
     all_prices = [float(df['high'].max()), float(df['low'].min()), current]
     for v in [entry, sl, tp1, tp2, tp3, tp4]:
         if v: all_prices.append(v)
     if support_levels: all_prices.extend([s for s in support_levels[:2] if s])
     if resistance_levels: all_prices.extend([r for r in resistance_levels[:2] if r])
-    y_min = min(all_prices) * 0.98
-    y_max = max(all_prices) * 1.02
+    y_min = min(all_prices) * 0.992
+    y_max = max(all_prices) * 1.008
     y_range = y_max - y_min
     ax1.set_ylim(y_min, y_max)
-    # 右側預留 15% 給標籤
-    ax1.set_xlim(-1, n + int(n * 0.18))
-    label_x_left = n + 0.5  # 標籤起始位置
-    label_x_right = n + int(n * 0.18) - 1
 
-    # === 收集所有要繪製的橫線 ===
-    levels = []  # [(price, label, color, weight, ls, lw, alpha)]
+    # X 軸：右邊預留 22% 空間給標籤
+    label_zone_start = n + 1
+    label_zone_end = n + int(n * 0.28)
+    ax1.set_xlim(-1, label_zone_end + 1)
 
-    # 支撐阻力（背景線）
+    # === 視覺風險回報區（v34 重點優化）===
+    if entry and sl:
+        if direction == "LONG":
+            # 止損區（紅色，從 entry 到 sl，向下）
+            ax1.fill_betweenx([sl, entry], -1, n - 0.5,
+                              color=RED_ACCENT, alpha=0.10, zorder=1)
+            # 止盈區（綠色，從 entry 向上到 tp4）
+            if tp4 and tp4 > entry:
+                ax1.fill_betweenx([entry, tp4], -1, n - 0.5,
+                                  color=GREEN_ACCENT, alpha=0.10, zorder=1)
+        else:
+            # SHORT：止損區在上方
+            ax1.fill_betweenx([entry, sl], -1, n - 0.5,
+                              color=RED_ACCENT, alpha=0.10, zorder=1)
+            if tp4 and tp4 < entry:
+                ax1.fill_betweenx([tp4, entry], -1, n - 0.5,
+                                  color=GREEN_ACCENT, alpha=0.10, zorder=1)
+
+    # === 收集要繪製的價位線 ===
+    levels = []  # (price, label_text, color, linestyle, linewidth, alpha, importance)
+    # importance: 3=主線(ENTRY/SL), 2=止盈, 1=支撐阻力
+
+    # 支撐阻力（低優先）
     if support_levels:
         for i, s in enumerate(support_levels[:2]):
             if s and y_min < s < y_max:
-                levels.append((s, f'S{i+1} {s:g}', '#81c784', 'normal', '--', 0.9, 0.45))
+                # 跳過跟 SL 太近的（差距 < 0.3%）
+                if sl and abs(s - sl) / sl < 0.003:
+                    continue
+                levels.append((s, f'S{i+1}', '#4caf50', '--', 1.0, 0.4, 1))
+
     if resistance_levels:
         for i, r in enumerate(resistance_levels[:2]):
             if r and y_min < r < y_max:
-                levels.append((r, f'R{i+1} {r:g}', '#e57373', 'normal', '--', 0.9, 0.45))
+                # 跳過跟 TP 太近的
+                skip = False
+                for tp in [tp1, tp2, tp3, tp4]:
+                    if tp and abs(r - tp) / tp < 0.003:
+                        skip = True; break
+                if skip: continue
+                levels.append((r, f'R{i+1}', '#f44336', '--', 1.0, 0.4, 1))
 
-    # 進場/止損/止盈（主線）
-    if entry:
-        levels.append((entry, f'ENTRY {entry:g}', WHITE, 'bold', '-', 2.2, 0.95))
-    if sl:
-        levels.append((sl, f'SL {sl:g}', RED_ACCENT, 'bold', ':', 2, 0.95))
+    # 止盈（高優先）
     for tp, lname in [(tp1, 'TP1'), (tp2, 'TP2'), (tp3, 'TP3'), (tp4, 'TP4')]:
         if tp and y_min < tp < y_max:
-            levels.append((tp, f'{lname} {tp:g}', GREEN_ACCENT, 'bold', ':', 1.6, 0.85))
+            levels.append((tp, lname, GREEN_ACCENT, ':', 1.8, 0.9, 2))
 
-    # 進場區域陰影
-    if entry and sl:
-        if direction == "LONG":
-            ax1.fill_between(range(-1, n + int(n * 0.18)), sl, entry, color=RED_ACCENT, alpha=0.07, zorder=0)
-        else:
-            ax1.fill_between(range(-1, n + int(n * 0.18)), entry, sl, color=RED_ACCENT, alpha=0.07, zorder=0)
-    if entry and tp4 and y_min < tp4 < y_max:
-        if direction == "LONG":
-            ax1.fill_between(range(-1, n + int(n * 0.18)), entry, tp4, color=GREEN_ACCENT, alpha=0.07, zorder=0)
-        else:
-            ax1.fill_between(range(-1, n + int(n * 0.18)), tp4, entry, color=GREEN_ACCENT, alpha=0.07, zorder=0)
+    # 進場、止損（最高優先）
+    if entry:
+        levels.append((entry, 'ENTRY', WHITE, '-', 2.4, 1.0, 3))
+    if sl:
+        levels.append((sl, 'SL', RED_ACCENT, ':', 2.2, 1.0, 3))
 
     # 畫橫線
-    for price, label, color, weight, ls, lw, alpha in levels:
-        ax1.axhline(y=price, color=color, linestyle=ls, linewidth=lw, alpha=alpha, zorder=2)
+    for price, lname, color, ls, lw, alpha, _ in levels:
+        ax1.axhline(y=price, color=color, linestyle=ls, linewidth=lw,
+                    alpha=alpha, zorder=2)
 
-    # === 智能標籤防重疊 ===
-    # 按 Y 從低到高排序，太近的標籤垂直堆疊
-    levels.sort(key=lambda x: x[0])
-    min_label_gap = y_range * 0.032  # 標籤之間最少 3.2% 距離
+    # === v34 智能標籤排布（避免重疊）===
+    # 按 Y 從低到高排序
+    levels_sorted = sorted(levels, key=lambda x: x[0])
+    min_gap = y_range * 0.038  # 標籤間最小垂直距離
 
-    # 從中間向兩邊調整
-    adjusted_y = [l[0] for l in levels]
-    # 向上調整
-    for i in range(1, len(adjusted_y)):
-        if adjusted_y[i] - adjusted_y[i-1] < min_label_gap:
-            adjusted_y[i] = adjusted_y[i-1] + min_label_gap
+    # 計算每個標籤的「目標」Y 位置（避免重疊）
+    label_positions = []
+    last_y = -float('inf')
+    for price, lname, color, ls, lw, alpha, imp in levels_sorted:
+        target_y = max(price, last_y + min_gap)
+        label_positions.append((target_y, price, lname, color, imp))
+        last_y = target_y
 
-    # 繪製標籤（用半透明背景避免被線蓋住）
-    for i, (price, label, color, weight, _, _, _) in enumerate(levels):
-        fs = 10 if 'ENTRY' in label or 'SL' in label else (9 if label.startswith('TP') else 8)
+    # 繪製標籤（用 boxstyle 包起來，避免被線蓋住）
+    label_x = label_zone_start
+    for label_y, price, lname, color, imp in label_positions:
+        # 文字格式
+        if imp == 3:  # ENTRY/SL
+            fs = 11; weight = 'bold'
+        elif imp == 2:  # TP
+            fs = 10; weight = 'bold'
+        else:  # S/R
+            fs = 8; weight = 'normal'
+
+        # 智能格式化價格
+        if price >= 1000:
+            price_str = f'{price:,.1f}'
+        elif price >= 1:
+            price_str = f'{price:.3f}'
+        else:
+            price_str = f'{price:.6f}'
+
+        full_text = f' {lname}  {price_str} '
+
+        # 連接線：從實際價位到標籤位置
+        if abs(label_y - price) > min_gap * 0.5:
+            ax1.plot([n - 0.5, label_x - 0.3], [price, label_y],
+                     color=color, linewidth=0.7, alpha=0.5, zorder=2)
+
+        # 標籤框
         ax1.text(
-            label_x_left, adjusted_y[i], ' ' + label, color=color, fontsize=fs,
-            va='center', weight=weight, ha='left',
-            bbox=dict(boxstyle='round,pad=0.25', facecolor='#1a2128',
-                        edgecolor=color, linewidth=0.6, alpha=0.9)
+            label_x, label_y, full_text,
+            color=color, fontsize=fs, va='center', ha='left',
+            weight=weight, family='monospace',
+            bbox=dict(
+                boxstyle='round,pad=0.35',
+                facecolor='#1a2230', edgecolor=color,
+                linewidth=1.2 if imp >= 2 else 0.8,
+                alpha=0.95
+            ),
+            zorder=6
         )
 
-    # === 現價標記：只顯示圓點，不重複標籤（避免和 ENTRY 衝突） ===
-    ax1.scatter([n - 1], [current], color=YELLOW, s=110, zorder=10,
-                edgecolor=BG, linewidth=2)
-    # 在 K 線左側顯示現價
-    ax1.text(n - 2.5, current, f'NOW {current:g} ',
-              color=YELLOW, fontsize=9, va='center', ha='right', weight='bold',
-              bbox=dict(boxstyle='round,pad=0.2', facecolor='#1a2128',
-                          edgecolor=YELLOW, linewidth=0.6, alpha=0.85))
+    # === 現價標記（v34 強化）===
+    # 大圓點 + 脈衝外圈
+    ax1.scatter([n - 1], [current], s=300, color=YELLOW,
+                alpha=0.2, zorder=8, edgecolor='none')
+    ax1.scatter([n - 1], [current], s=120, color=YELLOW,
+                zorder=9, edgecolor=BG, linewidth=2)
 
-    _style_axis(ax1)
-    ax1.legend(loc='upper left', framealpha=0.4, fontsize=9,
-                facecolor=BG, labelcolor='white', edgecolor='#555')
+    # 現價標籤（放在 K 線上方，顯眼但不擋路）
+    if direction == "LONG":
+        ax1.annotate(
+            f'NOW {current:,.1f}' if current >= 1000 else f'NOW {current:.4f}',
+            xy=(n - 1, current),
+            xytext=(n - 8, current),
+            color=YELLOW, fontsize=10, va='center', ha='right',
+            weight='bold', family='monospace',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='#1a2230',
+                      edgecolor=YELLOW, linewidth=1, alpha=0.95),
+            zorder=10
+        )
+    else:
+        ax1.annotate(
+            f'NOW {current:,.1f}' if current >= 1000 else f'NOW {current:.4f}',
+            xy=(n - 1, current),
+            xytext=(n - 8, current),
+            color=YELLOW, fontsize=10, va='center', ha='right',
+            weight='bold', family='monospace',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='#1a2230',
+                      edgecolor=YELLOW, linewidth=1, alpha=0.95),
+            zorder=10
+        )
 
-    # === 標題（純英文） ===
-    direction_emoji = "▲ LONG" if direction == "LONG" else "▼ SHORT"
+    # === 風險回報比文字（左上）===
+    if entry and sl and tp2:
+        risk = abs(entry - sl)
+        reward = abs(tp2 - entry)
+        rr = reward / risk if risk > 0 else 0
+        risk_pct = risk / entry * 100
+        reward_pct = reward / entry * 100
+        info_text = (
+            f'Risk: {risk_pct:.2f}%  |  '
+            f'Reward(TP2): {reward_pct:.2f}%  |  '
+            f'R/R: 1:{rr:.2f}'
+        )
+        ax1.text(
+            0.015, 0.96, info_text,
+            transform=ax1.transAxes, color='#aaa', fontsize=9.5,
+            va='top', ha='left', family='monospace',
+            bbox=dict(boxstyle='round,pad=0.4', facecolor='#1a2230',
+                      edgecolor='#444', linewidth=0.8, alpha=0.85),
+            zorder=10
+        )
+
+    # === 樣式 ===
+    ax1.set_facecolor(BG)
+    ax1.tick_params(colors='#aaa', labelsize=9)
+    for spine in ['top', 'right']:
+        ax1.spines[spine].set_visible(False)
+    for spine in ['bottom', 'left']:
+        ax1.spines[spine].set_color('#444')
+        ax1.spines[spine].set_linewidth(0.8)
+    ax1.grid(True, alpha=0.06, color='#888', linewidth=0.5)
+    ax1.legend(
+        loc='upper left',
+        bbox_to_anchor=(0.015, 0.88),
+        framealpha=0.6, fontsize=9,
+        facecolor='#1a2230', labelcolor='white',
+        edgecolor='#444', borderpad=0.4
+    )
+
+    # Y 軸價格格式化
+    if current >= 1000:
+        ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:,.0f}'))
+    elif current >= 1:
+        ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:.3f}'))
+    else:
+        ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:.6f}'))
+
+    # === 標題（v34 增強）===
+    direction_arrow = "▲" if direction == "LONG" else "▼"
+    direction_text = "LONG" if direction == "LONG" else "SHORT"
     direction_color = BULL if direction == "LONG" else BEAR
-    title = f'{symbol}   {timeframe}   |   {direction_emoji}'
+    title_main = f'{symbol}   {timeframe}    {direction_arrow} {direction_text}'
     if title_suffix:
-        title += f'   |   {title_suffix}'
-    ax1.set_title(title, color=direction_color, fontsize=14, weight='bold', pad=15)
+        title_main += f'    {title_suffix}'
+    ax1.set_title(title_main, color=direction_color, fontsize=15,
+                  weight='bold', pad=18, family='sans-serif')
 
     if subtitle:
-        ax1.text(0.5, 1.025, subtitle, transform=ax1.transAxes,
-                  ha='center', va='bottom', color='#aaa', fontsize=9)
+        ax1.text(0.5, 1.02, subtitle, transform=ax1.transAxes,
+                 ha='center', va='bottom', color='#bbb', fontsize=10,
+                 style='italic')
 
     # === 成交量 ===
-    colors_vol = [BULL if df['close'].iloc[i] >= df['open'].iloc[i] else BEAR for i in range(n)]
-    ax2.bar(range(n), df['volume'], color=colors_vol, alpha=0.75)
+    colors_vol = [BULL if df['close'].iloc[i] >= df['open'].iloc[i] else BEAR
+                  for i in range(n)]
+    ax2.bar(range(n), df['volume'], color=colors_vol,
+            alpha=0.8, width=0.8)
     if n >= 20:
         vol_ma = df['volume'].rolling(20).mean()
-        ax2.plot(range(n), vol_ma, color=GOLD, linewidth=1, alpha=0.7, label='Vol MA20')
-        ax2.legend(loc='upper left', framealpha=0.4, fontsize=8,
-                    facecolor=BG, labelcolor='white', edgecolor='#555')
-    ax2.set_xlim(-1, n + int(n * 0.18))
-    _style_axis(ax2, 'Volume')
+        ax2.plot(range(n), vol_ma, color=GOLD, linewidth=1.3,
+                 alpha=0.85, label='Vol MA20')
+        ax2.legend(loc='upper left', framealpha=0.5, fontsize=8.5,
+                   facecolor='#1a2230', labelcolor='white',
+                   edgecolor='#444', borderpad=0.3)
 
-    plt.tight_layout()
+    ax2.set_facecolor(BG)
+    ax2.tick_params(colors='#aaa', labelsize=8.5)
+    for spine in ['top', 'right']:
+        ax2.spines[spine].set_visible(False)
+    for spine in ['bottom', 'left']:
+        ax2.spines[spine].set_color('#444')
+        ax2.spines[spine].set_linewidth(0.8)
+    ax2.grid(True, alpha=0.06, color='#888', axis='y', linewidth=0.5)
+    ax2.set_ylabel('Volume', color='#aaa', fontsize=9.5)
+    ax2.set_xlim(-1, label_zone_end + 1)
+    # 隱藏 ax1 的 x 軸 tick labels
+    plt.setp(ax1.get_xticklabels(), visible=False)
+
+    plt.subplots_adjust(left=0.06, right=0.99, top=0.92, bottom=0.06, hspace=0.05)
     buf = BytesIO()
-    plt.savefig(buf, format='png', dpi=105, bbox_inches='tight', facecolor=BG)
+    plt.savefig(buf, format='png', dpi=120,
+                bbox_inches='tight', facecolor=BG,
+                pad_inches=0.15)
     plt.close(fig)
     buf.seek(0)
     return buf
@@ -220,7 +373,7 @@ def plot_simple_chart(df, symbol, timeframe, title_suffix=""):
     for spine in ['bottom', 'left']: ax2.spines[spine].set_color('#444')
     ax2.grid(True, alpha=0.08, color='#888', axis='y')
     ax2.set_ylabel('Volume', color='#888', fontsize=9)
-    plt.tight_layout()
+    plt.subplots_adjust(left=0.06, right=0.99, top=0.92, bottom=0.06, hspace=0.05)
     buf = BytesIO()
     plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='#0f1419')
     plt.close(fig)
@@ -268,7 +421,7 @@ def plot_multi_coin_chart(coin_data_list, title="Top Movers"):
     if n_coins == 1 and rows == 1:
         axes[1].set_visible(False)
     fig.suptitle(title, color='white', fontsize=13, weight='bold', y=1.02)
-    plt.tight_layout()
+    plt.subplots_adjust(left=0.06, right=0.99, top=0.92, bottom=0.06, hspace=0.05)
     buf = BytesIO()
     plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='#0f1419')
     plt.close(fig)
@@ -353,7 +506,7 @@ def plot_simple_chart(df, symbol, timeframe, title_suffix=""):
         vol_ma = df['volume'].rolling(20).mean()
         ax2.plot(range(n), vol_ma, color=GOLD, linewidth=1, alpha=0.7)
     _style_axis(ax2, 'Volume')
-    plt.tight_layout()
+    plt.subplots_adjust(left=0.06, right=0.99, top=0.92, bottom=0.06, hspace=0.05)
     buf = BytesIO()
     plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor=BG)
     plt.close(fig)
@@ -397,7 +550,7 @@ def plot_movers_chart(gainers, losers, title="MARKET MOVERS"):
     _style_axis(ax2)
     ax2.tick_params(axis='y', colors='white', labelsize=10)
     fig.suptitle(title, color='white', fontsize=14, weight='bold', y=0.98)
-    plt.tight_layout()
+    plt.subplots_adjust(left=0.06, right=0.99, top=0.92, bottom=0.06, hspace=0.05)
     buf = BytesIO()
     plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor=BG)
     plt.close(fig)
@@ -429,7 +582,7 @@ def plot_momentum_chart(opportunities, title="MOMENTUM SCAN"):
     ax.legend(loc='upper right', framealpha=0.3, fontsize=9,
                 facecolor=BG, labelcolor='white', edgecolor='#444')
     ax.set_title(title, color='white', fontsize=13, weight='bold', pad=10)
-    plt.tight_layout()
+    plt.subplots_adjust(left=0.06, right=0.99, top=0.92, bottom=0.06, hspace=0.05)
     buf = BytesIO()
     plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor=BG)
     plt.close(fig)
@@ -457,7 +610,7 @@ def plot_trend_distribution(strong_bull_count, bull_count, ranging_count,
     bear_pct = round((strong_bear_count * 2 + bear_count) / (total * 2 + 1) * 100) if total > 0 else 0
     ax.set_title(f'MARKET TREND DISTRIBUTION  |  Bull {bull_pct}% vs Bear {bear_pct}%',
                   color='white', fontsize=12, weight='bold', pad=10)
-    plt.tight_layout()
+    plt.subplots_adjust(left=0.06, right=0.99, top=0.92, bottom=0.06, hspace=0.05)
     buf = BytesIO()
     plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor=BG)
     plt.close(fig)
@@ -507,7 +660,7 @@ def plot_dual_chart(df_btc, df_eth):
         ax_vol.bar(range(n), df['volume'], color=colors_vol, alpha=0.7)
         _style_axis(ax_vol)
     fig.suptitle('MARKET PULSE  |  BTC & ETH', color='white', fontsize=13, weight='bold', y=0.98)
-    plt.tight_layout()
+    plt.subplots_adjust(left=0.06, right=0.99, top=0.92, bottom=0.06, hspace=0.05)
     buf = BytesIO()
     plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor=BG)
     plt.close(fig)
