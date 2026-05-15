@@ -1,7 +1,10 @@
+
 import asyncio
 import logging
 import os
 import json
+import re
+import aiohttp
 from datetime import datetime, timezone, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -9,10 +12,11 @@ from telegram.ext import (
     ContextTypes, MessageHandler, filters
 )
 from analyzer import CryptoAnalyzer
+# v29: chart 已合併到 analyzer
 try:
-    from chart import (plot_signal_chart, plot_simple_chart,
-                         plot_movers_chart, plot_momentum_chart,
-                         plot_trend_distribution, plot_dual_chart)
+    from analyzer import (plot_signal_chart, plot_simple_chart,
+                            plot_movers_chart, plot_momentum_chart,
+                            plot_trend_distribution, plot_dual_chart)
     CHART_ENABLED = True
 except Exception as _e:
     CHART_ENABLED = False
@@ -44,10 +48,15 @@ def bingx_spot_url(symbol):
     return "https://bingx.com/zh-tw/spot/" + pair
 
 
-# ⭐ TG 公開頻道 ID（自動推播所有信息）
-# 預設頻道：@KuroshioSignal（https://t.me/KuroshioSignal）
+# ⭐ TG 頻道設定
+# 一般市場資訊（異動/情緒/趨勢/動能/快訊）：@KuroshioSignal
+# 黑潮船長信號專屬：https://t.me/+G1wwlviXQaE2NDRl
 import os as _os
 TG_CHANNEL_ID = _os.environ.get("TG_CHANNEL_ID", "@KuroshioSignal")
+# 黑潮船長專屬頻道：請在 Railway 設環境變數 BLACK_HUNTER_CHANNEL=-100xxxxxxxxxx
+# 步驟：1. 將 KARINA Bot 加入私人頻道並設為管理員
+#       2. 取得頻道數字 ID（-100 開頭）並設定環境變數
+BLACK_HUNTER_CHANNEL = _os.environ.get("BLACK_HUNTER_CHANNEL", "")
 
 logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -74,13 +83,17 @@ SIGNAL_RESULTS = []
 # ⭐ 連虧紀錄：{symbol: [iso_timestamp...]}
 SYMBOL_LOSSES = {}
 
+# ⭐ v30 推播歷史：避免短時間內重複推播相似信號
+# 格式：{symbol_direction: {"entry": price, "time": iso, "score": score}}
+RECENT_PUSHES = {}
+
 DATA_FILE = "/tmp/bot_data.json"
 
 DEFAULT_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT", "DOGE/USDT"]
 
 
 def load_data():
-    global USER_FAVORITES, PUSH_HISTORY, HUNTER_WATCHERS, USER_DAILY_SCHEDULE, SIGNAL_TRACKER, USER_CAPITAL, ACTIVE_SIGNALS, SIGNAL_RESULTS, SYMBOL_LOSSES
+    global USER_FAVORITES, PUSH_HISTORY, HUNTER_WATCHERS, USER_DAILY_SCHEDULE, SIGNAL_TRACKER, USER_CAPITAL, ACTIVE_SIGNALS, SIGNAL_RESULTS, SYMBOL_LOSSES, RECENT_PUSHES
     try:
         with open(DATA_FILE, "r") as f:
             data = json.load(f)
@@ -94,6 +107,7 @@ def load_data():
             ACTIVE_SIGNALS.update(data.get("active_signals", {}))
             SIGNAL_RESULTS.extend(data.get("signal_results", []))
             SYMBOL_LOSSES.update(data.get("symbol_losses", {}))
+            RECENT_PUSHES.update(data.get("recent_pushes", {}))
             logger.info("載入：自選 " + str(len(USER_FAVORITES)) + " 戶，獵手 " + str(len(HUNTER_WATCHERS)) + " 戶，簡報 " + str(len(USER_DAILY_SCHEDULE)) + " 戶，追蹤中 " + str(len(ACTIVE_SIGNALS)) + " 個信號")
     except Exception as e:
         logger.info("初次啟動: " + str(e))
@@ -111,7 +125,8 @@ def save_data():
                 "capital": {str(k): v for k, v in USER_CAPITAL.items()},
                 "active_signals": ACTIVE_SIGNALS,
                 "signal_results": SIGNAL_RESULTS[-50:],
-                "symbol_losses": SYMBOL_LOSSES
+                "symbol_losses": SYMBOL_LOSSES,
+                "recent_pushes": RECENT_PUSHES
             }, f)
     except Exception as e:
         logger.error("儲存失敗: " + str(e))
@@ -188,8 +203,8 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def send_chart_with_caption(ctx, chat_id, df, symbol, timeframe, direction,
                                     entry, sl, tp1, tp2, tp3, tp4,
                                     support_levels, resistance_levels,
-                                    caption, title_suffix=""):
-    """發送 K 線圖 + 說明"""
+                                    caption, title_suffix="", subtitle=""):
+    """發送 K 線圖 + 說明（v30 支援 subtitle）"""
     if not CHART_ENABLED or df is None:
         # 降級：純文字推播
         try:
@@ -203,7 +218,8 @@ async def send_chart_with_caption(ctx, chat_id, df, symbol, timeframe, direction
             entry=entry, sl=sl, tp1=tp1, tp2=tp2, tp3=tp3, tp4=tp4,
             support_levels=support_levels,
             resistance_levels=resistance_levels,
-            title_suffix=title_suffix
+            title_suffix=title_suffix,
+            subtitle=subtitle
         )
         # Telegram caption 上限 1024 字元
         short_caption = caption if len(caption) <= 1000 else caption[:1000] + "..."
@@ -213,7 +229,6 @@ async def send_chart_with_caption(ctx, chat_id, df, symbol, timeframe, direction
         )
     except Exception as e:
         logger.error("附圖推播失敗: " + str(e))
-        # 降級
         try:
             await ctx.bot.send_message(chat_id=chat_id, text=caption, parse_mode="Markdown")
         except Exception:
@@ -365,8 +380,7 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         # 附 K 線圖
         if CHART_ENABLED:
             try:
-                import aiohttp as _aiohttp
-                async with _aiohttp.ClientSession() as session:
+                async with aiohttp.ClientSession() as session:
                     df = await analyzer.fetch_ohlcv(session, sym_full, "1h", 100)
                     if df is not None:
                         sw_res, sw_sup = analyzer.swing_sr(df)
@@ -384,12 +398,10 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         # 為 TOP 3 信號附 K 線圖
         if CHART_ENABLED and result and "📡" in result:
             try:
-                import re as _re_re
-                import aiohttp as _aiohttp_chart
                 # 從結果解析 TOP 3 候選
                 parsed = parse_hunter_signals(result)
                 if parsed:
-                    async with _aiohttp_chart.ClientSession() as session:
+                    async with aiohttp.ClientSession() as session:
                         for sig in parsed[:3]:
                             sym = sig.get("symbol", "")
                             try:
@@ -446,8 +458,7 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         # 附漲跌榜圖
         if CHART_ENABLED:
             try:
-                import aiohttp as _aio
-                async with _aio.ClientSession() as session:
+                async with aiohttp.ClientSession() as session:
                     tasks = [analyzer.fetch_ticker(session, s) for s in analyzer.SCAN_POOL]
                     tickers = await asyncio.gather(*tasks, return_exceptions=True)
                 data = []
@@ -485,12 +496,11 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if CHART_ENABLED:
             try:
                 # 從文字結果提取分類數量
-                import re as _re_trend
-                sb_m = _re_trend.search(r"強多頭.*?\((\d+)\)", result)
-                b_m = _re_trend.search(r"\*📈 多頭.*?\((\d+)\)", result)
-                r_m = _re_trend.search(r"震盪.*?\((\d+)\)", result)
-                bear_m = _re_trend.search(r"\*📉 空頭.*?\((\d+)\)", result)
-                sbe_m = _re_trend.search(r"強空頭.*?\((\d+)\)", result)
+                sb_m = re.search(r"強多頭.*?\((\d+)\)", result)
+                b_m = re.search(r"\*📈 多頭.*?\((\d+)\)", result)
+                r_m = re.search(r"震盪.*?\((\d+)\)", result)
+                bear_m = re.search(r"\*📉 空頭.*?\((\d+)\)", result)
+                sbe_m = re.search(r"強空頭.*?\((\d+)\)", result)
                 sb = int(sb_m.group(1)) if sb_m else 0
                 b = int(b_m.group(1)) if b_m else 0
                 r_c = int(r_m.group(1)) if r_m else 0
@@ -509,8 +519,7 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         # 附 BTC + ETH 雙圖
         if CHART_ENABLED:
             try:
-                import aiohttp as _aio
-                async with _aio.ClientSession() as session:
+                async with aiohttp.ClientSession() as session:
                     df_btc = await analyzer.fetch_ohlcv(session, "BTC/USDT", "1h", 100)
                     df_eth = await analyzer.fetch_ohlcv(session, "ETH/USDT", "1h", 100)
                 if df_btc is not None and df_eth is not None:
@@ -777,7 +786,6 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if CHART_ENABLED and "目前沒有顯著爆發信號" not in result:
             try:
                 import re as _re_mom
-                import aiohttp as _aiohttp_mom
                 mom_coins = []
                 for line in result.split("\n"):
                     m = _re_mom.search(r"\*([A-Z0-9]+)\*", line)
@@ -788,7 +796,7 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 mom_coins = mom_coins[:6]
                 if mom_coins:
                     coin_data = []
-                    async with _aiohttp_mom.ClientSession() as session:
+                    async with aiohttp.ClientSession() as session:
                         for sym, chg in mom_coins:
                             try:
                                 df = await analyzer.fetch_ohlcv(session, sym, "5m", 60)
@@ -822,8 +830,7 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         # 附動能圖（重新抓資料生成）
         if CHART_ENABLED:
             try:
-                import aiohttp as _aio
-                async with _aio.ClientSession() as session:
+                async with aiohttp.ClientSession() as session:
                     tasks = []
                     for sym in analyzer.SCAN_POOL:
                         tasks.append(analyzer.fetch_ticker(session, sym))
@@ -868,9 +875,8 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif d == "news_only":
         await q.edit_message_text("📰 抓取加密快訊中...")
         async def get_news_only():
-            import aiohttp as _aiohttp
             try:
-                async with _aiohttp.ClientSession() as session:
+                async with aiohttp.ClientSession() as session:
                     news = await analyzer.fetch_news(session)
                     events = await analyzer.fetch_crypto_events(session)
                 r = "📰 *加密貨幣最新資訊*\n"
@@ -1276,12 +1282,16 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
     try:
         # ⭐ 先檢查活躍信號是否觸及 TP/SL/過期（通知用戶）
         await check_active_signals(ctx)
+        # ⭐ v32 自適應門檻：根據近期勝率動態調整
+        adaptive_adj = analyzer.adaptive_threshold(SIGNAL_RESULTS[-20:] if SIGNAL_RESULTS else [])
+        dynamic_min_score = max(50, 60 + adaptive_adj)
+        logger.info("v32 自適應門檻: " + str(dynamic_min_score) + " (調整 " + str(adaptive_adj) + ")")
         result = await asyncio.wait_for(
-            analyzer.golden_hunter(smart_filter=True),  # 過濾 ≥65 分
+            analyzer.golden_hunter(smart_filter=True, min_score=dynamic_min_score),
             timeout=90
         )
         if result is None:
-            logger.info("5分推播：無 ≥65 信號，跳過")
+            logger.info("5分推播：無符合動態門檻的信號，跳過")
             return
         # ⭐ 從結果解析信號詳情並進行冷卻檢查
         import re as _re
@@ -1306,6 +1316,26 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
                 # 允許反向 → 先關閉舊信號
                 logger.info("關閉 " + sym + " 舊信號（反向高分新信號）")
                 await close_signal(ctx, sym, "REVERSED", "反向新信號出現")
+            # ⭐ v30 相似度檢查：30 分鐘內同幣同方向且進場價接近 → 跳過
+            key = sym + "_" + sig.get("direction", "")
+            now = datetime.now(timezone.utc)
+            if key in RECENT_PUSHES:
+                last = RECENT_PUSHES[key]
+                try:
+                    last_time = datetime.fromisoformat(last["time"])
+                    time_diff = (now - last_time).total_seconds() / 60  # 分鐘
+                    last_entry = last.get("entry", 0)
+                    new_entry = sig.get("entry", 0)
+                    if last_entry > 0:
+                        price_diff_pct = abs(new_entry - last_entry) / last_entry * 100
+                    else:
+                        price_diff_pct = 999
+                    # 30 分鐘內，進場價差距 < 1.5% → 認為是相似信號，跳過
+                    if time_diff < 30 and price_diff_pct < 1.5:
+                        skipped_reasons.append(sym + " 30分內已推相似信號 (差 " + str(round(price_diff_pct, 2)) + "%)")
+                        continue
+                except Exception:
+                    pass
             filtered_signals.append(sig)
 
         if skipped_reasons:
@@ -1334,6 +1364,26 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
         # 註冊新信號到追蹤系統
         for sig in loss_filtered:
             register_signal(sig, list(HUNTER_WATCHERS))
+            # ⭐ v30 記錄推播歷史
+            sym = sig.get("symbol", "")
+            direction = sig.get("direction", "")
+            key = sym + "_" + direction
+            RECENT_PUSHES[key] = {
+                "entry": sig.get("entry", 0),
+                "time": datetime.now(timezone.utc).isoformat(),
+                "score": sig.get("score", 0),
+            }
+        # 清理過期推播記錄（>2 小時）
+        cutoff_recent = datetime.now(timezone.utc) - timedelta(hours=2)
+        expired_keys = []
+        for k, v in RECENT_PUSHES.items():
+            try:
+                if datetime.fromisoformat(v["time"]) < cutoff_recent:
+                    expired_keys.append(k)
+            except Exception:
+                expired_keys.append(k)
+        for k in expired_keys:
+            del RECENT_PUSHES[k]
 
         logger.info("5分推播：新信號 " + str(len(loss_filtered)) + " 個 / 過濾 " + str(len(skipped_reasons)) + " 個")
         # 重新組合 result 文字（只保留沒被過濾的）
@@ -1369,8 +1419,7 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
         chart_data_list = []
         if CHART_ENABLED:
             try:
-                import aiohttp as _aiohttp
-                async with _aiohttp.ClientSession() as session:
+                async with aiohttp.ClientSession() as session:
                     for sig in loss_filtered[:3]:
                         sym = sig.get("symbol", "")
                         try:
@@ -1389,7 +1438,12 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error("圖表批次抓取失敗: " + str(e))
 
-        for chat_id in list(HUNTER_WATCHERS):
+        # v29 推播目標：訂閱用戶 + 黑潮船長專屬頻道
+        push_targets = list(HUNTER_WATCHERS)
+        if BLACK_HUNTER_CHANNEL:
+            push_targets.append(BLACK_HUNTER_CHANNEL)
+
+        for chat_id in push_targets:
             try:
                 # 主訊息（含全部分析）
                 await ctx.bot.send_message(
@@ -1411,11 +1465,18 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
                     sym_short = sym.replace("/USDT", "")
                     direction = sig.get("direction", "LONG")
                     grade = sig.get("entry_grade", "")
-                    title_suffix = grade + " GRADE" if grade else ""
+                    tier = sig.get("tier", "B")
+                    tier_emoji = {"S": "💎", "A": "🥇", "B": "🥈", "C": "🥉"}.get(tier, "")
+                    tier_text = {"S": "S TIER", "A": "A TIER", "B": "B TIER", "C": "C TIER"}.get(tier, "B TIER")
+                    title_suffix = tier_text + " | " + grade + " GRADE" if grade else tier_text
+                    score = sig.get("score", "?")
+                    # v33 副標題：tier + 評分
+                    subtitle = tier_text + "  |  Score " + str(score) + "  |  " + ("LONG" if direction == "LONG" else "SHORT")
                     caption = (
-                        "📊 *" + sym_short + " " + ("Long" if direction == "LONG" else "Short") + " " + grade + " " + "Grade*\n"
-                        "Entry: `" + str(sig.get("entry", 0)) + "`\n"
-                        "SL: `" + str(sig.get("sl", 0)) + "` | TP1: `" + str(sig.get("tp1", 0)) + "`"
+                        tier_emoji + " *" + sym_short + " " + ("Long ▲" if direction == "LONG" else "Short ▼") + "  " + tier + " 級*\n"
+                        "進場品質: " + grade + " | 信心: " + str(score) + "\n"
+                        "Entry: `" + str(sig.get("entry", 0)) + "`  |  SL: `" + str(sig.get("sl", 0)) + "`\n"
+                        "TP1-4: `" + str(sig.get("tp1", 0)) + "` / `" + str(sig.get("tp2", 0)) + "` / `" + str(sig.get("tp3", 0)) + "` / `" + str(sig.get("tp4", 0)) + "`"
                     )
                     await send_chart_with_caption(
                         ctx, chat_id, chart_data["df"], sym, "1H", direction,
@@ -1428,7 +1489,8 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
                         support_levels=chart_data["sw_sup"],
                         resistance_levels=chart_data["sw_res"],
                         caption=caption,
-                        title_suffix=title_suffix
+                        title_suffix=title_suffix,
+                        subtitle=subtitle
                     )
                     await asyncio.sleep(0.3)
                 # 記錄歷史
@@ -1474,19 +1536,17 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
 
 
 # ===== 信號追蹤系統 =====
-
-import re as _re_module
 import hashlib
 
 def parse_hunter_signals(result):
     """從黑潮船長推播文本解析信號詳情"""
     signals = []
-    parts = _re_module.split(r"🥇|🥈|🥉", result)
+    parts = re.split(r"🥇|🥈|🥉", result)
     for i, part in enumerate(parts[1:], 1):
         try:
-            sym_match = _re_module.search(r"\*([A-Z0-9]+)\s*(做多|做空)", part)
+            sym_match = re.search(r"\*([A-Z0-9]+)\s*(做多|做空)", part)
             if not sym_match:
-                sym_match = _re_module.search(r"\*([A-Z0-9]+/USDT)\*", part)
+                sym_match = re.search(r"\*([A-Z0-9]+/USDT)\*", part)
                 if not sym_match:
                     continue
                 sym_raw = sym_match.group(1)
@@ -1497,33 +1557,43 @@ def parse_hunter_signals(result):
             else:
                 sym = sym_raw
             # 方向
-            dir_match = _re_module.search(r"(做多|做空)", part)
+            dir_match = re.search(r"(做多|做空)", part)
             if not dir_match:
                 continue
             direction = "LONG" if dir_match.group(1) == "做多" else "SHORT"
             # 評分
-            score_match = _re_module.search(r"信心評分 `(\d+\.?\d*)/100`", part)
+            score_match = re.search(r"信心評分 `(\d+\.?\d*)/100`", part)
             if not score_match:
-                score_match = _re_module.search(r"信心 `(\d+\.?\d*)/100`", part)
+                score_match = re.search(r"信心 `(\d+\.?\d*)/100`", part)
             score = float(score_match.group(1)) if score_match else 0
             # 進場價
-            entry_match = _re_module.search(r"進場.{0,5}`([\d.]+)`", part)
+            entry_match = re.search(r"進場.{0,5}`([\d.]+)`", part)
             entry = float(entry_match.group(1)) if entry_match else 0
             # 止盈 1-4
-            tp1_match = _re_module.search(r"止盈1?\s*`([\d.]+)`|①\s*`([\d.]+)`", part)
-            tp2_match = _re_module.search(r"止盈2\s*`([\d.]+)`|②\s*`([\d.]+)`", part)
-            tp3_match = _re_module.search(r"止盈3\s*`([\d.]+)`|③\s*`([\d.]+)`", part)
-            tp4_match = _re_module.search(r"止盈4\s*`([\d.]+)`|④\s*`([\d.]+)`", part)
-            sl_match = _re_module.search(r"止損.{0,5}`([\d.]+)`", part)
+            tp1_match = re.search(r"止盈1?\s*`([\d.]+)`|①\s*`([\d.]+)`", part)
+            tp2_match = re.search(r"止盈2\s*`([\d.]+)`|②\s*`([\d.]+)`", part)
+            tp3_match = re.search(r"止盈3\s*`([\d.]+)`|③\s*`([\d.]+)`", part)
+            tp4_match = re.search(r"止盈4\s*`([\d.]+)`|④\s*`([\d.]+)`", part)
+            sl_match = re.search(r"止損.{0,5}`([\d.]+)`", part)
             # 持有時間
-            tf_match = _re_module.search(r"持有時間 \*([^*]+)\*|\*?(短線|中線)", part)
+            tf_match = re.search(r"持有時間 \*([^*]+)\*|\*?(短線|中線)", part)
             timeframe = tf_match.group(1).strip() if (tf_match and tf_match.group(1)) else "短線"
             # 進場品質
-            grade_match = _re_module.search(r"([SABCD])\s*級", part)
+            grade_match = re.search(r"([SABCD])\s*級", part)
             entry_grade = grade_match.group(1) if grade_match else "C"
             # 訂單類型
-            order_match = _re_module.search(r"(市價單|限價單)", part)
+            order_match = re.search(r"(市價單|限價單)", part)
             order_type = "MARKET" if (order_match and order_match.group(1) == "市價單") else "LIMIT"
+            # ⭐ v33 解析 tier 等級
+            tier_match = re.search(r"(💎 S 級|🥇 A 級|🥈 B 級|🥉 C 級)", part)
+            if tier_match:
+                tier_text = tier_match.group(1)
+                if "S" in tier_text: tier = "S"
+                elif "A" in tier_text: tier = "A"
+                elif "B" in tier_text: tier = "B"
+                else: tier = "C"
+            else:
+                tier = "B"
             if not (entry and tp1_match and sl_match):
                 continue
             def _grp(m):
@@ -1539,6 +1609,7 @@ def parse_hunter_signals(result):
                 "timeframe": timeframe,
                 "entry_grade": entry_grade,
                 "order_type": order_type,
+                "tier": tier,
             })
         except Exception as e:
             logger.error("解析信號失敗: " + str(e))
@@ -1569,6 +1640,7 @@ def register_signal(sig, watchers):
         "timeframe": sig.get("timeframe", "短線"),
         "entry_grade": sig.get("entry_grade", "C"),
         "order_type": sig.get("order_type", "MARKET"),
+        "tier": sig.get("tier", "B"),
     }
     save_data()
     logger.info("註冊信號: " + sym + " " + sig["direction"] + " 評分 " + str(sig.get("score")) + " 等級 " + str(sig.get("entry_grade", "C")))
@@ -1592,6 +1664,8 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
 
     sym_short = symbol.replace("/USDT", "")
     direction_zh = "做多" if direction == "LONG" else "做空"
+    tier = sig.get("tier", "B")
+    tier_emoji = {"S": "💎", "A": "🥇", "B": "🥈", "C": "🥉"}.get(tier, "")
 
     if reason_code == "TP4_HIT":
         msg = "🎉 *" + sym_short + " " + direction_zh + " — 完美下車*\n"
@@ -1635,8 +1709,11 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
         SYMBOL_LOSSES[symbol] = [t for t in SYMBOL_LOSSES[symbol]
                                   if datetime.fromisoformat(t) > cutoff]
 
-    # 只通知訂閱者，不推頻道（v26）
-    for chat_id in sig.get("watchers", []):
+    # v29 通知目標：訂閱者 + 黑潮船長專屬頻道
+    notify_targets = list(sig.get("watchers", []))
+    if BLACK_HUNTER_CHANNEL:
+        notify_targets.append(BLACK_HUNTER_CHANNEL)
+    for chat_id in notify_targets:
         try:
             await ctx.bot.send_message(chat_id=chat_id, text=msg, parse_mode="Markdown")
         except Exception as e:
@@ -1654,7 +1731,7 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
 
 
 async def notify_tp_hit(ctx, symbol, tp_level, current_price):
-    """通知 TP 達標（v26 不推頻道）"""
+    """通知 TP 達標（v31 自動更新動態止損）"""
     if symbol not in ACTIVE_SIGNALS:
         return
     sig = ACTIVE_SIGNALS[symbol]
@@ -1667,30 +1744,56 @@ async def notify_tp_hit(ctx, symbol, tp_level, current_price):
     profit_pct = abs(tp_price - entry) / entry * 100
     sym_short = symbol.replace("/USDT", "")
     direction_zh = "做多" if direction == "LONG" else "做空"
+    tier = sig.get("tier", "B")
+    tier_emoji = {"S": "💎", "A": "🥇", "B": "🥈", "C": "🥉"}.get(tier, "")
+
+    # ⭐ v31 動態移動止損
+    new_sl = None
+    old_sl = sig["sl"]
+    if tp_level == 1:
+        new_sl = entry  # 移到成本價
+        sl_action = "止損自動移至*成本價* `" + str(entry) + "` (保本)"
+    elif tp_level == 2:
+        new_sl = sig.get("tp1", entry)
+        sl_action = "止損自動移至 *TP1* `" + str(new_sl) + "` (鎖利)"
+    elif tp_level == 3:
+        new_sl = sig.get("tp2", entry)
+        sl_action = "止損自動移至 *TP2* `" + str(new_sl) + "` (大幅鎖利)"
+    else:
+        sl_action = "達最終止盈"
+
+    if new_sl is not None and new_sl != old_sl:
+        if direction == "LONG" and new_sl > old_sl:
+            sig["sl"] = new_sl
+        elif direction == "SHORT" and new_sl < old_sl:
+            sig["sl"] = new_sl
 
     tp_messages = {
-        1: ("✅", "達到 TP1 保本點", "*立即平 25% 倉位*", "止損移到成本價 `" + str(entry) + "`"),
-        2: ("💰", "達到 TP2 鎖利", "*平 35% 倉位*", "止損移到 TP1 `" + str(sig.get("tp1", entry)) + "`"),
-        3: ("🏆", "達到 TP3 大勝", "*平 25% 倉位*", "止損移到 TP2 `" + str(sig.get("tp2", entry)) + "`"),
-        4: ("🎯", "達到 TP4 滿貫", "*平剩餘 15%*", "本輪交易圓滿結束"),
+        1: ("✅", "達到 TP1 保本點", "*立即平 25% 倉位*"),
+        2: ("💰", "達到 TP2 鎖利", "*平 35% 倉位*"),
+        3: ("🏆", "達到 TP3 大勝", "*平 25% 倉位*"),
+        4: ("🎯", "達到 TP4 滿貫", "*平剩餘 15%*"),
     }
-    emoji, title, action, sl_advice = tp_messages[tp_level]
-    msg = emoji + " *" + sym_short + " " + direction_zh + " — " + title + "*\n"
+    emoji, title, action = tp_messages[tp_level]
+    msg = emoji + " *" + tier_emoji + " " + sym_short + " " + direction_zh + " — " + title + "*\n"
     msg += "━━━━━━━━━━━━━━━\n"
     msg += "進場 `" + str(entry) + "` → 現價 `" + str(current_price) + "`\n"
     msg += "浮盈 *+" + str(round(profit_pct, 2)) + "%*\n\n"
-    msg += "📌 立即動作：" + action + "\n"
-    msg += "📌 後續：" + sl_advice
+    msg += "📌 *立即動作*\n" + action + "\n\n"
+    msg += "🛡 *自動風控*\n" + sl_action + "\n"
     if tp_level < 4:
         remaining_tps = []
         for t in range(tp_level + 1, 5):
             if sig.get("tp" + str(t), 0) > 0:
                 remaining_tps.append("TP" + str(t) + " `" + str(sig["tp" + str(t)]) + "`")
         if remaining_tps:
-            msg += "\n\n🎯 剩餘：" + " · ".join(remaining_tps)
+            msg += "\n🎯 *剩餘目標*\n  " + " · ".join(remaining_tps)
+    msg += "\n\n_v31 動態止損已自動更新_"
 
-    # 只通知訂閱者
-    for chat_id in sig.get("watchers", []):
+    notify_targets = list(sig.get("watchers", []))
+    if BLACK_HUNTER_CHANNEL:
+        notify_targets.append(BLACK_HUNTER_CHANNEL)
+    for chat_id in notify_targets:
         try:
             await ctx.bot.send_message(chat_id=chat_id, text=msg, parse_mode="Markdown")
         except Exception as e:
@@ -1703,21 +1806,24 @@ async def notify_tp_hit(ctx, symbol, tp_level, current_price):
 
 
 async def check_active_signals(ctx):
-    """檢查所有活躍信號的當前狀態"""
+    """檢查所有活躍信號的當前狀態（v31 加入主動退出檢查）"""
     if not ACTIVE_SIGNALS:
         return
-    import aiohttp as _aiohttp
     now = datetime.now(timezone.utc)
     symbols_to_check = list(ACTIVE_SIGNALS.keys())
     try:
-        async with _aiohttp.ClientSession() as session:
-            tasks = [analyzer.fetch_ticker(session, sym) for sym in symbols_to_check]
-            tickers = await asyncio.gather(*tasks, return_exceptions=True)
+        async with aiohttp.ClientSession() as session:
+            tasks = []
+            for sym in symbols_to_check:
+                tasks.append(analyzer.fetch_ticker(session, sym))
+                tasks.append(analyzer.fetch_ohlcv(session, sym, "15m", 50))
+            results = await asyncio.gather(*tasks, return_exceptions=True)
         for i, sym in enumerate(symbols_to_check):
             if sym not in ACTIVE_SIGNALS:
                 continue
             sig = ACTIVE_SIGNALS[sym]
-            ticker = tickers[i]
+            ticker = results[i * 2]
+            df15m = results[i * 2 + 1]
             if isinstance(ticker, Exception):
                 continue
             price = float(ticker.get("lastPrice", 0))
@@ -1726,15 +1832,18 @@ async def check_active_signals(ctx):
             direction = sig["direction"]
             entry = sig["entry"]
             sl = sig["sl"]
-            # 止損
+
+            # === 止損 ===
             if direction == "LONG" and price <= sl:
                 await close_signal(ctx, sym, "SL_HIT", "觸及止損", price)
                 continue
             if direction == "SHORT" and price >= sl:
                 await close_signal(ctx, sym, "SL_HIT", "觸及止損", price)
                 continue
-            # 止盈（從高到低）
+
+            # === 止盈（從高到低）===
             tp_hit = sig.get("tp_hit", [])
+            tp_triggered = False
             for level in [4, 3, 2, 1]:
                 if level in tp_hit:
                     continue
@@ -1743,11 +1852,64 @@ async def check_active_signals(ctx):
                     continue
                 if direction == "LONG" and price >= tp_price:
                     await notify_tp_hit(ctx, sym, level, price)
+                    tp_triggered = True
                     break
                 if direction == "SHORT" and price <= tp_price:
                     await notify_tp_hit(ctx, sym, level, price)
+                    tp_triggered = True
                     break
-            # 過期
+
+            # === v31 主動退出檢查（達 TP1 之前才檢查，避免已盈利的被誤觸發）===
+            if sym in ACTIVE_SIGNALS and not tp_triggered and not tp_hit:
+                try:
+                    created = datetime.fromisoformat(sig["created"])
+                    age_min = (datetime.now(timezone.utc) - created).total_seconds() / 60
+                    # 只在 30 分鐘 ~ 6 小時內檢查
+                    if 30 < age_min < 360 and not isinstance(df15m, Exception):
+                        should_exit, exit_reason = analyzer.early_exit_signal(
+                            df15m, direction, entry, sl
+                        )
+                        if should_exit:
+                            # 避免重複警告
+                            last_warning = sig.get("last_exit_warning", 0)
+                            now_ts = datetime.now(timezone.utc).timestamp()
+                            if now_ts - last_warning > 1800:  # 30 分鐘內不重複
+                                sig["last_exit_warning"] = now_ts
+                                sym_short = sym.replace("/USDT", "")
+                                direction_zh = "做多" if direction == "LONG" else "做空"
+                                if direction == "LONG":
+                                    change_pct = (price - entry) / entry * 100
+                                else:
+                                    change_pct = (entry - price) / entry * 100
+                                msg = "🚨 *" + sym_short + " " + direction_zh + " — 結構破壞警告*\n"
+                                msg += "━━━━━━━━━━━━━━━\n"
+                                msg += "進場 `" + str(entry) + "` → 現價 `" + str(price) + "`\n"
+                                msg += "目前 *" + ("+" if change_pct >= 0 else "") + str(round(change_pct, 2)) + "%*\n\n"
+                                msg += "📌 *偵測到*\n  " + exit_reason + "\n\n"
+                                msg += "📌 *資深建議*\n"
+                                if change_pct > 0:
+                                    msg += "  • 有獲利 → 立即出場鎖利\n"
+                                    msg += "  • 不要等止損被掃"
+                                elif change_pct > -1:
+                                    msg += "  • 浮虧小 → 主動出場，下個機會再來\n"
+                                    msg += "  • 結構已破壞，繼續持有風險高"
+                                else:
+                                    msg += "  • 浮虧較深 → 建議主動出場\n"
+                                    msg += "  • 比硬撐到止損強"
+                                msg += "\n\n_v31 主動退出系統_"
+                                notify_t = list(sig.get("watchers", []))
+                                if BLACK_HUNTER_CHANNEL:
+                                    notify_t.append(BLACK_HUNTER_CHANNEL)
+                                for u in notify_t:
+                                    try:
+                                        await ctx.bot.send_message(chat_id=u, text=msg, parse_mode="Markdown")
+                                    except Exception:
+                                        pass
+                                save_data()
+                except Exception:
+                    pass
+
+            # === 過期檢查 ===
             if sym in ACTIVE_SIGNALS:
                 try:
                     expires = datetime.fromisoformat(sig["expires"])
@@ -1767,9 +1929,8 @@ async def check_btc_emergency(ctx):
     """BTC 大幅變動警告"""
     if not ACTIVE_SIGNALS:
         return
-    import aiohttp as _aiohttp
     try:
-        async with _aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession() as session:
             btc_ticker = await analyzer.fetch_ticker(session, "BTC/USDT")
             btc_df = await analyzer.fetch_ohlcv(session, "BTC/USDT", "5m", 12)
         if btc_df is not None and len(btc_df) >= 6:
@@ -1797,7 +1958,10 @@ async def check_btc_emergency(ctx):
                 else:
                     msg += "  • 做多：注意止盈時機\n"
                     msg += "  • 做空：考慮緊縮止損\n"
-                for u in affected:
+                notify_t = list(affected)
+                if BLACK_HUNTER_CHANNEL:
+                    notify_t.append(BLACK_HUNTER_CHANNEL)
+                for u in notify_t:
                     try:
                         await ctx.bot.send_message(chat_id=u, text=msg, parse_mode="Markdown")
                     except Exception:
@@ -1813,9 +1977,8 @@ async def check_near_entry(ctx):
     """檢查活躍信號的進場價接近，提醒用戶"""
     if not ACTIVE_SIGNALS:
         return
-    import aiohttp as _aiohttp
     try:
-        async with _aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession() as session:
             for sym, sig in list(ACTIVE_SIGNALS.items()):
                 if sig.get("tp_hit"):
                     continue
@@ -1840,7 +2003,10 @@ async def check_near_entry(ctx):
                             msg += "📌 請準備：\n"
                             msg += "  • 已掛限價單 → 等待自動成交\n"
                             msg += "  • 尚未下單 → 立即準備 " + direction_zh + " 倉位"
-                            for u in sig.get("watchers", []):
+                            notify_t = list(sig.get("watchers", []))
+                            if BLACK_HUNTER_CHANNEL:
+                                notify_t.append(BLACK_HUNTER_CHANNEL)
+                            for u in notify_t:
                                 try:
                                     await ctx.bot.send_message(chat_id=u, text=msg, parse_mode="Markdown")
                                 except Exception:
@@ -1858,9 +2024,8 @@ async def check_signal_reversal(ctx):
     """檢查活躍信號是否出現即時反向訊號"""
     if not ACTIVE_SIGNALS:
         return
-    import aiohttp as _aiohttp
     try:
-        async with _aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession() as session:
             for sym, sig in list(ACTIVE_SIGNALS.items()):
                 if sig.get("tp_hit"):
                     continue
@@ -1904,7 +2069,10 @@ async def check_signal_reversal(ctx):
                         else:
                             msg += "  • 浮虧較深 → 建議主動出場\n"
                             msg += "  • 不要硬撐到止損價"
-                        for u in sig.get("watchers", []):
+                        notify_t = list(sig.get("watchers", []))
+                        if BLACK_HUNTER_CHANNEL:
+                            notify_t.append(BLACK_HUNTER_CHANNEL)
+                        for u in notify_t:
                             try:
                                 await ctx.bot.send_message(chat_id=u, text=msg, parse_mode="Markdown")
                             except Exception:
@@ -1973,6 +2141,99 @@ def main():
         first=300
     )
 
+    # ⭐ v31 每 30 分鐘發送持倉狀態報告
+    async def position_status_report(ctx):
+        """主動回報所有活躍信號的當前狀態"""
+        if not ACTIVE_SIGNALS:
+            return
+        try:
+            async with aiohttp.ClientSession() as session:
+                tasks = [analyzer.fetch_ticker(session, sym) for sym in ACTIVE_SIGNALS.keys()]
+                tickers = await asyncio.gather(*tasks, return_exceptions=True)
+            msg = "📊 *持倉狀態報告*\n"
+            msg += "_" + datetime.now(timezone.utc).strftime("%H:%M UTC") + "_\n"
+            msg += "━━━━━━━━━━━━━━━\n"
+            msg += "目前追蹤中 *" + str(len(ACTIVE_SIGNALS)) + "* 個信號\n\n"
+
+            total_pnl = 0
+            for i, (sym, sig) in enumerate(ACTIVE_SIGNALS.items()):
+                ticker = tickers[i]
+                if isinstance(ticker, Exception):
+                    continue
+                price = float(ticker.get("lastPrice", 0))
+                if price == 0:
+                    continue
+                direction = sig["direction"]
+                entry = sig["entry"]
+                if direction == "LONG":
+                    pnl_pct = (price - entry) / entry * 100
+                else:
+                    pnl_pct = (entry - price) / entry * 100
+                total_pnl += pnl_pct
+
+                sym_short = sym.replace("/USDT", "")
+                dir_emoji = "🟢" if direction == "LONG" else "🔴"
+                pnl_emoji = "📈" if pnl_pct >= 0 else "📉"
+                tp_hit = sig.get("tp_hit", [])
+                tp_status = "達 TP" + str(max(tp_hit)) if tp_hit else "待 TP1"
+                grade = sig.get("entry_grade", "?")
+
+                # 距下個 TP 多遠
+                next_tp = None
+                for level in range(1, 5):
+                    if level not in tp_hit:
+                        next_tp = sig.get("tp" + str(level), 0)
+                        next_tp_label = "TP" + str(level)
+                        break
+                next_tp_pct = None
+                if next_tp:
+                    if direction == "LONG":
+                        next_tp_pct = (next_tp - price) / price * 100
+                    else:
+                        next_tp_pct = (price - next_tp) / price * 100
+
+                # 距止損多遠
+                sl = sig["sl"]
+                if direction == "LONG":
+                    sl_pct = (price - sl) / price * 100
+                else:
+                    sl_pct = (sl - price) / price * 100
+
+                msg += "*" + sym_short + "* " + dir_emoji + " " + grade + " | " + tp_status + "\n"
+                msg += "  進場 `" + str(entry) + "` → `" + str(price) + "`\n"
+                msg += "  " + pnl_emoji + " *" + ("+" if pnl_pct >= 0 else "") + str(round(pnl_pct, 2)) + "%*"
+                if next_tp_pct is not None:
+                    msg += " | " + next_tp_label + " 還差 " + str(round(next_tp_pct, 2)) + "%"
+                msg += "\n  🛡 止損距 " + str(round(sl_pct, 2)) + "%\n\n"
+
+            # 整體勝率
+            avg_pnl = total_pnl / len(ACTIVE_SIGNALS) if ACTIVE_SIGNALS else 0
+            msg += "━━━━━━━━━━━━━━━\n"
+            msg += "📊 *整體浮盈*: " + ("+" if avg_pnl >= 0 else "") + str(round(avg_pnl, 2)) + "% (平均)\n"
+            in_profit = sum(1 for s in ACTIVE_SIGNALS.values()
+                              if (s["direction"] == "LONG" and tickers[list(ACTIVE_SIGNALS.keys()).index(s.get("_sym", ""))] if False else True))
+            msg += "_系統持續追蹤中，將即時通知關鍵事件_"
+
+            # 推給訂閱者 + 黑潮頻道
+            notified = set()
+            for sig in ACTIVE_SIGNALS.values():
+                for w in sig.get("watchers", []):
+                    notified.add(w)
+            if BLACK_HUNTER_CHANNEL:
+                notified.add(BLACK_HUNTER_CHANNEL)
+            for u in notified:
+                try:
+                    await ctx.bot.send_message(chat_id=u, text=msg, parse_mode="Markdown")
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error("持倉狀態報告失敗: " + str(e))
+    app.job_queue.run_repeating(
+        position_status_report,
+        interval=1800,  # 30 分鐘
+        first=600
+    )
+
     # ⭐ v25 每 30 分鐘自動推播即時動能到頻道
     async def auto_momentum_channel(ctx):
         if not TG_CHANNEL_ID:
@@ -1984,8 +2245,7 @@ def main():
                 # 附動能圖
                 if CHART_ENABLED:
                     try:
-                        import aiohttp as _aio
-                        async with _aio.ClientSession() as session:
+                        async with aiohttp.ClientSession() as session:
                             tasks = []
                             for sym in analyzer.SCAN_POOL:
                                 tasks.append(analyzer.fetch_ticker(session, sym))
@@ -2038,8 +2298,7 @@ def main():
         if not TG_CHANNEL_ID:
             return
         try:
-            import aiohttp as _aiohttp
-            async with _aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession() as session:
                 news = await analyzer.fetch_news(session)
                 events = await analyzer.fetch_crypto_events(session)
             r = "📰 *加密快訊整點報*\n━━━━━━━━━━━━━━━\n\n"
@@ -2083,8 +2342,7 @@ def main():
             # 附 BTC+ETH 雙圖
             if CHART_ENABLED:
                 try:
-                    import aiohttp as _aio
-                    async with _aio.ClientSession() as session:
+                    async with aiohttp.ClientSession() as session:
                         df_btc = await analyzer.fetch_ohlcv(session, "BTC/USDT", "1h", 100)
                         df_eth = await analyzer.fetch_ohlcv(session, "ETH/USDT", "1h", 100)
                     if df_btc is not None and df_eth is not None:
@@ -2113,12 +2371,11 @@ def main():
             # 附趨勢分布圖
             if CHART_ENABLED:
                 try:
-                    import re as _re_t
-                    sb_m = _re_t.search(r"強多頭.*?\((\d+)\)", result)
-                    b_m = _re_t.search(r"\*📈 多頭.*?\((\d+)\)", result)
-                    r_m = _re_t.search(r"震盪.*?\((\d+)\)", result)
-                    bear_m = _re_t.search(r"\*📉 空頭.*?\((\d+)\)", result)
-                    sbe_m = _re_t.search(r"強空頭.*?\((\d+)\)", result)
+                    sb_m = re.search(r"強多頭.*?\((\d+)\)", result)
+                    b_m = re.search(r"\*📈 多頭.*?\((\d+)\)", result)
+                    r_m = re.search(r"震盪.*?\((\d+)\)", result)
+                    bear_m = re.search(r"\*📉 空頭.*?\((\d+)\)", result)
+                    sbe_m = re.search(r"強空頭.*?\((\d+)\)", result)
                     sb = int(sb_m.group(1)) if sb_m else 0
                     b = int(b_m.group(1)) if b_m else 0
                     r_c = int(r_m.group(1)) if r_m else 0
@@ -2150,8 +2407,7 @@ def main():
             # 附漲跌榜圖
             if CHART_ENABLED:
                 try:
-                    import aiohttp as _aio
-                    async with _aio.ClientSession() as session:
+                    async with aiohttp.ClientSession() as session:
                         tasks = [analyzer.fetch_ticker(session, s) for s in analyzer.SCAN_POOL]
                         tickers = await asyncio.gather(*tasks, return_exceptions=True)
                     data = []
@@ -2187,7 +2443,7 @@ def main():
         interval=3600,
         first=120
     )
-    logger.info("🤖 Bot v28.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
+    logger.info("🤖 Bot v33.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
