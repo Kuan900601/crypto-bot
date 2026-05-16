@@ -22,7 +22,7 @@ except Exception as _e:
     logging.warning("Chart 模組載入失敗: " + str(_e))
 
 # ⭐ 推播間隔：5 分鐘
-PUSH_INTERVAL_MIN = 5
+PUSH_INTERVAL_MIN = 1  # ⭐ v38 改為 1 分鐘掃描
 
 # ⭐ BingX 連結產生器
 def bingx_trade_url(symbol, direction):
@@ -187,19 +187,26 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "🌊 *黑潮策略 — AI 量化交易助理*\n"
         "━━━━━━━━━━━━━━━\n"
         "24 小時掃描 50 個幣種，找出 *高勝率交易機會*\n"
-        "全程追蹤每筆信號，即時通知關鍵價位\n\n"
-        "*🎯 v34 — 分級量化系統*\n"
+        "1 分鐘高頻掃描，即時通知關鍵價位\n\n"
+        "*🎯 v38 — 自適應量化系統*\n"
         "━━━━━━━━━━━━━━━\n"
         "💎 *S 級* — 夢幻信號（稀有，正常倉）\n"
         "🥇 *A 級* — 重點推薦（半倉跟單）\n"
         "🥈 *B 級* — 一般機會（1/3 倉試水）\n"
         "🥉 *C 級* — 觀察為主（試水單）\n\n"
-        "*📊 量化分析維度*\n"
-        "• 訂單流不平衡 + 流動性掃蕩\n"
-        "• Wyckoff Spring/Upthrust 偵測\n"
-        "• 多週期動能背離 + 共識制\n"
-        "• 期望值篩選 + 自適應門檻\n"
-        "• 主動退出 + 動態止損移動\n\n"
+        "*⭐ v38 重大升級*\n"
+        "• 1 分鐘高頻掃描\n"
+        "• 真實勝率自校準\n"
+        "• 五維度評分 (趨勢/動能/結構/量能/風險)\n"
+        "• 連虧自動防守、連勝自動積極\n"
+        "• 精簡訊息一屏看完\n\n"
+        "*🧠 量化分析全項*\n"
+        "• 進場時機 + 智能 TP 延伸\n"
+        "• Regime + Funding 極端反轉\n"
+        "• 訂單流 + 流動性掃蕩\n"
+        "• Wyckoff + 多週期共振\n"
+        "• 期望值 + 自適應門檻\n"
+        "• 主動退出 + ATR 智能止損\n\n"
         "_⚠️ 加密貨幣風險極高，僅供參考_"
     )
     await update.message.reply_text(text, reply_markup=main_menu(), parse_mode="Markdown")
@@ -209,9 +216,9 @@ async def send_chart_with_caption(ctx, chat_id, df, symbol, timeframe, direction
                                     entry, sl, tp1, tp2, tp3, tp4,
                                     support_levels, resistance_levels,
                                     caption, title_suffix="", subtitle=""):
-    """發送 K 線圖 + 說明（v30 支援 subtitle）"""
-    if not CHART_ENABLED or df is None:
-        # 降級：純文字推播
+    """發送 K 線圖 + 說明（v35 強化容錯）"""
+    # v35 防呆：df 為空或太少
+    if not CHART_ENABLED or df is None or len(df) < 5:
         try:
             await ctx.bot.send_message(chat_id=chat_id, text=caption, parse_mode="Markdown")
         except Exception as e:
@@ -226,7 +233,14 @@ async def send_chart_with_caption(ctx, chat_id, df, symbol, timeframe, direction
             title_suffix=title_suffix,
             subtitle=subtitle
         )
-        # Telegram caption 上限 1024 字元
+        # v35 檢查圖片大小
+        buf.seek(0, 2)
+        size = buf.tell()
+        buf.seek(0)
+        if size < 2000:
+            logger.warning("圖片太小可能損壞 → 改純文字")
+            await ctx.bot.send_message(chat_id=chat_id, text=caption, parse_mode="Markdown")
+            return
         short_caption = caption if len(caption) <= 1000 else caption[:1000] + "..."
         await ctx.bot.send_photo(
             chat_id=chat_id, photo=buf,
@@ -241,8 +255,8 @@ async def send_chart_with_caption(ctx, chat_id, df, symbol, timeframe, direction
 
 
 async def send_simple_chart(ctx, chat_id, df, symbol, timeframe, caption=""):
-    """發送無交易計劃的 K 線圖"""
-    if not CHART_ENABLED or df is None:
+    """發送無交易計劃的 K 線圖（v35 強化容錯）"""
+    if not CHART_ENABLED or df is None or len(df) < 5:
         if caption:
             try:
                 await ctx.bot.send_message(chat_id=chat_id, text=caption, parse_mode="Markdown")
@@ -251,6 +265,13 @@ async def send_simple_chart(ctx, chat_id, df, symbol, timeframe, caption=""):
         return
     try:
         buf = plot_simple_chart(df, symbol, timeframe)
+        buf.seek(0, 2)
+        if buf.tell() < 2000:
+            buf.seek(0)
+            if caption:
+                await ctx.bot.send_message(chat_id=chat_id, text=caption, parse_mode="Markdown")
+            return
+        buf.seek(0)
         short_caption = caption if len(caption) <= 1000 else caption[:1000] + "..."
         await ctx.bot.send_photo(
             chat_id=chat_id, photo=buf,
@@ -258,17 +279,38 @@ async def send_simple_chart(ctx, chat_id, df, symbol, timeframe, caption=""):
         )
     except Exception as e:
         logger.error("簡圖推播失敗: " + str(e))
-
-
-async def send_chart_buf(ctx, chat_id, buf, caption=""):
-    """通用：發送圖表 + caption"""
-    if not buf:
         if caption:
             try:
                 await ctx.bot.send_message(chat_id=chat_id, text=caption, parse_mode="Markdown")
             except Exception:
                 pass
+
+
+async def send_chart_buf(ctx, chat_id, buf, caption=""):
+    """通用：發送圖表 + caption（v35 強化容錯）"""
+    # 沒圖 → 純文字
+    if not buf:
+        if caption:
+            try:
+                await ctx.bot.send_message(chat_id=chat_id, text=caption, parse_mode="Markdown")
+            except Exception as e:
+                logger.error("純文字推播失敗 " + str(chat_id) + ": " + str(e))
         return
+
+    # v35 檢查圖片是否有效（最少 2KB，避免空白圖）
+    try:
+        # 把 BytesIO 內容檢查（不能消耗 buffer）
+        buf.seek(0, 2)  # 移到尾端
+        size = buf.tell()
+        buf.seek(0)  # 還原
+        if size < 2000:
+            logger.warning("圖片太小可能損壞 (" + str(size) + " bytes) → 改純文字")
+            if caption:
+                await ctx.bot.send_message(chat_id=chat_id, text=caption, parse_mode="Markdown")
+            return
+    except Exception:
+        pass
+
     try:
         short_caption = caption if len(caption) <= 1000 else caption[:1000] + "..."
         await ctx.bot.send_photo(
@@ -952,28 +994,47 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if not SIGNAL_RESULTS:
             text = "📊 *歷史戰績*\n\n暫無已關閉信號的歷史數據"
         else:
-            wins = [r for r in SIGNAL_RESULTS if r.get("result") in ("TP4_HIT",) or r.get("tp_hit_count", 0) >= 2]
-            partial = [r for r in SIGNAL_RESULTS if r.get("tp_hit_count", 0) == 1]
-            losses = [r for r in SIGNAL_RESULTS if r.get("result") == "SL_HIT" and r.get("tp_hit_count", 0) == 0]
-            others = [r for r in SIGNAL_RESULTS if r not in wins and r not in partial and r not in losses]
             total = len(SIGNAL_RESULTS)
-            win_count = len(wins) + len(partial)
-            win_rate = (win_count / total * 100) if total > 0 else 0
+            wins = [r for r in SIGNAL_RESULTS if r.get("is_win", False) or r.get("final_pct", 0) > 0]
+            losses = [r for r in SIGNAL_RESULTS if not (r.get("is_win", False) or r.get("final_pct", 0) > 0)]
+            win_rate = (len(wins) / total * 100) if total > 0 else 0
             avg_pct = sum(r.get("final_pct", 0) for r in SIGNAL_RESULTS) / total if total > 0 else 0
+            win_pcts = [r.get("final_pct", 0) for r in wins]
+            loss_pcts = [abs(r.get("final_pct", 0)) for r in losses]
+            avg_win = (sum(win_pcts) / len(win_pcts)) if win_pcts else 0
+            avg_loss = (sum(loss_pcts) / len(loss_pcts)) if loss_pcts else 0
+            real_ev = (win_rate / 100 * avg_win - (1 - win_rate / 100) * avg_loss)
+
             text = "📊 *歷史戰績* (" + str(total) + " 筆)\n"
             text += "━━━━━━━━━━━━━━━\n"
-            text += "🏆 完美止盈：`" + str(len(wins)) + "` 筆\n"
-            text += "💰 部分獲利：`" + str(len(partial)) + "` 筆\n"
-            text += "🛑 止損出場：`" + str(len(losses)) + "` 筆\n"
-            text += "⏰ 其他結果：`" + str(len(others)) + "` 筆\n\n"
-            text += "📈 實際勝率 `" + str(round(win_rate, 1)) + "%`\n"
-            text += "💵 平均盈虧 `" + str(round(avg_pct, 2)) + "%`\n\n"
+            text += "🎯 *總體勝率* `" + str(round(win_rate, 1)) + "%*\n"
+            text += "💵 平均盈利 `+" + str(round(avg_win, 2)) + "%` · 平均虧損 `-" + str(round(avg_loss, 2)) + "%`\n"
+            text += "📈 實際期望值 `" + ("+" if real_ev >= 0 else "") + str(round(real_ev, 2)) + "%/筆`\n"
+            text += "🏆 勝場 `" + str(len(wins)) + "` · 敗場 `" + str(len(losses)) + "`\n\n"
+
+            # ⭐ v38 各 tier 勝率
+            text += "*🎖 各等級勝率*\n"
+            for tier_name, tier_emoji in [("S", "💎"), ("A", "🥇"), ("B", "🥈"), ("C", "🥉")]:
+                tier_results = [r for r in SIGNAL_RESULTS if r.get("tier") == tier_name]
+                if tier_results:
+                    tier_wins = [r for r in tier_results if r.get("is_win", False) or r.get("final_pct", 0) > 0]
+                    tier_wr = len(tier_wins) / len(tier_results) * 100
+                    text += tier_emoji + " " + tier_name + " 級 `" + str(round(tier_wr, 1)) + "%` (" + str(len(tier_wins)) + "/" + str(len(tier_results)) + ")\n"
+            text += "\n"
+
+            # ⭐ v38 自動保護模式狀態
+            protection_mode, protection_reason = analyzer.auto_protection_mode(SIGNAL_RESULTS)
+            mode_emoji = {"DEFENSIVE": "🛡", "AGGRESSIVE": "🚀", "NORMAL": "⚖️"}.get(protection_mode, "")
+            text += "*當前模式*: " + mode_emoji + " " + protection_reason + "\n\n"
+
             text += "*最近 5 筆*\n"
             for r in SIGNAL_RESULTS[-5:][::-1]:
-                emoji = "🏆" if r.get("result") == "TP4_HIT" else ("🛑" if r.get("result") == "SL_HIT" else ("⏰" if r.get("result") == "EXPIRED" else "📌"))
                 pct = r.get("final_pct", 0)
+                is_w = r.get("is_win", False) or pct > 0
+                emoji = "✅" if is_w else "❌"
+                tier_e = {"S": "💎", "A": "🥇", "B": "🥈", "C": "🥉"}.get(r.get("tier", "B"), "")
                 pct_str = "+" + str(pct) if pct >= 0 else str(pct)
-                text += emoji + " *" + r.get("symbol", "?") + "* " + pct_str + "%\n"
+                text += emoji + " " + tier_e + " *" + r.get("symbol", "?").replace("/USDT", "") + "* " + pct_str + "%\n"
         await q.edit_message_text(text, parse_mode="Markdown", reply_markup=back_btn())
 
     elif d.startswith("copy_"):
@@ -1280,19 +1341,41 @@ async def daily_report_check(ctx: ContextTypes.DEFAULT_TYPE):
 
 
 # ⭐ 5 分鐘智能推播（含信號追蹤、冷卻機制）
+# ⭐ v38 掃描中鎖（避免 1 分鐘掃描重疊）
+_HUNTER_SCANNING = {"locked": False}
+
 async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
-    if not HUNTER_WATCHERS:
+    """1 分鐘自動推播黑潮船長機會（v38）"""
+    if not HUNTER_WATCHERS and not BLACK_HUNTER_CHANNEL:
         return
-    logger.info("5分推播：訂閱戶 " + str(len(HUNTER_WATCHERS)) + "，活躍信號 " + str(len(ACTIVE_SIGNALS)))
+    # ⭐ v38 鎖：上次掃描未完成則跳過
+    if _HUNTER_SCANNING["locked"]:
+        logger.info("上一輪掃描中，跳過此輪")
+        return
+    _HUNTER_SCANNING["locked"] = True
+    logger.info("1分推播：訂閱戶 " + str(len(HUNTER_WATCHERS)) + "，活躍信號 " + str(len(ACTIVE_SIGNALS)))
     try:
         # ⭐ 先檢查活躍信號是否觸及 TP/SL/過期（通知用戶）
         await check_active_signals(ctx)
         # ⭐ v32 自適應門檻：根據近期勝率動態調整
         adaptive_adj = analyzer.adaptive_threshold(SIGNAL_RESULTS[-20:] if SIGNAL_RESULTS else [])
         dynamic_min_score = max(50, 60 + adaptive_adj)
-        logger.info("v32 自適應門檻: " + str(dynamic_min_score) + " (調整 " + str(adaptive_adj) + ")")
+
+        # ⭐ v38 自動保護模式
+        protection_mode, protection_reason = analyzer.auto_protection_mode(SIGNAL_RESULTS)
+        if protection_mode == "DEFENSIVE":
+            dynamic_min_score = max(dynamic_min_score, 70)  # 強制提高門檻
+            logger.info("🛡 防守模式：" + protection_reason)
+        elif protection_mode == "AGGRESSIVE":
+            dynamic_min_score = max(50, dynamic_min_score - 5)
+            logger.info("🚀 積極模式：" + protection_reason)
+        logger.info("v38 門檻: " + str(dynamic_min_score) + " | 模式: " + protection_mode)
         result = await asyncio.wait_for(
-            analyzer.golden_hunter(smart_filter=True, min_score=dynamic_min_score),
+            analyzer.golden_hunter(
+                smart_filter=True,
+                min_score=dynamic_min_score,
+                historical_results=SIGNAL_RESULTS  # ⭐ v38 傳入歷史
+            ),
             timeout=90
         )
         if result is None:
@@ -1336,11 +1419,28 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
                     else:
                         price_diff_pct = 999
                     # 30 分鐘內，進場價差距 < 1.5% → 認為是相似信號，跳過
-                    if time_diff < 30 and price_diff_pct < 1.5:
+                    if time_diff < 30 and price_diff_pct < 1.5:  # v38 維持 30 分鐘冷卻
                         skipped_reasons.append(sym + " 30分內已推相似信號 (差 " + str(round(price_diff_pct, 2)) + "%)")
                         continue
                 except Exception:
                     pass
+
+            # ⭐ v36 倉位集中風險檢查
+            try:
+                is_concentrated, conc_reason = analyzer.portfolio_concentration_risk(
+                    ACTIVE_SIGNALS, sig
+                )
+                if is_concentrated and sig.get("tier") not in ("S", "A"):
+                    skipped_reasons.append(sym + " " + conc_reason)
+                    continue
+            except Exception:
+                pass
+
+            # ⭐ v38 防守模式只推 S/A 級
+            if protection_mode == "DEFENSIVE" and sig.get("tier") not in ("S", "A"):
+                skipped_reasons.append(sym + " 防守模式只推 S/A")
+                continue
+
             filtered_signals.append(sig)
 
         if skipped_reasons:
@@ -1379,7 +1479,7 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
                 "score": sig.get("score", 0),
             }
         # 清理過期推播記錄（>2 小時）
-        cutoff_recent = datetime.now(timezone.utc) - timedelta(hours=2)
+        cutoff_recent = datetime.now(timezone.utc) - timedelta(hours=2)  # 維持 2 小時
         expired_keys = []
         for k, v in RECENT_PUSHES.items():
             try:
@@ -1537,6 +1637,8 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
                 logger.error("推播失敗 " + str(chat_id) + ": " + str(e))
     except Exception as e:
         logger.error("黑潮船長執行失敗: " + str(e))
+    finally:
+        _HUNTER_SCANNING["locked"] = False  # ⭐ v38 釋放鎖
 
 
 
@@ -1724,14 +1826,21 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
         except Exception as e:
             logger.error("通知關閉失敗 " + str(chat_id) + ": " + str(e))
 
-    # 記錄歷史
+    # ⭐ v38 擴充記錄（為真實勝率校準）
+    is_win = final_pct > 0
     SIGNAL_RESULTS.append({
         "symbol": symbol, "direction": direction, "entry": entry,
         "result": reason_code, "final_pct": round(final_pct, 2),
         "tp_hit_count": len(sig.get("tp_hit", [])),
         "score": sig.get("score", 0),
+        "tier": sig.get("tier", "B"),  # v38 新增
+        "is_win": is_win,  # v38 新增
         "closed_at": datetime.now(timezone.utc).isoformat(),
+        "duration_min": (datetime.now(timezone.utc) - datetime.fromisoformat(sig.get("created", datetime.now(timezone.utc).isoformat()))).total_seconds() / 60 if sig.get("created") else 0,
     })
+    # 只保留最近 200 筆
+    if len(SIGNAL_RESULTS) > 200:
+        del SIGNAL_RESULTS[:len(SIGNAL_RESULTS) - 200]
     save_data()
 
 
@@ -1772,6 +1881,37 @@ async def notify_tp_hit(ctx, symbol, tp_level, current_price):
             sig["sl"] = new_sl
         elif direction == "SHORT" and new_sl < old_sl:
             sig["sl"] = new_sl
+
+    # ⭐ v37 智能 TP 延伸（達 TP1 後若動能強，拉遠目標）
+    if tp_level == 1:
+        try:
+            async with aiohttp.ClientSession() as session:
+                df1h = await analyzer.fetch_ohlcv(session, symbol, "1h", 50)
+            if df1h is not None:
+                new_tp2, new_tp3, _, extend_msg = analyzer.smart_tp_extend(
+                    df1h, direction, entry, sig.get("tp1", 0), sig.get("tp2", 0),
+                    sig.get("tp3", 0), current_price
+                )
+                if new_tp2 and new_tp3 and extend_msg:
+                    old_tp2 = sig.get("tp2", 0)
+                    sig["tp2"] = new_tp2
+                    sig["tp3"] = new_tp3
+                    sym_short = symbol.replace("/USDT", "")
+                    msg2 = "🚀 *" + sym_short + " — 智能 TP 延伸*\n"
+                    msg2 += "━━━━━━━━━━━━━━━\n"
+                    msg2 += "原 TP2: `" + str(old_tp2) + "` → 新 TP2: `" + str(new_tp2) + "`\n"
+                    msg2 += "新 TP3: `" + str(new_tp3) + "`\n"
+                    msg2 += "_" + extend_msg + "_"
+                    notify_t = list(sig.get("watchers", []))
+                    if BLACK_HUNTER_CHANNEL:
+                        notify_t.append(BLACK_HUNTER_CHANNEL)
+                    for u in notify_t:
+                        try:
+                            await ctx.bot.send_message(chat_id=u, text=msg2, parse_mode="Markdown")
+                        except Exception:
+                            pass
+        except Exception as e:
+            logger.error("智能 TP 延伸失敗: " + str(e))
 
     tp_messages = {
         1: ("✅", "達到 TP1 保本點", "*立即平 25% 倉位*"),
@@ -1871,6 +2011,57 @@ async def check_active_signals(ctx):
                     age_min = (datetime.now(timezone.utc) - created).total_seconds() / 60
                     # 只在 30 分鐘 ~ 6 小時內檢查
                     if 30 < age_min < 360 and not isinstance(df15m, Exception):
+                        # v36 信號重評估
+                        recheck_action, recheck_reason = analyzer.stale_signal_recheck(
+                            sig, price, df15m
+                        )
+                        if recheck_action == "close_now":
+                            # 強制平倉
+                            await close_signal(ctx, sym, "RECHECK_EXIT",
+                                                 recheck_reason, price)
+                            continue
+                        elif recheck_action == "reduce":
+                            # 建議減倉
+                            last_advice = sig.get("last_recheck_advice", 0)
+                            now_ts = datetime.now(timezone.utc).timestamp()
+                            if now_ts - last_advice > 1800:
+                                sig["last_recheck_advice"] = now_ts
+                                sym_short = sym.replace("/USDT", "")
+                                msg = "⚠️ *" + sym_short + " 重評估建議：減倉*\n"
+                                msg += "━━━━━━━━━━━━━━━\n"
+                                msg += "原因：" + recheck_reason + "\n"
+                                msg += "建議：減倉 30-50% 鎖利"
+                                notify_t = list(sig.get("watchers", []))
+                                if BLACK_HUNTER_CHANNEL:
+                                    notify_t.append(BLACK_HUNTER_CHANNEL)
+                                for u in notify_t:
+                                    try:
+                                        await ctx.bot.send_message(chat_id=u, text=msg, parse_mode="Markdown")
+                                    except Exception:
+                                        pass
+
+                        # v36 智能止損調整（ATR 收縮時上移）
+                        new_sl, sl_reason = analyzer.adaptive_sl_adjust(
+                            df15m, direction, entry, sig["sl"], price
+                        )
+                        if new_sl != sig["sl"] and sl_reason:
+                            old_sl_v = sig["sl"]
+                            sig["sl"] = new_sl
+                            sym_short = sym.replace("/USDT", "")
+                            msg = "🛡 *" + sym_short + " 止損智能上移*\n"
+                            msg += "━━━━━━━━━━━━━━━\n"
+                            msg += "舊止損 `" + str(old_sl_v) + "` → 新止損 `" + str(round(new_sl, 6)) + "`\n"
+                            msg += "原因：" + sl_reason
+                            notify_t = list(sig.get("watchers", []))
+                            if BLACK_HUNTER_CHANNEL:
+                                notify_t.append(BLACK_HUNTER_CHANNEL)
+                            for u in notify_t:
+                                try:
+                                    await ctx.bot.send_message(chat_id=u, text=msg, parse_mode="Markdown")
+                                except Exception:
+                                    pass
+                            save_data()
+
                         should_exit, exit_reason = analyzer.early_exit_signal(
                             df15m, direction, entry, sl
                         )
@@ -2448,7 +2639,7 @@ def main():
         interval=3600,
         first=120
     )
-    logger.info("🤖 Bot v34.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
+    logger.info("🤖 Bot v38.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 

@@ -3,7 +3,10 @@ import aiohttp
 import pandas as pd
 import numpy as np
 import re
+import hashlib
+import logging
 from datetime import datetime, timezone, timedelta
+from email.utils import parsedate_to_datetime
 
 
 
@@ -21,17 +24,37 @@ except ImportError:
 from io import BytesIO
 
 
+# ===== 圖表主題色（全局常數）=====
+BG = '#0f1419'
+BULL = '#26a69a'
+BEAR = '#ef5350'
+WHITE = '#ffffff'
+GOLD = '#ffd700'
+PURPLE = '#ba68c8'
+GREEN_ACCENT = '#00e676'
+RED_ACCENT = '#ff1744'
+YELLOW = '#ffeb3b'
+
+
+def _style_axis(ax, ylabel=None):
+    """統一的軸樣式"""
+    ax.set_facecolor(BG)
+    ax.tick_params(colors='#aaa', labelsize=9)
+    for spine in ['top', 'right']:
+        ax.spines[spine].set_visible(False)
+    for spine in ['bottom', 'left']:
+        ax.spines[spine].set_color('#444')
+        ax.spines[spine].set_linewidth(0.8)
+    ax.grid(True, alpha=0.06, color='#888', linewidth=0.5)
+    if ylabel:
+        ax.set_ylabel(ylabel, color='#aaa', fontsize=9.5)
+
+
 def plot_signal_chart(df, symbol, timeframe, direction,
                        entry=None, sl=None, tp1=None, tp2=None, tp3=None, tp4=None,
                        support_levels=None, resistance_levels=None,
                        title_suffix="", subtitle=""):
     """v34 專業版：清晰標籤、不重疊、視覺風險回報區、精美樣式"""
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    from matplotlib.patches import Rectangle, FancyBboxPatch
-    from io import BytesIO
-
     df = df.tail(60).reset_index(drop=True)  # 從 80 → 60，K 線更粗
     n = len(df)
 
@@ -327,264 +350,248 @@ def plot_signal_chart(df, symbol, timeframe, direction,
 
 
 def plot_simple_chart(df, symbol, timeframe, title_suffix=""):
-    """簡化版 K 線圖（不含交易計劃）"""
-    if not _CHART_OK:
-        return None
-    df = df.tail(80).reset_index(drop=True)
+    """v35 簡化版 K 線圖（含風險資訊）"""
+    # 防呆：空資料
+    if df is None or len(df) < 2:
+        return _make_empty_chart(f"{symbol} {timeframe}", "No data available")
+
+    df = df.tail(60).reset_index(drop=True)
     n = len(df)
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 6),
-                                     gridspec_kw={'height_ratios': [3, 1]},
-                                     facecolor='#0f1419')
-    for i in range(n):
-        row = df.iloc[i]
-        o, c, h, l = float(row['open']), float(row['close']), float(row['high']), float(row['low'])
-        color = '#26a69a' if c >= o else '#ef5350'
-        ax1.plot([i, i], [l, h], color=color, linewidth=1)
-        body = abs(c - o) or c * 0.0001
-        ax1.add_patch(Rectangle((i - 0.35, min(o, c)), 0.7, body, facecolor=color, edgecolor=color))
-    if n >= 20:
-        ema20 = df['close'].ewm(span=20).mean()
-        ax1.plot(range(n), ema20, color='#ffd700', linewidth=1.3, label='EMA20', alpha=0.85)
-    if n >= 50:
-        ema50 = df['close'].ewm(span=50).mean()
-        ax1.plot(range(n), ema50, color='#ba68c8', linewidth=1.3, label='EMA50', alpha=0.85)
-    current = float(df['close'].iloc[-1])
-    ax1.scatter([n - 1], [current], color='#ffeb3b', s=80, zorder=5,
-                  edgecolor='#0f1419', linewidth=1.5)
-    ax1.set_facecolor('#0f1419')
-    ax1.tick_params(colors='#888', labelsize=8)
-    for spine in ['top', 'right']: ax1.spines[spine].set_visible(False)
-    for spine in ['bottom', 'left']: ax1.spines[spine].set_color('#444')
-    ax1.grid(True, alpha=0.08, color='#888')
-    ax1.legend(loc='upper left', framealpha=0.3, fontsize=8,
-                facecolor='#0f1419', labelcolor='white', edgecolor='#444')
-    title = symbol + '  ' + timeframe
-    if title_suffix:
-        title += '  |  ' + title_suffix
-    ax1.set_title(title, color='white', fontsize=13, weight='bold', pad=10)
-    colors_vol = ['#26a69a' if df['close'].iloc[i] >= df['open'].iloc[i] else '#ef5350' for i in range(n)]
-    ax2.bar(range(n), df['volume'], color=colors_vol, alpha=0.7)
-    if n >= 20:
-        vol_ma = df['volume'].rolling(20).mean()
-        ax2.plot(range(n), vol_ma, color='#ffd700', linewidth=1, alpha=0.7)
-    ax2.set_facecolor('#0f1419')
-    ax2.tick_params(colors='#888', labelsize=8)
-    for spine in ['top', 'right']: ax2.spines[spine].set_visible(False)
-    for spine in ['bottom', 'left']: ax2.spines[spine].set_color('#444')
-    ax2.grid(True, alpha=0.08, color='#888', axis='y')
-    ax2.set_ylabel('Volume', color='#888', fontsize=9)
-    plt.subplots_adjust(left=0.06, right=0.99, top=0.92, bottom=0.06, hspace=0.05)
-    buf = BytesIO()
-    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='#0f1419')
-    plt.close(fig)
-    buf.seek(0)
-    return buf
 
+    fig = plt.figure(figsize=(12, 7), facecolor=BG)
+    gs = fig.add_gridspec(2, 1, height_ratios=[4, 1], hspace=0.05)
+    ax1 = fig.add_subplot(gs[0])
+    ax2 = fig.add_subplot(gs[1], sharex=ax1)
 
-def plot_multi_coin_chart(coin_data_list, title="Top Movers"):
-    """多幣種小圖組合（用於異動掃描、動能掃描等）"""
-    if not _CHART_OK or not coin_data_list:
-        return None
-    n_coins = min(len(coin_data_list), 6)
-    rows = (n_coins + 1) // 2
-    fig, axes = plt.subplots(rows, 2, figsize=(11, 2.5 * rows), facecolor='#0f1419')
-    if rows == 1:
-        axes = [axes]
-    for idx in range(n_coins):
-        row, col = idx // 2, idx % 2
-        ax = axes[row][col] if rows > 1 else axes[col]
-        coin = coin_data_list[idx]
-        df = coin['df'].tail(50).reset_index(drop=True)
-        sym = coin['symbol'].replace('/USDT', '')
-        chg = coin.get('chg', 0)
-        for i in range(len(df)):
-            r = df.iloc[i]
-            o, c, h, l = float(r['open']), float(r['close']), float(r['high']), float(r['low'])
-            color = '#26a69a' if c >= o else '#ef5350'
-            ax.plot([i, i], [l, h], color=color, linewidth=0.8)
-            body = abs(c - o) or c * 0.0001
-            ax.add_patch(Rectangle((i - 0.3, min(o, c)), 0.6, body, facecolor=color, edgecolor=color))
-        if len(df) >= 20:
-            ema = df['close'].ewm(span=20).mean()
-            ax.plot(range(len(df)), ema, color='#ffd700', linewidth=1, alpha=0.7)
-        chg_color = '#26a69a' if chg >= 0 else '#ef5350'
-        chg_str = ('+' if chg >= 0 else '') + ('%.2f' % chg) + '%'
-        ax.set_title(sym + '  ' + chg_str, color=chg_color, fontsize=11, weight='bold')
-        ax.set_facecolor('#0f1419')
-        ax.tick_params(colors='#666', labelsize=7)
-        for spine in ['top', 'right']: ax.spines[spine].set_visible(False)
-        for spine in ['bottom', 'left']: ax.spines[spine].set_color('#333')
-        ax.grid(True, alpha=0.08, color='#666')
-    # 隱藏多餘的 subplot
-    if n_coins % 2 == 1 and rows > 1:
-        axes[-1][1].set_visible(False)
-    if n_coins == 1 and rows == 1:
-        axes[1].set_visible(False)
-    fig.suptitle(title, color='white', fontsize=13, weight='bold', y=1.02)
-    plt.subplots_adjust(left=0.06, right=0.99, top=0.92, bottom=0.06, hspace=0.05)
-    buf = BytesIO()
-    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='#0f1419')
-    plt.close(fig)
-    buf.seek(0)
-    return buf
-
-
-def plot_btc_overview(df, symbol="BTC/USDT", timeframe="1H"):
-    """BTC 大盤總覽圖（用於市場情緒、趨勢總覽）"""
-    return plot_simple_chart(df, symbol, timeframe)
-
-
-
-# ===== 圖表繪製模組（v29 合併） =====
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
-
-# 主題色
-BG = '#0f1419'
-GRID = '#888'
-TEXT = '#888'
-BULL = '#26a69a'
-BEAR = '#ef5350'
-WHITE = '#ffffff'
-GOLD = '#ffd700'
-PURPLE = '#ba68c8'
-GREEN_ACCENT = '#00e676'
-RED_ACCENT = '#ff1744'
-YELLOW = '#ffeb3b'
-
-
-def _style_axis(ax, ylabel=None):
-    ax.set_facecolor(BG)
-    ax.tick_params(colors=TEXT, labelsize=8)
-    for spine in ['top', 'right']:
-        ax.spines[spine].set_visible(False)
-    for spine in ['bottom', 'left']:
-        ax.spines[spine].set_color('#444')
-    ax.grid(True, alpha=0.08, color=TEXT)
-    if ylabel:
-        ax.set_ylabel(ylabel, color=TEXT, fontsize=9)
-
-
-def plot_simple_chart(df, symbol, timeframe, title_suffix=""):
-    """簡化版 K 線圖（不含交易計劃）"""
-    df = df.tail(80).reset_index(drop=True)
-    n = len(df)
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 6),
-                                     gridspec_kw={'height_ratios': [3, 1]},
-                                     facecolor=BG)
+    # K 線
     for i in range(n):
         row = df.iloc[i]
         o, c, h, l = float(row['open']), float(row['close']), float(row['high']), float(row['low'])
         color = BULL if c >= o else BEAR
-        ax1.plot([i, i], [l, h], color=color, linewidth=1)
-        body_height = abs(c - o) or c * 0.0001
+        ax1.plot([i, i], [l, h], color=color, linewidth=1.5, alpha=0.95)
+        body_h = abs(c - o) or c * 0.0001
         ax1.add_patch(Rectangle(
-            (i - 0.35, min(o, c)), 0.7, body_height,
-            facecolor=color, edgecolor=color
+            (i - 0.42, min(o, c)), 0.84, body_h,
+            facecolor=color, edgecolor=color, linewidth=0.5, alpha=0.95
         ))
+
+    # EMA
     if n >= 20:
         ema20 = df['close'].ewm(span=20).mean()
-        ax1.plot(range(n), ema20, color=GOLD, linewidth=1.3, label='EMA20', alpha=0.85)
+        ax1.plot(range(n), ema20, color=GOLD, linewidth=1.6, label='EMA20', alpha=0.95)
     if n >= 50:
         ema50 = df['close'].ewm(span=50).mean()
-        ax1.plot(range(n), ema50, color=PURPLE, linewidth=1.3, label='EMA50', alpha=0.85)
+        ax1.plot(range(n), ema50, color=PURPLE, linewidth=1.6, label='EMA50', alpha=0.95)
+
     current = float(df['close'].iloc[-1])
-    ax1.scatter([n - 1], [current], color=YELLOW, s=80, zorder=5,
-                  edgecolor=BG, linewidth=1.5)
+    first_close = float(df['close'].iloc[0])
+    chg_pct = (current - first_close) / first_close * 100
+
+    # 統計資訊（右上）
+    high_60 = float(df['high'].max())
+    low_60 = float(df['low'].min())
+
+    def fmt(p):
+        if p >= 1000: return f'{p:,.1f}'
+        elif p >= 1: return f'{p:.3f}'
+        else: return f'{p:.6f}'
+
+    info = (
+        f'Now: {fmt(current)}  |  '
+        f'Range: {fmt(low_60)} ~ {fmt(high_60)}  |  '
+        f'Change: {"+" if chg_pct >= 0 else ""}{chg_pct:.2f}%'
+    )
+    ax1.text(
+        0.015, 0.96, info,
+        transform=ax1.transAxes, color='#aaa', fontsize=9.5,
+        va='top', ha='left', family='monospace',
+        bbox=dict(boxstyle='round,pad=0.4', facecolor='#1a2230',
+                  edgecolor='#444', linewidth=0.8, alpha=0.85)
+    )
+
+    # 現價點
+    ax1.scatter([n - 1], [current], s=120, color=YELLOW,
+                zorder=9, edgecolor=BG, linewidth=2)
+
     _style_axis(ax1)
-    ax1.legend(loc='upper left', framealpha=0.3, fontsize=8,
-                facecolor=BG, labelcolor='white', edgecolor='#444')
-    title = f'{symbol}  {timeframe}'
-    if title_suffix: title += f'  |  {title_suffix}'
-    ax1.set_title(title, color='white', fontsize=13, weight='bold', pad=10)
-    colors_vol = [BULL if df['close'].iloc[i] >= df['open'].iloc[i] else BEAR
-                    for i in range(n)]
-    ax2.bar(range(n), df['volume'], color=colors_vol, alpha=0.7)
+    if n >= 20:
+        ax1.legend(loc='upper left', bbox_to_anchor=(0.015, 0.88),
+                   framealpha=0.6, fontsize=9,
+                   facecolor='#1a2230', labelcolor='white',
+                   edgecolor='#444', borderpad=0.4)
+
+    if current >= 1000:
+        ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:,.0f}'))
+    elif current >= 1:
+        ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:.3f}'))
+    else:
+        ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:.6f}'))
+
+    chg_color = BULL if chg_pct >= 0 else BEAR
+    title = f'{symbol}   {timeframe}'
+    if title_suffix:
+        title += f'   {title_suffix}'
+    ax1.set_title(title, color=chg_color, fontsize=14, weight='bold', pad=15)
+
+    # 成交量
+    colors_vol = [BULL if df['close'].iloc[i] >= df['open'].iloc[i] else BEAR for i in range(n)]
+    ax2.bar(range(n), df['volume'], color=colors_vol, alpha=0.8, width=0.8)
     if n >= 20:
         vol_ma = df['volume'].rolling(20).mean()
-        ax2.plot(range(n), vol_ma, color=GOLD, linewidth=1, alpha=0.7)
+        ax2.plot(range(n), vol_ma, color=GOLD, linewidth=1.3, alpha=0.85, label='Vol MA20')
+        ax2.legend(loc='upper left', framealpha=0.5, fontsize=8.5,
+                   facecolor='#1a2230', labelcolor='white',
+                   edgecolor='#444', borderpad=0.3)
     _style_axis(ax2, 'Volume')
-    plt.subplots_adjust(left=0.06, right=0.99, top=0.92, bottom=0.06, hspace=0.05)
+    plt.setp(ax1.get_xticklabels(), visible=False)
+
+    plt.subplots_adjust(left=0.07, right=0.98, top=0.92, bottom=0.07, hspace=0.05)
     buf = BytesIO()
-    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor=BG)
+    plt.savefig(buf, format='png', dpi=120, bbox_inches='tight',
+                facecolor=BG, pad_inches=0.15)
     plt.close(fig)
     buf.seek(0)
     return buf
 
 
-def plot_movers_chart(gainers, losers, title="MARKET MOVERS"):
-    """漲跌幅榜柱狀圖"""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6), facecolor=BG)
+def _make_empty_chart(title, message):
+    """生成「無數據」提示圖（避免空白圖被推播）"""
+    fig, ax = plt.subplots(figsize=(11, 5), facecolor=BG)
+    ax.set_facecolor(BG)
+    ax.text(0.5, 0.6, title, transform=ax.transAxes,
+            ha='center', va='center', color='white',
+            fontsize=18, weight='bold')
+    ax.text(0.5, 0.4, message, transform=ax.transAxes,
+            ha='center', va='center', color='#aaa', fontsize=13)
+    ax.axis('off')
+    plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    buf = BytesIO()
+    plt.savefig(buf, format='png', dpi=110, facecolor=BG, pad_inches=0.2)
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+def plot_movers_chart(gainers, losers, title="MARKET MOVERS — 24H"):
+    """v35 漲跌榜（含防空資料）"""
+    if not gainers and not losers:
+        return _make_empty_chart("MARKET MOVERS", "No mover data")
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 6.5), facecolor=BG)
+
     if gainers:
         labels = [g[0] for g in gainers[:8]]
         values = [g[1] for g in gainers[:8]]
-        ax1.barh(range(len(labels)), values, color=BULL, alpha=0.85)
-        ax1.set_yticks(range(len(labels)))
-        ax1.set_yticklabels(labels)
+        y_pos = range(len(labels))
+        ax1.barh(y_pos, values, color=BULL, alpha=0.9, edgecolor='#1a2230', linewidth=0.5)
+        ax1.set_yticks(y_pos)
+        ax1.set_yticklabels(labels, color='white', fontsize=11, weight='bold')
         max_v = max(values) if values else 1
         for i, v in enumerate(values):
-            ax1.text(v + max_v * 0.03, i, f'+{v:.1f}%',
-                      color=BULL, va='center', fontsize=10, weight='bold')
+            ax1.text(v + max_v * 0.02, i, f' +{v:.2f}%',
+                     color=BULL, va='center', fontsize=10.5, weight='bold',
+                     family='monospace')
         ax1.invert_yaxis()
-        ax1.set_xlim(0, max_v * 1.25)
-        ax1.set_title('TOP GAINERS', color=BULL, fontsize=12, weight='bold')
+        ax1.set_xlim(0, max_v * 1.28)
+        ax1.set_title('TOP GAINERS', color=BULL, fontsize=13, weight='bold', pad=12)
+    else:
+        ax1.text(0.5, 0.5, 'No gainers', transform=ax1.transAxes,
+                 ha='center', va='center', color='#666', fontsize=12)
+
     _style_axis(ax1)
-    ax1.tick_params(axis='y', colors='white', labelsize=10)
+    ax1.tick_params(axis='x', colors='#aaa', labelsize=8.5)
+    ax1.spines['left'].set_visible(False)
+
     if losers:
         labels = [l[0] for l in losers[:8]]
         values = [l[1] for l in losers[:8]]
-        ax2.barh(range(len(labels)), values, color=BEAR, alpha=0.85)
-        ax2.set_yticks(range(len(labels)))
-        ax2.set_yticklabels(labels)
+        y_pos = range(len(labels))
+        ax2.barh(y_pos, values, color=BEAR, alpha=0.9, edgecolor='#1a2230', linewidth=0.5)
+        ax2.set_yticks(y_pos)
+        ax2.set_yticklabels(labels, color='white', fontsize=11, weight='bold')
         min_v = min(values) if values else -1
-        # 標籤放在條的左邊（更遠的位置）
         for i, v in enumerate(values):
-            ax2.text(v - abs(min_v) * 0.03, i, f'{v:.1f}%',
-                      color=BEAR, va='center', fontsize=10, weight='bold', ha='right')
+            ax2.text(v + abs(min_v) * 0.02, i, f'{v:.2f}% ',
+                     color=BEAR, va='center', fontsize=10.5, weight='bold',
+                     ha='right', family='monospace')
         ax2.invert_yaxis()
-        # x 軸範圍調整
-        ax2.set_xlim(min_v * 1.25, 0)
-        ax2.set_title('TOP LOSERS', color=BEAR, fontsize=12, weight='bold')
+        ax2.set_xlim(min_v * 1.28, 0)
+        ax2.set_title('TOP LOSERS', color=BEAR, fontsize=13, weight='bold', pad=12)
+    else:
+        ax2.text(0.5, 0.5, 'No losers', transform=ax2.transAxes,
+                 ha='center', va='center', color='#666', fontsize=12)
+
     _style_axis(ax2)
-    ax2.tick_params(axis='y', colors='white', labelsize=10)
-    fig.suptitle(title, color='white', fontsize=14, weight='bold', y=0.98)
-    plt.subplots_adjust(left=0.06, right=0.99, top=0.92, bottom=0.06, hspace=0.05)
+    ax2.tick_params(axis='x', colors='#aaa', labelsize=8.5)
+    ax2.spines['left'].set_visible(False)
+
+    fig.suptitle(title, color='white', fontsize=15, weight='bold', y=0.97)
+    plt.subplots_adjust(left=0.06, right=0.98, top=0.88, bottom=0.08, wspace=0.3)
     buf = BytesIO()
-    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor=BG)
+    plt.savefig(buf, format='png', dpi=120, bbox_inches='tight',
+                facecolor=BG, pad_inches=0.15)
     plt.close(fig)
     buf.seek(0)
     return buf
 
 
 def plot_momentum_chart(opportunities, title="MOMENTUM SCAN"):
-    """即時動能掃描柱狀圖"""
+    """v35 動能圖（每根條都有數字標籤）"""
     if not opportunities:
-        return None
-    fig, ax = plt.subplots(figsize=(12, 6), facecolor=BG)
-    labels = [o["symbol"].replace("/USDT", "") for o in opportunities[:8]]
-    chg_5m = [o["chg_5m"] for o in opportunities[:8]]
-    chg_15m = [o["chg_15m"] for o in opportunities[:8]]
-    chg_30m = [o["chg_30m"] for o in opportunities[:8]]
-    x = list(range(len(labels)))
+        return _make_empty_chart("MOMENTUM SCAN", "No momentum signals")
+
+    fig, ax = plt.subplots(figsize=(13, 6.5), facecolor=BG)
+
+    n = min(len(opportunities), 8)
+    labels = [o["symbol"].replace("/USDT", "") for o in opportunities[:n]]
+    chg_5m = [o["chg_5m"] for o in opportunities[:n]]
+    chg_15m = [o["chg_15m"] for o in opportunities[:n]]
+    chg_30m = [o["chg_30m"] for o in opportunities[:n]]
+
+    x = list(range(n))
     width = 0.27
-    colors_5m = [BULL if v >= 0 else BEAR for v in chg_5m]
-    colors_15m = [BULL if v >= 0 else BEAR for v in chg_15m]
-    colors_30m = [BULL if v >= 0 else BEAR for v in chg_30m]
-    ax.bar([i - width for i in x], chg_5m, width, label='5m', color=colors_5m, alpha=0.95, edgecolor='white', linewidth=0.5)
-    ax.bar(x, chg_15m, width, label='15m', color=colors_15m, alpha=0.75)
-    ax.bar([i + width for i in x], chg_30m, width, label='30m', color=colors_30m, alpha=0.55)
+
+    for i, (cs, cm, cl) in enumerate(zip(chg_5m, chg_15m, chg_30m)):
+        c5 = BULL if cs >= 0 else BEAR
+        c15 = BULL if cm >= 0 else BEAR
+        c30 = BULL if cl >= 0 else BEAR
+        ax.bar(i - width, cs, width, color=c5, alpha=1.0, edgecolor='white', linewidth=0.6)
+        ax.bar(i,         cm, width, color=c15, alpha=0.8, edgecolor='white', linewidth=0.4)
+        ax.bar(i + width, cl, width, color=c30, alpha=0.6, edgecolor='white', linewidth=0.4)
+
+        # 數字標籤
+        max_abs = max(abs(cs), abs(cm), abs(cl)) if max(abs(cs), abs(cm), abs(cl)) > 0 else 1
+        offset = max_abs * 0.05
+        for j, (val, xp) in enumerate([(cs, i-width), (cm, i), (cl, i+width)]):
+            ya = val + offset if val >= 0 else val - offset
+            va = 'bottom' if val >= 0 else 'top'
+            ax.text(xp, ya, f'{val:+.1f}',
+                    color='white', fontsize=7.5, ha='center', va=va,
+                    weight='bold', alpha=0.85)
+
+    # 圖例（自己畫）
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor='#888', alpha=1.0, label='5m'),
+        Patch(facecolor='#888', alpha=0.8, label='15m'),
+        Patch(facecolor='#888', alpha=0.6, label='30m'),
+    ]
+    ax.legend(handles=legend_elements, loc='upper right',
+              framealpha=0.6, fontsize=9.5, facecolor='#1a2230',
+              labelcolor='white', edgecolor='#444', borderpad=0.5)
+
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, color='white', fontsize=10, weight='bold')
-    ax.axhline(y=0, color='white', linewidth=0.8, alpha=0.5)
+    ax.set_xticklabels(labels, color='white', fontsize=11, weight='bold')
+    ax.axhline(y=0, color='white', linewidth=0.9, alpha=0.6)
     _style_axis(ax, '% Change')
-    ax.legend(loc='upper right', framealpha=0.3, fontsize=9,
-                facecolor=BG, labelcolor='white', edgecolor='#444')
-    ax.set_title(title, color='white', fontsize=13, weight='bold', pad=10)
-    plt.subplots_adjust(left=0.06, right=0.99, top=0.92, bottom=0.06, hspace=0.05)
+    ax.tick_params(axis='y', colors='#aaa', labelsize=9)
+
+    ax.set_title(title, color='white', fontsize=14, weight='bold', pad=15)
+
+    plt.subplots_adjust(left=0.06, right=0.98, top=0.92, bottom=0.08)
     buf = BytesIO()
-    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor=BG)
+    plt.savefig(buf, format='png', dpi=120, bbox_inches='tight',
+                facecolor=BG, pad_inches=0.15)
     plt.close(fig)
     buf.seek(0)
     return buf
@@ -592,84 +599,217 @@ def plot_momentum_chart(opportunities, title="MOMENTUM SCAN"):
 
 def plot_trend_distribution(strong_bull_count, bull_count, ranging_count,
                               bear_count, strong_bear_count):
-    """趨勢分布圖"""
-    fig, ax = plt.subplots(figsize=(11, 5.5), facecolor=BG)
+    """v35 趨勢分布（修正百分比 + 視覺優化）"""
+    total = strong_bull_count + bull_count + ranging_count + bear_count + strong_bear_count
+    if total == 0:
+        return _make_empty_chart("MARKET TREND", "No trend data")
+
+    fig, ax = plt.subplots(figsize=(12, 6.5), facecolor=BG)
+
     categories = ['Strong\nBull', 'Bull', 'Ranging', 'Bear', 'Strong\nBear']
-    counts = [strong_bull_count, bull_count, ranging_count, bear_count, strong_bear_count]
+    counts = [strong_bull_count, bull_count, ranging_count,
+              bear_count, strong_bear_count]
     colors = ['#00c853', BULL, '#9e9e9e', BEAR, '#d32f2f']
-    bars = ax.bar(categories, counts, color=colors, alpha=0.9, edgecolor='white', linewidth=1)
+
+    bars = ax.bar(categories, counts, color=colors, alpha=0.92,
+                  edgecolor='white', linewidth=1.2)
+
+    max_c = max(counts) if counts else 1
+
+    # 每條柱頂顯示數量 + 百分比
     for bar, count in zip(bars, counts):
         if count > 0:
-            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.2,
-                     str(count), ha='center', color='white',
-                     fontsize=14, weight='bold')
-    _style_axis(ax, 'Number of Coins')
+            pct = count / total * 100
+            ax.text(bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + max_c * 0.04,
+                    f'{count}',
+                    ha='center', color='white',
+                    fontsize=16, weight='bold')
+            ax.text(bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + max_c * 0.16,
+                    f'({pct:.0f}%)',
+                    ha='center', color='#aaa', fontsize=10)
+
+    # 修正百分比計算（強多 + 多 = 多頭陣營）
+    bull_total = strong_bull_count + bull_count
+    bear_total = strong_bear_count + bear_count
+    bull_pct = bull_total / total * 100
+    bear_pct = bear_total / total * 100
+    range_pct = ranging_count / total * 100
+
+    # 多頭/空頭主導視覺判斷
+    if bull_pct > bear_pct + 10:
+        dom = ('BULL DOMINATING', BULL)
+    elif bear_pct > bull_pct + 10:
+        dom = ('BEAR DOMINATING', BEAR)
+    else:
+        dom = ('MIXED MARKET', '#aaa')
+
+    ax.set_ylim(0, max_c * 1.35)
+    ax.set_ylabel('Number of Coins', color='#aaa', fontsize=11)
+    _style_axis(ax)
     ax.tick_params(axis='x', colors='white', labelsize=11)
-    total = sum(counts)
-    bull_pct = round((strong_bull_count * 2 + bull_count) / (total * 2 + 1) * 100) if total > 0 else 0
-    bear_pct = round((strong_bear_count * 2 + bear_count) / (total * 2 + 1) * 100) if total > 0 else 0
-    ax.set_title(f'MARKET TREND DISTRIBUTION  |  Bull {bull_pct}% vs Bear {bear_pct}%',
-                  color='white', fontsize=12, weight='bold', pad=10)
-    plt.subplots_adjust(left=0.06, right=0.99, top=0.92, bottom=0.06, hspace=0.05)
+    ax.tick_params(axis='y', colors='#aaa', labelsize=9)
+
+    # 標題（含主導趨勢）
+    title_main = f'MARKET TREND  —  Bull {bull_pct:.0f}%   Range {range_pct:.0f}%   Bear {bear_pct:.0f}%'
+    ax.set_title(title_main, color='white', fontsize=13.5, weight='bold', pad=20)
+
+    # 主導徽章放右上角（圖內）
+    ax.text(0.98, 0.96, dom[0], transform=ax.transAxes,
+            ha='right', va='top', color=dom[1],
+            fontsize=11, weight='bold',
+            bbox=dict(boxstyle='round,pad=0.5', facecolor='#1a2230',
+                       edgecolor=dom[1], linewidth=1.2, alpha=0.95))
+
+    plt.subplots_adjust(left=0.08, right=0.98, top=0.88, bottom=0.10)
     buf = BytesIO()
-    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor=BG)
+    plt.savefig(buf, format='png', dpi=120, bbox_inches='tight',
+                facecolor=BG, pad_inches=0.15)
     plt.close(fig)
     buf.seek(0)
     return buf
 
 
 def plot_dual_chart(df_btc, df_eth):
-    """BTC + ETH 雙圖（市場情緒用）"""
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(
-        2, 2, figsize=(13, 7), facecolor=BG,
-        gridspec_kw={'height_ratios': [3, 1]}
-    )
-    for df, ax_main, ax_vol, name in [(df_btc, ax1, ax3, 'BTC/USDT'), (df_eth, ax2, ax4, 'ETH/USDT')]:
-        if df is None or len(df) < 5:
+    """v35 BTC + ETH 雙圖（正確漲跌率 + 容錯）"""
+    # 防呆
+    if (df_btc is None or len(df_btc) < 2) and (df_eth is None or len(df_eth) < 2):
+        return _make_empty_chart("MARKET PULSE", "BTC/ETH data unavailable")
+
+    fig = plt.figure(figsize=(14, 7.5), facecolor=BG)
+    gs = fig.add_gridspec(2, 2, height_ratios=[4, 1], hspace=0.05, wspace=0.12)
+    ax_btc = fig.add_subplot(gs[0, 0])
+    ax_eth = fig.add_subplot(gs[0, 1])
+    ax_btc_v = fig.add_subplot(gs[1, 0], sharex=ax_btc)
+    ax_eth_v = fig.add_subplot(gs[1, 1], sharex=ax_eth)
+
+    for df, ax_main, ax_vol, name in [
+        (df_btc, ax_btc, ax_btc_v, 'BTC/USDT'),
+        (df_eth, ax_eth, ax_eth_v, 'ETH/USDT'),
+    ]:
+        if df is None or len(df) < 2:
+            ax_main.text(0.5, 0.5, f'{name}\nData unavailable',
+                         transform=ax_main.transAxes, ha='center', va='center',
+                         color='#666', fontsize=14)
+            ax_main.set_facecolor(BG)
+            ax_main.axis('off')
+            ax_vol.set_facecolor(BG)
+            ax_vol.axis('off')
             continue
-        df = df.tail(80).reset_index(drop=True)
+
+        df = df.tail(60).reset_index(drop=True)
         n = len(df)
+
         for i in range(n):
             row = df.iloc[i]
             o, c, h, l = float(row['open']), float(row['close']), float(row['high']), float(row['low'])
             color = BULL if c >= o else BEAR
-            ax_main.plot([i, i], [l, h], color=color, linewidth=1)
-            body_height = abs(c - o) or c * 0.0001
+            ax_main.plot([i, i], [l, h], color=color, linewidth=1.4)
+            body_h = abs(c - o) or c * 0.0001
             ax_main.add_patch(Rectangle(
-                (i - 0.35, min(o, c)), 0.7, body_height,
-                facecolor=color, edgecolor=color
+                (i - 0.4, min(o, c)), 0.8, body_h,
+                facecolor=color, edgecolor=color, linewidth=0.5, alpha=0.95
             ))
+
         if n >= 20:
             ema20 = df['close'].ewm(span=20).mean()
-            ax_main.plot(range(n), ema20, color=GOLD, linewidth=1.2, alpha=0.8)
+            ax_main.plot(range(n), ema20, color=GOLD, linewidth=1.5, alpha=0.9, label='EMA20')
         if n >= 50:
             ema50 = df['close'].ewm(span=50).mean()
-            ax_main.plot(range(n), ema50, color=PURPLE, linewidth=1.2, alpha=0.8)
+            ax_main.plot(range(n), ema50, color=PURPLE, linewidth=1.5, alpha=0.9, label='EMA50')
+
         current = float(df['close'].iloc[-1])
-        ax_main.scatter([n - 1], [current], color=YELLOW, s=60, zorder=5,
-                          edgecolor=BG, linewidth=1.5)
-        first_close = float(df['close'].iloc[0])
+        first_close = float(df['open'].iloc[0])
         chg_pct = (current - first_close) / first_close * 100
         chg_color = BULL if chg_pct >= 0 else BEAR
         chg_sign = "+" if chg_pct >= 0 else ""
-        title_text = f'{name}  ({chg_sign}{chg_pct:.2f}%)'
-        ax_main.set_title(title_text, color=chg_color, fontsize=12, weight='bold')
+
+        # 現價點
+        ax_main.scatter([n - 1], [current], s=110, color=YELLOW,
+                        zorder=9, edgecolor=BG, linewidth=2)
+
+        # 標題
+        def fmt(p):
+            if p >= 1000: return f'{p:,.0f}'
+            elif p >= 1: return f'{p:.2f}'
+            else: return f'{p:.4f}'
+        title_text = f'{name}   {fmt(current)}   ({chg_sign}{chg_pct:.2f}%)'
+        ax_main.set_title(title_text, color=chg_color, fontsize=13, weight='bold', pad=12)
+
+        # Y 軸格式
+        if current >= 1000:
+            ax_main.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:,.0f}'))
+        elif current >= 1:
+            ax_main.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:.2f}'))
+        else:
+            ax_main.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:.4f}'))
+
         _style_axis(ax_main)
-        colors_vol = [BULL if df['close'].iloc[i] >= df['open'].iloc[i] else BEAR
-                        for i in range(n)]
-        ax_vol.bar(range(n), df['volume'], color=colors_vol, alpha=0.7)
+        if n >= 20:
+            ax_main.legend(loc='upper left', framealpha=0.5, fontsize=8.5,
+                           facecolor='#1a2230', labelcolor='white',
+                           edgecolor='#444', borderpad=0.3)
+
+        # 成交量
+        colors_vol = [BULL if df['close'].iloc[i] >= df['open'].iloc[i] else BEAR for i in range(n)]
+        ax_vol.bar(range(n), df['volume'], color=colors_vol, alpha=0.8, width=0.8)
+        if n >= 20:
+            vol_ma = df['volume'].rolling(20).mean()
+            ax_vol.plot(range(n), vol_ma, color=GOLD, linewidth=1.2, alpha=0.8)
         _style_axis(ax_vol)
-    fig.suptitle('MARKET PULSE  |  BTC & ETH', color='white', fontsize=13, weight='bold', y=0.98)
-    plt.subplots_adjust(left=0.06, right=0.99, top=0.92, bottom=0.06, hspace=0.05)
+        ax_vol.tick_params(axis='y', colors='#aaa', labelsize=8)
+        plt.setp(ax_main.get_xticklabels(), visible=False)
+
+    fig.suptitle('MARKET PULSE  |  BTC vs ETH (60 bars)',
+                 color='white', fontsize=14, weight='bold', y=0.97)
+    plt.subplots_adjust(left=0.05, right=0.98, top=0.90, bottom=0.06)
     buf = BytesIO()
-    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor=BG)
+    plt.savefig(buf, format='png', dpi=120, bbox_inches='tight',
+                facecolor=BG, pad_inches=0.15)
     plt.close(fig)
     buf.seek(0)
     return buf
 
 
+
 # ===== 分析引擎 =====
 class CryptoAnalyzer:
+    """⭐ v38：加入 funding/LSR 快取，避免 1 分鐘掃描被 API 限流"""
+
+    def __init__(self):
+        # ⭐ v38 智能快取：funding 和 long_short_ratio 每 5 分鐘更新一次
+        self._funding_cache = {}  # {symbol: (value, timestamp)}
+        self._lsr_cache = {}  # {symbol: (value, timestamp)}
+        self._cache_ttl_sec = 300  # 5 分鐘
+
+    async def fetch_funding_cached(self, session, symbol):
+        """v38 帶快取的 funding rate 取得"""
+        now_ts = datetime.now(timezone.utc).timestamp()
+        cached = self._funding_cache.get(symbol)
+        if cached and (now_ts - cached[1]) < self._cache_ttl_sec:
+            return cached[0]
+        try:
+            val = await self.fetch_funding_rate(session, symbol)
+            if val is not None and not isinstance(val, Exception):
+                self._funding_cache[symbol] = (val, now_ts)
+            return val
+        except Exception:
+            return None
+
+    async def fetch_lsr_cached(self, session, symbol):
+        """v38 帶快取的 long-short ratio 取得"""
+        now_ts = datetime.now(timezone.utc).timestamp()
+        cached = self._lsr_cache.get(symbol)
+        if cached and (now_ts - cached[1]) < self._cache_ttl_sec:
+            return cached[0]
+        try:
+            val = await self.fetch_long_short_ratio(session, symbol)
+            if val is not None and not isinstance(val, Exception):
+                self._lsr_cache[symbol] = (val, now_ts)
+            return val
+        except Exception:
+            return None
 
     # v27 擴大掃描池：30 → 50（含熱門 meme/AI/L2/L1）
     SCAN_POOL = [
@@ -740,7 +880,7 @@ class CryptoAnalyzer:
             return None, None
 
     # ⭐ 進場時機判斷
-    def entry_timing(self, price, direction, sw_res, sw_sup, rsi, vol_ratio, e20):
+    def entry_timing_legacy(self, price, direction, sw_res, sw_sup, rsi, vol_ratio, e20):
         """判斷現在進場還是等回調"""
         try:
             if direction == "LONG":
@@ -1191,8 +1331,7 @@ class CryptoAnalyzer:
 
     # ⭐ 信號指紋（用於去重）
     def signal_fingerprint(self, symbol, direction, entry, sl, tp1):
-        import hashlib
-        # 進場/止損/止盈價位四捨五入到合理精度
+            # 進場/止損/止盈價位四捨五入到合理精度
         price_round = lambda p: round(p, 2) if p > 100 else round(p, 4)
         s = symbol + "|" + direction + "|" + str(price_round(entry)) + "|" + str(price_round(sl)) + "|" + str(price_round(tp1))
         return hashlib.md5(s.encode()).hexdigest()[:12]
@@ -1819,7 +1958,6 @@ class CryptoAnalyzer:
     # ⭐ 交易時段判斷（紐約/倫敦/亞洲）
     def trading_session(self):
         """判斷當前交易時段，影響策略選擇"""
-        from datetime import datetime, timezone
         hour = datetime.now(timezone.utc).hour
         # 倫敦盤：8-16 UTC（流動性最佳）
         # 紐約盤：13-21 UTC（波動最大）
@@ -2263,8 +2401,7 @@ class CryptoAnalyzer:
             # 計算對齊的收益率
             alt_returns = df_alt["close"].pct_change().tail(period).values
             btc_returns = df_btc["close"].pct_change().tail(period).values
-            import numpy as np
-            # 簡單相關係數
+                # 簡單相關係數
             mean_a = np.nanmean(alt_returns)
             mean_b = np.nanmean(btc_returns)
             cov = np.nansum((alt_returns - mean_a) * (btc_returns - mean_b))
@@ -2808,6 +2945,704 @@ class CryptoAnalyzer:
             return None, ""
 
 
+
+    # ============================================================
+    # ⭐ v36 進階市場分析（全局視角 + 機構動向）
+    # ============================================================
+
+    def market_regime_global(self, df1d, df1h):
+        """
+        判斷整體市場 regime (v36 升級版)
+        - TRENDING_UP: 趨勢上行（順勢做多最佳）
+        - TRENDING_DOWN: 趨勢下行
+        - RANGING_TIGHT: 窄幅震盪（區間交易）
+        - RANGING_WIDE: 寬幅震盪
+        - VOLATILE: 高波動（避免新進場）
+        - TRANSITIONAL: 轉換期
+        """
+        try:
+            if df1d is None or len(df1d) < 30:
+                # 退而求其次用 1h
+                df = df1h
+            else:
+                df = df1d
+
+            if df is None or len(df) < 30:
+                return "UNKNOWN", "未知", 0
+
+            # ATR / Price 反映波動
+            recent = df.tail(30)
+            atr = float(recent["high"].rolling(14).max().iloc[-1] - recent["low"].rolling(14).min().iloc[-1])
+            avg_price = float(recent["close"].mean())
+            atr_pct = atr / avg_price * 100 if avg_price > 0 else 0
+
+            # 趨勢強度（EMA20 vs EMA50）
+            ema20 = recent["close"].ewm(span=20).mean()
+            ema50 = recent["close"].ewm(span=50).mean() if len(df) >= 50 else ema20
+            slope_20 = (float(ema20.iloc[-1]) - float(ema20.iloc[-5])) / float(ema20.iloc[-5]) * 100
+            trend_diff = (float(ema20.iloc[-1]) - float(ema50.iloc[-1])) / float(ema50.iloc[-1]) * 100
+
+            # 高低點距離
+            recent_high = float(recent["high"].max())
+            recent_low = float(recent["low"].min())
+            range_pct = (recent_high - recent_low) / recent_low * 100
+
+            # 判斷
+            if atr_pct > 15:
+                return "VOLATILE", "高波動期（暫避新單）", -10
+            if abs(trend_diff) > 3 and abs(slope_20) > 1.5:
+                if trend_diff > 0:
+                    return "TRENDING_UP", "牛市趨勢中", 12
+                else:
+                    return "TRENDING_DOWN", "熊市趨勢中", 12
+            if range_pct < 5:
+                return "RANGING_TIGHT", "窄幅震盪", 3
+            if range_pct < 12:
+                return "RANGING_WIDE", "寬幅震盪", 5
+            return "TRANSITIONAL", "趨勢轉換期", 0
+        except Exception:
+            return "UNKNOWN", "未知", 0
+
+    def funding_extreme(self, funding_rate):
+        """
+        Funding Rate 極端值反向訊號
+        > 0.08% (8 bps) = 多頭過熱（反轉做空訊號）
+        < -0.08% = 空頭過熱（反轉做多訊號）
+        """
+        try:
+            if funding_rate is None:
+                return None, "", 0
+            fr = float(funding_rate)
+            fr_pct = fr * 100  # 轉為百分比
+            if fr_pct > 0.08:
+                return "EXTREME_LONG_CROWDED", "多單過於擁擠（反向訊號）", 12
+            elif fr_pct > 0.04:
+                return "LONG_CROWDED", "多單偏擁擠", 5
+            elif fr_pct < -0.08:
+                return "EXTREME_SHORT_CROWDED", "空單過於擁擠（反向訊號）", 12
+            elif fr_pct < -0.04:
+                return "SHORT_CROWDED", "空單偏擁擠", 5
+            return "BALANCED", "資金費率平衡", 0
+        except Exception:
+            return None, "", 0
+
+    def stale_signal_recheck(self, sig, current_price, df1h):
+        """
+        對已註冊的信號重新評估
+        如果環境變化 → 給出新建議
+        - close_now: 應該立刻平倉
+        - reduce: 應該減倉
+        - hold: 維持原計畫
+        - add: 可以加倉（更好機會）
+        """
+        try:
+            if df1h is None or len(df1h) < 30:
+                return "hold", ""
+            direction = sig.get("direction", "")
+            entry = sig.get("entry", 0)
+            sl = sig.get("sl", 0)
+            if not entry or not sl:
+                return "hold", ""
+
+            # 當前損益 %
+            if direction == "LONG":
+                pnl_pct = (current_price - entry) / entry * 100
+            else:
+                pnl_pct = (entry - current_price) / entry * 100
+
+            # 動能反向?
+            ema20 = df1h["close"].ewm(span=20).mean()
+            current_ema20 = float(ema20.iloc[-1])
+            rsi_now = float(self.rsi(df1h).iloc[-1])
+
+            if direction == "LONG":
+                # 跌破 EMA20 + RSI 急轉
+                if current_price < current_ema20 * 0.995 and rsi_now < 45:
+                    if pnl_pct > 1:
+                        return "reduce", "結構轉弱，建議減倉鎖利"
+                    elif pnl_pct > -0.5:
+                        return "close_now", "結構破壞，立刻平倉"
+                    else:
+                        return "close_now", "深度浮虧 + 結構破壞，停損"
+                # 強勢續航
+                if rsi_now > 60 and current_price > current_ema20 * 1.01 and pnl_pct > 0:
+                    return "hold", "趨勢延續，繼續持有"
+            else:
+                if current_price > current_ema20 * 1.005 and rsi_now > 55:
+                    if pnl_pct > 1:
+                        return "reduce", "結構轉強，建議減倉鎖利"
+                    elif pnl_pct > -0.5:
+                        return "close_now", "結構破壞，立刻平倉"
+                    else:
+                        return "close_now", "深度浮虧 + 結構破壞，停損"
+                if rsi_now < 40 and current_price < current_ema20 * 0.99 and pnl_pct > 0:
+                    return "hold", "趨勢延續，繼續持有"
+
+            return "hold", ""
+        except Exception:
+            return "hold", ""
+
+    def adaptive_sl_adjust(self, df, direction, entry, current_sl, current_price):
+        """
+        智能止損調整：根據 ATR 收縮/擴張動態調整
+        - ATR 收縮 = 行情變穩 = 可以收緊止損
+        - ATR 擴張 = 行情變動大 = 維持寬鬆止損
+        """
+        try:
+            if df is None or len(df) < 30:
+                return current_sl, ""
+            # 近 14 根 vs 前 14 根 ATR
+            recent_atr = float((df["high"].tail(14).max() - df["low"].tail(14).min()))
+            prev_atr = float((df["high"].iloc[-28:-14].max() - df["low"].iloc[-28:-14].min()))
+            if prev_atr <= 0:
+                return current_sl, ""
+            atr_change = recent_atr / prev_atr
+
+            # 已有獲利時才考慮（避免虧損中亂動止損）
+            if direction == "LONG":
+                profit_pct = (current_price - entry) / entry * 100
+                if profit_pct < 0.5:
+                    return current_sl, ""
+                # ATR 收縮 30% 以上 → 可以拉近止損到 EMA20 下方
+                if atr_change < 0.7:
+                    ema20 = float(df["close"].ewm(span=20).mean().iloc[-1])
+                    new_sl = ema20 * 0.998
+                    if new_sl > current_sl and new_sl < current_price:
+                        return new_sl, "ATR 收縮，止損上移至 EMA20"
+            else:
+                profit_pct = (entry - current_price) / entry * 100
+                if profit_pct < 0.5:
+                    return current_sl, ""
+                if atr_change < 0.7:
+                    ema20 = float(df["close"].ewm(span=20).mean().iloc[-1])
+                    new_sl = ema20 * 1.002
+                    if new_sl < current_sl and new_sl > current_price:
+                        return new_sl, "ATR 收縮，止損下移至 EMA20"
+            return current_sl, ""
+        except Exception:
+            return current_sl, ""
+
+    def portfolio_concentration_risk(self, active_signals, new_sig):
+        """
+        檢查新信號是否會造成倉位集中風險
+        - 同方向 ≥ 5 個 → 警告
+        - 同類型幣（meme/AI/L1）≥ 3 個 → 警告
+        """
+        if not active_signals:
+            return False, ""
+
+        new_dir = new_sig.get("direction", "")
+        new_sym = new_sig.get("symbol", "")
+
+        # 同方向計數
+        same_dir = sum(1 for s in active_signals.values()
+                       if s.get("direction") == new_dir)
+        if same_dir >= 5:
+            return True, "倉位集中：已有 " + str(same_dir) + " 個 " + new_dir + " 單"
+
+        # 同類型偵測（簡化版：分類前綴）
+        meme = ["PEPE", "SHIB", "DOGE", "WIF", "BONK", "FLOKI"]
+        ai = ["FET", "RNDR", "WLD", "TAO", "AR"]
+        l1 = ["BTC", "ETH", "SOL", "BNB", "AVAX", "NEAR", "APT", "SUI"]
+
+        def cat(sym):
+            short = sym.replace("/USDT", "")
+            if short in meme: return "meme"
+            if short in ai: return "ai"
+            if short in l1: return "l1"
+            return "other"
+
+        new_cat = cat(new_sym)
+        same_cat = sum(1 for s in active_signals.values()
+                       if cat(s.get("symbol", "") if isinstance(s, dict) else "") == new_cat)
+        if same_cat >= 3 and new_cat != "other":
+            return True, "同類型集中：已有 " + str(same_cat) + " 個 " + new_cat + " 幣"
+
+        return False, ""
+
+    def score_dimensions(self, plan, sig1h, direction, vol_ratio):
+        """
+        v38 核心改進：把 30+ 個因子歸納為 5 大維度（0-20 分）
+        散戶一眼能看懂信號強度
+        """
+        try:
+            # === 1. 趨勢力（Trend Power）0-20 ===
+            trend = 10  # 中性起點
+            regime_state = plan.get("regime_state", "")
+            if regime_state == "TRENDING_UP" and direction == "LONG":
+                trend += 6
+            elif regime_state == "TRENDING_DOWN" and direction == "SHORT":
+                trend += 6
+            elif regime_state == "VOLATILE":
+                trend -= 4
+            adx = sig1h.get("adx", 0)
+            if adx > 30:
+                trend += 4
+            elif adx > 22:
+                trend += 2
+            elif adx < 16:
+                trend -= 3
+            struct_state = plan.get("struct_state", "")
+            if "STRONG_UPTREND" in struct_state and direction == "LONG":
+                trend += 3
+            elif "STRONG_DOWNTREND" in struct_state and direction == "SHORT":
+                trend += 3
+            trend = max(0, min(20, trend))
+
+            # === 2. 動能（Momentum）0-20 ===
+            momentum = 10
+            rsi = sig1h.get("rsi", 50)
+            macd_h = sig1h.get("macd_hist", 0)
+            if direction == "LONG":
+                if 50 < rsi < 70:
+                    momentum += 5
+                elif rsi >= 70:
+                    momentum += 2
+                if macd_h > 0:
+                    momentum += 3
+                else:
+                    momentum -= 3
+            else:
+                if 30 < rsi < 50:
+                    momentum += 5
+                elif rsi <= 30:
+                    momentum += 2
+                if macd_h < 0:
+                    momentum += 3
+                else:
+                    momentum -= 3
+            # 動能背離
+            div_type = plan.get("div_type", "")
+            if (div_type == "BULL_DIV" and direction == "LONG") or \
+               (div_type == "BEAR_DIV" and direction == "SHORT"):
+                momentum += 4
+            momentum = max(0, min(20, momentum))
+
+            # === 3. 結構（Structure）0-20 ===
+            structure = 10
+            # 流動性掃蕩 / Wyckoff（最強結構訊號）
+            sweep_type = plan.get("sweep_type", "")
+            if (sweep_type == "BULL_SWEEP" and direction == "LONG") or \
+               (sweep_type == "BEAR_SWEEP" and direction == "SHORT"):
+                structure += 6
+            wyckoff_type = plan.get("wyckoff_type", "")
+            if (wyckoff_type == "SPRING" and direction == "LONG") or \
+               (wyckoff_type == "UPTHRUST" and direction == "SHORT"):
+                structure += 6
+            # MTF 共振
+            mtf_grade = plan.get("mtf_grade", "")
+            if "TRIPLE_BULL" in mtf_grade and direction == "LONG":
+                structure += 4
+            elif "TRIPLE_BEAR" in mtf_grade and direction == "SHORT":
+                structure += 4
+            elif "STRONG" in mtf_grade:
+                structure += 2
+            elif "DIVERGENT" in mtf_grade:
+                structure -= 3
+            structure = max(0, min(20, structure))
+
+            # === 4. 量能（Volume）0-20 ===
+            volume = 10
+            if vol_ratio > 2:
+                volume += 6
+            elif vol_ratio > 1.5:
+                volume += 4
+            elif vol_ratio > 1.2:
+                volume += 2
+            elif vol_ratio < 0.7:
+                volume -= 4
+            # 訂單流
+            ofi = plan.get("ofi_state", "")
+            if (ofi in ("STRONG_BUY_FLOW", "BUY_FLOW") and direction == "LONG"):
+                volume += 3
+            elif (ofi in ("STRONG_SELL_FLOW", "SELL_FLOW") and direction == "SHORT"):
+                volume += 3
+            # 大資金流
+            flow = plan.get("flow_state", "")
+            if (flow == "BIG_BUYING" and direction == "LONG") or \
+               (flow == "BIG_SELLING" and direction == "SHORT"):
+                volume += 2
+            volume = max(0, min(20, volume))
+
+            # === 5. 風險（Risk Quality）0-20 ===
+            # 風險維度的高分代表「風險可控」
+            risk = 10
+            ev = plan.get("expected_value", 0)
+            if ev >= 1.5:
+                risk += 6
+            elif ev >= 1.0:
+                risk += 4
+            elif ev >= 0.5:
+                risk += 2
+            elif ev < 0:
+                risk -= 4
+            # 進場品質
+            grade = plan.get("entry_grade", "C")
+            risk += {"S": 5, "A": 3, "B": 1, "C": 0, "D": -3}.get(grade, 0)
+            # 共識
+            cons = plan.get("consensus_count", 0)
+            if cons >= 5: risk += 3
+            elif cons >= 3: risk += 1
+            elif cons <= 1: risk -= 2
+            risk = max(0, min(20, risk))
+
+            total = trend + momentum + structure + volume + risk
+            return {
+                "trend": int(trend),
+                "momentum": int(momentum),
+                "structure": int(structure),
+                "volume": int(volume),
+                "risk": int(risk),
+                "total": int(total),
+            }
+        except Exception:
+            return {"trend": 10, "momentum": 10, "structure": 10,
+                    "volume": 10, "risk": 10, "total": 50}
+
+    # ⭐ v38 真實勝率自校準
+    def real_winrate_stats(self, signal_results, tier=None, strategy_type=None,
+                            direction=None, lookback=50):
+        """
+        從歷史 SIGNAL_RESULTS 計算真實勝率
+        - 可按 tier / strategy_type / direction 篩選
+        - 至少 5 筆才有意義，否則回傳 None
+        """
+        try:
+            if not signal_results:
+                return None
+            # 篩選
+            filtered = signal_results[-lookback:]
+            if tier:
+                filtered = [r for r in filtered if r.get("tier") == tier]
+            if strategy_type:
+                filtered = [r for r in filtered if r.get("strategy_type") == strategy_type]
+            if direction:
+                filtered = [r for r in filtered if r.get("direction") == direction]
+
+            if len(filtered) < 5:
+                return None
+
+            wins = sum(1 for r in filtered if r.get("is_win", False) or r.get("final_pct", 0) > 0)
+            total = len(filtered)
+            win_rate = round(wins / total * 100, 1)
+            avg_win = 0
+            avg_loss = 0
+            win_pcts = [r.get("final_pct", 0) for r in filtered if r.get("final_pct", 0) > 0]
+            loss_pcts = [abs(r.get("final_pct", 0)) for r in filtered if r.get("final_pct", 0) < 0]
+            if win_pcts:
+                avg_win = round(sum(win_pcts) / len(win_pcts), 2)
+            if loss_pcts:
+                avg_loss = round(sum(loss_pcts) / len(loss_pcts), 2)
+            ev = round(win_rate / 100 * avg_win - (1 - win_rate / 100) * avg_loss, 2)
+            return {
+                "win_rate": win_rate,
+                "total": total,
+                "wins": wins,
+                "losses": total - wins,
+                "avg_win": avg_win,
+                "avg_loss": avg_loss,
+                "real_ev": ev,
+            }
+        except Exception:
+            return None
+
+    # ⭐ v38 連勝/連敗自動調節
+    def auto_protection_mode(self, signal_results, lookback=10):
+        """
+        檢查最近表現決定保護模式
+        - 連虧 3+ → DEFENSIVE：只推 S/A 級
+        - 連勝 5+ → AGGRESSIVE：放寬門檻
+        - 普通 → NORMAL
+        """
+        try:
+            if not signal_results or len(signal_results) < 5:
+                return "NORMAL", "正常模式"
+            recent = signal_results[-lookback:]
+            # 連虧檢查（從最新往回）
+            consecutive_loss = 0
+            consecutive_win = 0
+            for r in reversed(recent):
+                if r.get("is_win", False) or r.get("final_pct", 0) > 0:
+                    if consecutive_loss == 0:
+                        consecutive_win += 1
+                    else:
+                        break
+                else:
+                    if consecutive_win == 0:
+                        consecutive_loss += 1
+                    else:
+                        break
+            if consecutive_loss >= 3:
+                return "DEFENSIVE", "連虧 " + str(consecutive_loss) + " 次，僅推 S/A 級"
+            if consecutive_win >= 5:
+                return "AGGRESSIVE", "連勝 " + str(consecutive_win) + " 次，放寬門檻"
+            return "NORMAL", "正常模式"
+        except Exception:
+            return "NORMAL", "正常模式"
+
+    def one_line_thesis(self, plan, direction):
+        """
+        產生「為什麼推這個」的一句話核心理由（3 個最強因子）
+        """
+        try:
+            # 收集所有正向因子
+            top_reasons = []
+
+            # 1. Tier 等級（最重要）
+            tier = plan.get("tier", "C")
+            if tier == "S":
+                top_reasons.append("💎 S 級稀有信號")
+            elif tier == "A":
+                top_reasons.append("🥇 A 級重點推薦")
+
+            # 2. 策略 + 共識
+            strat = plan.get("strategy_label", "")
+            consensus = plan.get("consensus_count", 0)
+            if consensus >= 4 and strat:
+                top_reasons.append(strat + " · " + str(consensus) + "/6 共識")
+
+            # 3. 流動性掃蕩/Wyckoff（最高勝率訊號）
+            if plan.get("sweep_msg"):
+                top_reasons.append(plan["sweep_msg"])
+            elif plan.get("wyckoff_msg"):
+                top_reasons.append(plan["wyckoff_msg"])
+
+            # 4. 機構動向
+            ofi = plan.get("ofi_state", "")
+            if ofi == "STRONG_BUY_FLOW" and direction == "LONG":
+                top_reasons.append("機構主動買盤強")
+            elif ofi == "STRONG_SELL_FLOW" and direction == "SHORT":
+                top_reasons.append("機構主動賣盤強")
+
+            # 5. 市場結構
+            struct = plan.get("struct_label", "")
+            if "強" in struct and (
+                ("UPTREND" in plan.get("struct_state", "") and direction == "LONG") or
+                ("DOWNTREND" in plan.get("struct_state", "") and direction == "SHORT")
+            ):
+                top_reasons.append(struct)
+
+            # 取前 3
+            return "  ·  ".join(top_reasons[:3]) if top_reasons else "綜合多項技術指標"
+        except Exception:
+            return "綜合多項技術指標"
+
+
+
+    # ============================================================
+    # ⭐ v37 頂尖交易員等級分析
+    # ============================================================
+
+    def entry_timing(self, sig1h, df1h, current_price, entry, direction):
+        """
+        進場時機分析：判斷現在進場 vs 等回踩
+        Returns: ("NOW" / "WAIT_PULLBACK" / "WAIT_BREAKOUT", reason, optimal_zone)
+        """
+        try:
+            if df1h is None or len(df1h) < 20:
+                return "NOW", "資料不足", None
+
+            rsi = sig1h.get("rsi", 50)
+            ema20 = float(df1h["close"].ewm(span=20).mean().iloc[-1])
+
+            # 距離 entry 的偏離
+            entry_dev = abs(current_price - entry) / entry * 100
+
+            if direction == "LONG":
+                # 已突破上方 → 等回踩 EMA20 或進場價
+                if current_price > entry * 1.005 and rsi > 65:
+                    pullback_zone = max(ema20, entry * 0.998)
+                    return ("WAIT_PULLBACK",
+                            f"目前已偏離進場 {entry_dev:.1f}%，等回踩 {pullback_zone:.4g}",
+                            pullback_zone)
+                # 還沒到進場 + RSI 弱 → 等突破
+                if current_price < entry * 0.998 and rsi < 50:
+                    return ("WAIT_BREAKOUT",
+                            f"等突破 {entry:.4g} 確認方向", entry)
+                # 正合適
+                return "NOW", "目前價位適合進場", current_price
+            else:
+                if current_price < entry * 0.995 and rsi < 35:
+                    pullback_zone = min(ema20, entry * 1.002)
+                    return ("WAIT_PULLBACK",
+                            f"目前已偏離進場 {entry_dev:.1f}%，等回踩 {pullback_zone:.4g}",
+                            pullback_zone)
+                if current_price > entry * 1.002 and rsi > 50:
+                    return ("WAIT_BREAKOUT",
+                            f"等跌破 {entry:.4g} 確認方向", entry)
+                return "NOW", "目前價位適合進場", current_price
+        except Exception:
+            return "NOW", "", None
+
+    def volume_anomaly(self, df, period=50):
+        """
+        異常成交量區域識別（機構聚集地）
+        找出 vol > 平均 2 倍 的價格區間
+        """
+        try:
+            if df is None or len(df) < period:
+                return []
+            recent = df.tail(period)
+            avg_vol = float(recent["volume"].mean())
+            anomalies = []
+            for i in range(len(recent)):
+                vol = float(recent["volume"].iloc[i])
+                if vol > avg_vol * 2:
+                    price = float(recent["close"].iloc[i])
+                    anomalies.append({
+                        "price": price,
+                        "vol_ratio": round(vol / avg_vol, 1),
+                        "bars_ago": len(recent) - 1 - i
+                    })
+            # 按時間最近排序
+            anomalies.sort(key=lambda x: x["bars_ago"])
+            return anomalies[:3]
+        except Exception:
+            return []
+
+    def smart_tp_extend(self, df, direction, entry, tp1, tp2, tp3, current_price):
+        """
+        TP 智能調整：達 TP1 後若動能仍強，把 TP2/TP3 拉更遠
+        """
+        try:
+            if df is None or len(df) < 20:
+                return None, None, None, ""
+            rsi = float(self.rsi(df).iloc[-1])
+            ema20 = float(df["close"].ewm(span=20).mean().iloc[-1])
+
+            if direction == "LONG":
+                # 強勢條件：RSI > 60 + 站上 EMA20 + 現價已過 TP1
+                if current_price > tp1 and rsi > 60 and current_price > ema20:
+                    # 把 TP2 拉到原本 TP3，TP3 拉更遠 8%
+                    new_tp2 = tp3
+                    new_tp3 = round(entry * 1.10, 6)
+                    return new_tp2, new_tp3, None, "動能強勁，目標拉遠"
+            else:
+                if current_price < tp1 and rsi < 40 and current_price < ema20:
+                    new_tp2 = tp3
+                    new_tp3 = round(entry * 0.90, 6)
+                    return new_tp2, new_tp3, None, "動能強勁，目標拉遠"
+            return None, None, None, ""
+        except Exception:
+            return None, None, None, ""
+
+    def alt_season_indicator(self, btc_df, eth_df):
+        """
+        判斷當前是 BTC 季還是 alt 季
+        BTC 強勢 + alt 弱 = BTC 季（做 BTC）
+        BTC 橫盤 + alt 強 = Alt 季（做小幣）
+        """
+        try:
+            if btc_df is None or len(btc_df) < 30:
+                return "UNKNOWN", "未知"
+            if eth_df is None:
+                eth_df = btc_df
+
+            # 30 根 K 線變化
+            btc_chg = (float(btc_df["close"].iloc[-1]) - float(btc_df["close"].iloc[-30])) / float(btc_df["close"].iloc[-30]) * 100
+            eth_chg = (float(eth_df["close"].iloc[-1]) - float(eth_df["close"].iloc[-30])) / float(eth_df["close"].iloc[-30]) * 100
+
+            diff = eth_chg - btc_chg
+
+            if diff > 5:
+                return "ALT_SEASON", "Alt 季（小幣更強）"
+            elif diff > 2:
+                return "ALT_LEANING", "偏 Alt（小幣略強）"
+            elif diff < -5:
+                return "BTC_SEASON", "BTC 季（主流更強）"
+            elif diff < -2:
+                return "BTC_LEANING", "偏 BTC（主流略強）"
+            return "BALANCED", "BTC/Alt 平衡"
+        except Exception:
+            return "UNKNOWN", "未知"
+
+    def market_health_score(self, sig1h, vol_ratio, regime_state, fg_val,
+                              consensus_count, btc_health):
+        """
+        全局市場健康分（0-100）
+        綜合多項指標的「總體建議信心」
+        """
+        try:
+            score = 50  # 中性起點
+
+            # ADX 趨勢強度
+            adx = sig1h.get("adx", 0)
+            if adx > 30: score += 10
+            elif adx > 22: score += 5
+            elif adx < 15: score -= 8
+
+            # 量能
+            if vol_ratio > 1.8: score += 8
+            elif vol_ratio > 1.3: score += 4
+            elif vol_ratio < 0.7: score -= 5
+
+            # Regime
+            regime_bonus = {
+                "TRENDING_UP": 10,
+                "TRENDING_DOWN": 10,
+                "RANGING_TIGHT": 0,
+                "RANGING_WIDE": -3,
+                "VOLATILE": -10,
+            }.get(regime_state, 0)
+            score += regime_bonus
+
+            # F&G 極端避開
+            if fg_val and 30 <= fg_val <= 70:
+                score += 5
+            elif fg_val and (fg_val <= 15 or fg_val >= 85):
+                score -= 5
+
+            # 共識
+            if consensus_count >= 5: score += 8
+            elif consensus_count >= 3: score += 4
+            elif consensus_count <= 1: score -= 5
+
+            # BTC 健康
+            if btc_health == "HEALTHY": score += 5
+            elif btc_health == "DANGER": score -= 10
+
+            return max(0, min(100, score))
+        except Exception:
+            return 50
+
+    def best_session_hint(self, symbol):
+        """
+        最佳交易時段提示（根據歷史經驗）
+        - 主流幣：紐約時段（13:00-17:00 UTC）流動性最好
+        - Alt 幣：亞洲時段（00:00-06:00 UTC）波動較大
+        - Meme 幣：紐約 + 亞洲交接
+        """
+        try:
+            hour_utc = datetime.now(timezone.utc).hour
+            short = symbol.replace("/USDT", "")
+
+            meme = ["PEPE", "SHIB", "DOGE", "WIF", "BONK", "FLOKI"]
+            major = ["BTC", "ETH", "BNB", "XRP", "SOL"]
+
+            if short in major:
+                # 紐約時段 + 倫敦時段
+                if 13 <= hour_utc <= 17:
+                    return "🔥 紐約時段（流動性最佳）"
+                elif 7 <= hour_utc <= 11:
+                    return "✨ 倫敦時段（活躍時段）"
+                elif 0 <= hour_utc <= 4:
+                    return "💤 亞洲時段（波動較小）"
+            elif short in meme:
+                if 13 <= hour_utc <= 18:
+                    return "🚀 Meme 幣黃金時段"
+                else:
+                    return "⏰ 非 Meme 主時段"
+            else:
+                # Alt 幣
+                if 0 <= hour_utc <= 6:
+                    return "🌏 亞洲時段（Alt 活躍）"
+                elif 13 <= hour_utc <= 17:
+                    return "🔥 紐約時段（流動性佳）"
+            return ""
+        except Exception:
+            return ""
+
+
     # ⭐ VWAP（成交量加權平均價 - 機構進出場位）
     def vwap(self, df):
         try:
@@ -2841,19 +3676,6 @@ class CryptoAnalyzer:
             return 1, float(df["close"].iloc[-1])
 
     # ⭐ BTC 相關性（alt 跟漲跟跌分析）
-    def btc_correlation(self, df_alt, df_btc, window=24):
-        try:
-            btc_ret = df_btc["close"].pct_change()
-            alt_ret = df_alt["close"].pct_change()
-            corr = btc_ret.rolling(window).corr(alt_ret)
-            val = float(corr.iloc[-1])
-            if pd.isna(val):
-                return None
-            return round(val, 2)
-        except Exception:
-            return None
-
-    # ⭐ 信號有效期（根據持有時間自動計算）
     def signal_expiry(self, timeframe_str):
         now = datetime.now(timezone.utc)
         if "中線" in timeframe_str:
@@ -3230,8 +4052,7 @@ class CryptoAnalyzer:
                                 pub_iso = ""
                                 if pub_m:
                                     try:
-                                        from email.utils import parsedate_to_datetime
-                                        pub_iso = parsedate_to_datetime(pub_m.group(1)).isoformat()
+                                                                        pub_iso = parsedate_to_datetime(pub_m.group(1)).isoformat()
                                     except Exception: pass
                                 results.append({"title": title, "published_at": pub_iso,
                                                  "source": "PANews", "category": "crypto"})
@@ -3257,8 +4078,7 @@ class CryptoAnalyzer:
                                 pub_iso = ""
                                 if pub_m:
                                     try:
-                                        from email.utils import parsedate_to_datetime
-                                        pub_iso = parsedate_to_datetime(pub_m.group(1)).isoformat()
+                                                                        pub_iso = parsedate_to_datetime(pub_m.group(1)).isoformat()
                                     except Exception: pass
                                 results.append({"title": title, "published_at": pub_iso,
                                                  "source": "Odaily", "category": "crypto"})
@@ -3293,8 +4113,7 @@ class CryptoAnalyzer:
                                 pub_iso = ""
                                 if pub_m:
                                     try:
-                                        from email.utils import parsedate_to_datetime
-                                        pub_iso = parsedate_to_datetime(pub_m.group(1)).isoformat()
+                                                                        pub_iso = parsedate_to_datetime(pub_m.group(1)).isoformat()
                                     except Exception: pass
                                 results.append({"title": title, "published_at": pub_iso,
                                                  "source": "BBC中文", "category": "world"})
@@ -3321,8 +4140,7 @@ class CryptoAnalyzer:
                                 pub_iso = ""
                                 if pub_m:
                                     try:
-                                        from email.utils import parsedate_to_datetime
-                                        pub_iso = parsedate_to_datetime(pub_m.group(1)).isoformat()
+                                                                        pub_iso = parsedate_to_datetime(pub_m.group(1)).isoformat()
                                     except Exception: pass
                                 results.append({"title": title, "published_at": pub_iso,
                                                  "source": "Yahoo Finance", "category": "finance"})
@@ -3354,8 +4172,7 @@ class CryptoAnalyzer:
                                 pub_iso = ""
                                 if pub_m:
                                     try:
-                                        from email.utils import parsedate_to_datetime
-                                        pub_iso = parsedate_to_datetime(pub_m.group(1)).isoformat()
+                                                                        pub_iso = parsedate_to_datetime(pub_m.group(1)).isoformat()
                                     except Exception: pass
                                 results.append({"title": title, "published_at": pub_iso,
                                                  "source": "DW中文", "category": "world"})
@@ -3830,7 +4647,8 @@ class CryptoAnalyzer:
                             sw_res_1h, sw_sup_1h, sw_res_4h, sw_sup_4h,
                             vol_ratio, funding, ls_ratio, fg_val, current_price,
                             rs_btc=None, upside_liq=None, downside_liq=None,
-                            btc_df=None, btc_ticker=None, symbol=""):
+                            btc_df=None, btc_ticker=None, symbol="",
+                            historical_results=None):
         direction = sig1h["direction_en"]
         if direction == "NEUTRAL":
             return None, "信號中性"
@@ -4126,6 +4944,53 @@ class CryptoAnalyzer:
                 factors.append("✅ 與 BTC 強反向，獨立性高")
             elif corr_state == "HIGH_SYNC":
                 risks.append("📊 與 BTC 高度同步 " + str(round(corr_val, 2)))
+
+        # ⭐ v36 市場 regime（全局視角）
+        regime_state, regime_label, regime_bonus = self.market_regime_global(None, df1h)
+        # regime 影響：在 trending 期間加分，在 volatile 期間扣分
+        if regime_state == "TRENDING_UP" and direction == "LONG":
+            score += regime_bonus
+            factors.append("🌐 " + regime_label)
+        elif regime_state == "TRENDING_DOWN" and direction == "SHORT":
+            score += regime_bonus
+            factors.append("🌐 " + regime_label)
+        elif regime_state == "TRENDING_UP" and direction == "SHORT":
+            score -= 5
+            risks.append("⚠️ 整體牛市中逆勢做空")
+        elif regime_state == "TRENDING_DOWN" and direction == "LONG":
+            score -= 5
+            risks.append("⚠️ 整體熊市中逆勢做多")
+        elif regime_state == "VOLATILE":
+            score += regime_bonus  # 負值
+            risks.append("⚠️ " + regime_label)
+
+        # ⭐ v37 進場時機分析
+        timing_state, timing_msg, timing_zone = self.entry_timing(
+            sig1h, df1h, current_price, p, direction
+        )
+        # 進場時機資訊不影響評分，但會在輸出顯示
+
+        # ⭐ v37 異常成交量區域
+        vol_anomalies = self.volume_anomaly(df1h)
+
+        # ⭐ v37 最佳時段提示
+        best_session = self.best_session_hint(symbol)
+
+        # ⭐ v36 Funding Rate 極端值反轉
+        if funding is not None:
+            fr_state, fr_label, fr_bonus = self.funding_extreme(funding)
+            if fr_state == "EXTREME_LONG_CROWDED" and direction == "SHORT":
+                score += fr_bonus
+                factors.append("💰 " + fr_label)
+            elif fr_state == "EXTREME_SHORT_CROWDED" and direction == "LONG":
+                score += fr_bonus
+                factors.append("💰 " + fr_label)
+            elif fr_state == "EXTREME_LONG_CROWDED" and direction == "LONG":
+                score -= fr_bonus
+                risks.append("⚠️ 多單過於擁擠（反轉風險）")
+            elif fr_state == "EXTREME_SHORT_CROWDED" and direction == "SHORT":
+                score -= fr_bonus
+                risks.append("⚠️ 空單過於擁擠（反轉風險）")
 
         # ⭐ v32 訂單流不平衡（機構動向）
         ofi_value, ofi_state, ofi_bonus = self.order_flow_imbalance(df1h)
@@ -4529,7 +5394,41 @@ class CryptoAnalyzer:
                 abs(tp2 - entry) / entry * 100 if entry else 0,
                 abs(entry - sl) / entry * 100 if entry else 0
             ),
+            # v36 新增
+            "regime_state": regime_state,
+            "regime_label": regime_label,
+            # v37 新增
+            "timing_state": timing_state,
+            "timing_msg": timing_msg,
+            "timing_zone": timing_zone,
+            "vol_anomalies": vol_anomalies,
+            "best_session": best_session,
         }
+        # 一句話核心理由
+        plan["one_line_thesis"] = self.one_line_thesis(plan, direction)
+        # ⭐ v38 五維度評分
+        plan["dimensions"] = self.score_dimensions(plan, sig1h, direction, vol_ratio)
+        # ⭐ v38 真實勝率（從歷史資料）
+        if historical_results:
+            try:
+                tier_stats = self.real_winrate_stats(
+                    historical_results, tier=plan.get("tier"), lookback=50
+                )
+                if tier_stats:
+                    plan["real_win_rate"] = tier_stats["win_rate"]
+                    plan["real_ev"] = tier_stats["real_ev"]
+                    plan["real_total_count"] = tier_stats["total"]
+            except Exception:
+                pass
+        # ⭐ v37 全局市場健康分
+        try:
+            btc_health = "HEALTHY" if not isinstance(btc_ticker, Exception) and btc_ticker and abs(float(btc_ticker.get("priceChangePercent", 0))) < 3 else "DANGER"
+            plan["market_health"] = self.market_health_score(
+                sig1h, vol_ratio, regime_state, fg_val,
+                consensus_count, btc_health
+            )
+        except Exception:
+            plan["market_health"] = 50
         # v33 分級系統：不再硬性過濾，而是計算「信號等級」
         # 三個等級的判定（給後續分級推播用）
         ev_score = plan["expected_value"]
@@ -4679,7 +5578,7 @@ class CryptoAnalyzer:
             return "❌ 分析失敗：" + str(e)
 
     # ⭐ 平衡版黑潮船長
-    async def golden_hunter(self, smart_filter=False, min_score=60):
+    async def golden_hunter(self, smart_filter=False, min_score=60, historical_results=None):
         try:
             now = datetime.now(timezone.utc).strftime("%m-%d %H:%M:%S UTC")
             candidates = []
@@ -4706,8 +5605,9 @@ class CryptoAnalyzer:
                         tasks.append(self.fetch_ohlcv(session, sym, "1h", 200))
                         tasks.append(self.fetch_ohlcv(session, sym, "4h", 150))
                         tasks.append(self.fetch_ticker(session, sym))
-                        tasks.append(self.fetch_funding_rate(session, sym))
-                        tasks.append(self.fetch_long_short_ratio(session, sym))
+                        # ⭐ v38 用快取版本（5 分鐘 TTL，節省 API 配額）
+                        tasks.append(self.fetch_funding_cached(session, sym))
+                        tasks.append(self.fetch_lsr_cached(session, sym))
                     batch_results = await asyncio.gather(*tasks, return_exceptions=True)
                     all_results.extend(batch_results)
                     # 批次間隔 0.5 秒，避免被限流
@@ -4731,8 +5631,8 @@ class CryptoAnalyzer:
                         retry_tasks.append(self.fetch_ohlcv(session, sym, "1h", 200))
                         retry_tasks.append(self.fetch_ohlcv(session, sym, "4h", 150))
                         retry_tasks.append(self.fetch_ticker(session, sym))
-                        retry_tasks.append(self.fetch_funding_rate(session, sym))
-                        retry_tasks.append(self.fetch_long_short_ratio(session, sym))
+                        retry_tasks.append(self.fetch_funding_cached(session, sym))
+                        retry_tasks.append(self.fetch_lsr_cached(session, sym))
                     retry_results = await asyncio.gather(*retry_tasks, return_exceptions=True)
                     for k, ri in enumerate(retry_indices):
                         for j in range(stride):
@@ -4787,6 +5687,26 @@ class CryptoAnalyzer:
                         vol24 = float(ticker.get("quoteVolume", 0)) / 1e6
                         if vol24 < 20:
                             continue
+
+                        # ⭐ v36 Pre-filter：快速排除明顯不適合的（節省 70% CPU）
+                        # 1. ADX < 14 = 完全無趨勢
+                        adx_v = sig1h.get("adx", 0)
+                        if adx_v < 14:
+                            continue
+                        # 2. RSI 極端但無動能配合
+                        rsi_v = sig1h.get("rsi", 50)
+                        macd_h = sig1h.get("macd_hist", 0)
+                        if sig1h["direction_en"] == "LONG":
+                            if rsi_v > 80 and macd_h <= 0:
+                                continue  # RSI 過熱但 MACD 已轉弱
+                            if rsi_v < 30:
+                                continue  # 不在多頭區
+                        else:
+                            if rsi_v < 20 and macd_h >= 0:
+                                continue
+                            if rsi_v > 70:
+                                continue
+
                         sig15m = self.generate_signal(df15m, fg_val, current_price)
                         sig4h = self.generate_signal(df4h, fg_val, current_price)
                         sw_res_1h, sw_sup_1h = self.swing_sr(df1h)
@@ -4796,7 +5716,7 @@ class CryptoAnalyzer:
                         rsi_v = sig1h["rsi"]
                         e20_v = sig1h["e20"]
                         direction_for_timing = sig1h["direction_en"]
-                        timing_emoji, timing_reason = self.entry_timing(
+                        timing_emoji, timing_reason = self.entry_timing_legacy(
                             current_price, direction_for_timing,
                             sw_res_1h, sw_sup_1h, rsi_v, vol_ratio, e20_v
                         )
@@ -4831,6 +5751,8 @@ class CryptoAnalyzer:
                             rs_btc=rs_btc, upside_liq=upside_liq, downside_liq=downside_liq,
                             btc_df=btc_df_cache, btc_ticker=btc_ticker_cache,
                             symbol=sym
+                        ,
+                            historical_results=historical_results
                         )
                         if result[0] is None:
                             continue
@@ -4953,6 +5875,28 @@ class CryptoAnalyzer:
             if tier_summary:
                 r += "📊 " + " | ".join(tier_summary) + "\n"
 
+            # ⭐ v37 Alt 季 / BTC 季提示
+            try:
+                if btc_df_cache is not None:
+                    # 取 ETH 數據
+                    eth_idx = None
+                    for idx_e, sym_e in enumerate(self.SCAN_POOL):
+                        if sym_e == "ETH/USDT":
+                            eth_idx = idx_e
+                            break
+                    eth_df = results[eth_idx*stride+1] if eth_idx is not None else None
+                    if not isinstance(eth_df, Exception) and eth_df is not None:
+                        alt_state, alt_label = self.alt_season_indicator(btc_df_cache, eth_df)
+                        if alt_state in ("ALT_SEASON", "BTC_SEASON"):
+                            emoji = "🚀" if alt_state == "ALT_SEASON" else "👑"
+                            r += emoji + " " + alt_label + "\n"
+            except Exception:
+                pass
+
+            # 下次掃描預告
+            next_scan = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime("%H:%M UTC")
+            r += "⏳ 下次掃描：" + next_scan + "\n"
+
             # ⭐ v33 行動建議
             if candidates:
                 top = candidates[0]
@@ -4996,81 +5940,76 @@ class CryptoAnalyzer:
 
                 # === 進場品質徽章（最醒目）===
                 grade = p.get("entry_grade", "C")
-                # ⭐ v33 信號等級（最重要的視覺標示）
+                # ⭐ v38 精簡輸出（一個信號 ≤ 12 行）
                 tier = p.get("tier", "C")
                 tier_label = p.get("tier_label", "")
-                r += "═══════════════\n"
+                tier_emoji = p.get("tier_emoji", "")
+                grade = p.get("entry_grade", "C")
+
+                r += "\n═══════════════\n"
                 r += tier_label + "\n"
-                r += "═══════════════\n"
-                # 進場品質徽章（原本的 A/B/C）
-                grade_text = {
-                    "S": "💎 進場品質 S 級",
-                    "A": "🟢 進場品質 A 級",
-                    "B": "🟡 進場品質 B 級",
-                    "C": "🟠 進場品質 C 級",
-                }.get(grade, "")
-                r += grade_text + "\n"
-                # ⭐ v24：策略類型
-                if p.get("strategy_label"):
-                    r += "🎯 " + p.get("strategy_label", "") + "\n"
-                # ⭐ v31 深度分析資訊
-                struct_label = p.get("struct_label", "")
-                mtf_grade_label = p.get("mtf_grade_label", "")
-                if struct_label and "震盪" not in struct_label:
-                    r += "📏 " + struct_label + "\n"
-                if mtf_grade_label:
-                    r += "🔭 " + mtf_grade_label + "\n"
-                # 波動率分位
-                vol_state = p.get("vol_state", "")
-                vol_pct = p.get("vol_pct", 50)
-                if vol_state == "EXTREME_HIGH":
-                    r += "⚡ 波動率分位 " + str(vol_pct) + "% (極高，注意反轉)\n"
-                elif vol_state == "EXTREME_LOW":
-                    r += "⚡ 波動率分位 " + str(vol_pct) + "% (極低，即將爆發)\n"
-                # MTF + 時段
-                if p.get("mtf_label"):
-                    r += "📐 " + p.get("mtf_label", "") + " | " + p.get("session_label", "") + "\n"
 
-                # ⭐ v32 頂尖分析顯示
-                consensus = p.get("consensus_count", 0)
-                if consensus >= 3:
-                    r += "🎯 *" + str(consensus) + "/6 策略共識*\n"
+                # 一句話核心理由
+                thesis = p.get("one_line_thesis", "")
+                if thesis:
+                    r += "_" + thesis + "_\n"
 
-                # 流動性掃蕩
-                if p.get("sweep_msg"):
-                    r += "💧 " + p.get("sweep_msg", "") + "\n"
+                # 五維度評分（散戶一眼能看懂）
+                dims = p.get("dimensions", {})
+                if dims:
+                    def bar(v, max_v=20):
+                        filled = int(v / max_v * 5)
+                        return "█" * filled + "░" * (5 - filled)
+                    r += "📊 *" + str(dims.get("total", 50)) + "/100*  趨勢" + bar(dims.get("trend", 10))
+                    r += " 動能" + bar(dims.get("momentum", 10)) + " 結構" + bar(dims.get("structure", 10))
+                    r += " 量能" + bar(dims.get("volume", 10)) + " 風險" + bar(dims.get("risk", 10)) + "\n"
 
-                # Wyckoff
-                if p.get("wyckoff_msg"):
-                    r += "🏛 " + p.get("wyckoff_msg", "") + "\n"
+                # 進場時機（最重要的行動指引）
+                timing_state = p.get("timing_state", "NOW")
+                if timing_state == "WAIT_PULLBACK":
+                    r += "⏰ *等回踩* " + str(p.get("timing_zone", p["entry"])) + "\n"
+                elif timing_state == "WAIT_BREAKOUT":
+                    r += "⏰ *等突破* " + str(p["entry"]) + "\n"
+                else:
+                    r += "✅ *現在可進場*\n"
 
-                # 動能背離
-                if p.get("div_msg"):
-                    r += "📊 " + p.get("div_msg", "") + "\n"
+                # 核心價位（一行）
+                r += "🎯 進場 `" + str(p["entry"]) + "` · 止損 `" + str(p["sl"]) + "`\n"
+                # TP（精簡）
+                tp_parts = []
+                for n in (1, 2, 3):
+                    tp_v = p.get("tp" + str(n), 0)
+                    if tp_v:
+                        tp_parts.append("TP" + str(n) + " `" + str(tp_v) + "`")
+                if tp_parts:
+                    r += "🏆 " + " · ".join(tp_parts) + "\n"
 
-                # 大資金流
-                if p.get("flow_msg"):
-                    r += "🐋 " + p.get("flow_msg", "") + "\n"
+                # 風險回報 + 倉位（一行）
+                rr = p.get("rr_ratio", p.get("rr", 0))
+                pos = p.get("position", 5)
+                win_rate = p.get("win_rate", 0)
+                # 真實勝率（如果有歷史數據）
+                real_wr = p.get("real_win_rate", None)
+                if real_wr is not None:
+                    r += "💰 風報比 *1:" + str(rr) + "* · 倉位 *" + str(pos) + "%* · 實際勝率 *" + str(real_wr) + "%*\n"
+                else:
+                    r += "💰 風報比 *1:" + str(rr) + "* · 倉位 *" + str(pos) + "%* · 預估勝率 *" + str(win_rate) + "%*\n"
 
-                # K 線形態
-                if p.get("candle_combos"):
-                    r += "🕯 " + " + ".join(p.get("candle_combos", [])) + "\n"
+                # S/A 級多顯示 1 行重要詳情；B/C 略過後續詳細
+                if tier in ("S", "A"):
+                    extras = []
+                    if p.get("sweep_msg"):
+                        extras.append("💧 " + p["sweep_msg"][:25])
+                    elif p.get("wyckoff_msg"):
+                        extras.append("🏛 " + p["wyckoff_msg"][:25])
+                    if p.get("strategy_label"):
+                        extras.append("🎯 " + p["strategy_label"][:20])
+                    if extras:
+                        r += "  ·  ".join(extras[:2]) + "\n"
 
-                # 訂單流
-                ofi_state = p.get("ofi_state", "")
-                ofi_label = {
-                    "STRONG_BUY_FLOW": "📈 強勁主動買盤",
-                    "BUY_FLOW": "📈 主動買盤偏多",
-                    "STRONG_SELL_FLOW": "📉 強勁主動賣盤",
-                    "SELL_FLOW": "📉 主動賣盤偏多",
-                }.get(ofi_state, "")
-                if ofi_label:
-                    r += ofi_label + "\n"
-
-                # 期望值
-                ev = p.get("expected_value", 0)
-                if ev > 0:
-                    r += "💰 期望值 *+" + str(ev) + "%*/筆\n"
+                # B/C 級直接跳到下一個（不顯示詳細分析鏈）
+                if tier in ("B", "C"):
+                    continue
 
                 # === 一句話總結 ===
                 r += "_" + direction_zh + " · " + p["timeframe"] + " · 預估勝率 " + str(p["win_rate"]) + "%_\n"
