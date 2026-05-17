@@ -3372,9 +3372,9 @@ class CryptoAnalyzer:
                         consecutive_loss += 1
                     else:
                         break
-            if consecutive_loss >= 3:
+            if consecutive_loss >= 5:  # v40 放寬：5 次才防守
                 return "DEFENSIVE", "連虧 " + str(consecutive_loss) + " 次，僅推 S/A 級"
-            if consecutive_win >= 5:
+            if consecutive_win >= 3:  # v40：3 連勝就積極
                 return "AGGRESSIVE", "連勝 " + str(consecutive_win) + " 次，放寬門檻"
             return "NORMAL", "正常模式"
         except Exception:
@@ -5688,23 +5688,19 @@ class CryptoAnalyzer:
                         if vol24 < 20:
                             continue
 
-                        # ⭐ v36 Pre-filter：快速排除明顯不適合的（節省 70% CPU）
-                        # 1. ADX < 14 = 完全無趨勢
+                        # ⭐ v40 Pre-filter 放寬：只擋明顯垃圾，其餘交給後續評分判斷
+                        # 1. ADX 極低 = 完全無趨勢
                         adx_v = sig1h.get("adx", 0)
-                        if adx_v < 14:
+                        if adx_v < 12:  # 放寬：14 → 12
                             continue
-                        # 2. RSI 極端但無動能配合
+                        # 2. RSI 極端 + MACD 反向（明顯衰竭）
                         rsi_v = sig1h.get("rsi", 50)
                         macd_h = sig1h.get("macd_hist", 0)
                         if sig1h["direction_en"] == "LONG":
-                            if rsi_v > 80 and macd_h <= 0:
-                                continue  # RSI 過熱但 MACD 已轉弱
-                            if rsi_v < 30:
-                                continue  # 不在多頭區
-                        else:
-                            if rsi_v < 20 and macd_h >= 0:
+                            if rsi_v > 85 and macd_h <= 0:  # 放寬：80 → 85
                                 continue
-                            if rsi_v > 70:
+                        else:
+                            if rsi_v < 15 and macd_h >= 0:  # 放寬：20 → 15
                                 continue
 
                         sig15m = self.generate_signal(df15m, fg_val, current_price)

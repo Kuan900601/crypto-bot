@@ -22,7 +22,7 @@ except Exception as _e:
     logging.warning("Chart 模組載入失敗: " + str(_e))
 
 # ⭐ 推播間隔：5 分鐘
-PUSH_INTERVAL_MIN = 1  # ⭐ v38 改為 1 分鐘掃描
+PUSH_INTERVAL_MIN = 3  # ⭐ v40 平衡為 3 分鐘
 
 # ⭐ BingX 連結產生器
 def bingx_trade_url(symbol, direction):
@@ -160,6 +160,8 @@ def main_menu():
          InlineKeyboardButton("🔍 自訂幣種", callback_data="custom")],
         [InlineKeyboardButton("💼 倉位計算", callback_data="position_calc"),
          InlineKeyboardButton("📜 推播歷史", callback_data="history")],
+        # ⭐ v40 系統狀態
+        [InlineKeyboardButton("🩺 系統狀態", callback_data="sys_status")],
     ])
 
 
@@ -187,25 +189,26 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "🌊 *黑潮策略 — AI 量化交易助理*\n"
         "━━━━━━━━━━━━━━━\n"
         "24 小時掃描 50 個幣種，找出 *高勝率交易機會*\n"
-        "1 分鐘高頻掃描，即時通知關鍵價位\n\n"
-        "*🎯 v38 — 自適應量化系統*\n"
+        "每 3 分鐘高頻掃描，即時通知關鍵價位\n\n"
+        "*🎯 v40 — 修復+保底版*\n"
         "━━━━━━━━━━━━━━━\n"
         "💎 *S 級* — 夢幻信號（稀有，正常倉）\n"
         "🥇 *A 級* — 重點推薦（半倉跟單）\n"
         "🥈 *B 級* — 一般機會（1/3 倉試水）\n"
         "🥉 *C 級* — 觀察為主（試水單）\n\n"
-        "*⭐ v38 重大升級*\n"
-        "• 1 分鐘高頻掃描\n"
-        "• 真實勝率自校準\n"
-        "• 五維度評分 (趨勢/動能/結構/量能/風險)\n"
-        "• 連虧自動防守、連勝自動積極\n"
-        "• 精簡訊息一屏看完\n\n"
+        "*⭐ v40 重大修復*\n"
+        "• 過濾放寬（不再過嚴）\n"
+        "• 掃描鎖防卡死（5 分自動重置）\n"
+        "• 6 小時無推播自動進保底模式\n"
+        "• 啟動自檢通知\n"
+        "• 系統狀態查詢按鈕\n"
+        "• 強制觸發掃描按鈕\n\n"
         "*🧠 量化分析全項*\n"
+        "• 五維度評分（趨勢/動能/結構/量能/風險）\n"
+        "• 真實勝率自校準\n"
         "• 進場時機 + 智能 TP 延伸\n"
         "• Regime + Funding 極端反轉\n"
-        "• 訂單流 + 流動性掃蕩\n"
         "• Wyckoff + 多週期共振\n"
-        "• 期望值 + 自適應門檻\n"
         "• 主動退出 + ATR 智能止損\n\n"
         "_⚠️ 加密貨幣風險極高，僅供參考_"
     )
@@ -1037,6 +1040,124 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 text += emoji + " " + tier_e + " *" + r.get("symbol", "?").replace("/USDT", "") + "* " + pct_str + "%\n"
         await q.edit_message_text(text, parse_mode="Markdown", reply_markup=back_btn())
 
+    elif d == "sys_status":
+        # ⭐ v40 系統狀態查詢
+        import time as _time
+        now_ts = _time.time()
+        last_push = _HUNTER_SCANNING.get("last_push", 0)
+        locked = _HUNTER_SCANNING.get("locked", False)
+        locked_at = _HUNTER_SCANNING.get("locked_at", 0)
+
+        text = "🩺 *系統狀態檢查*\n"
+        text += "━━━━━━━━━━━━━━━\n\n"
+
+        # 推播間隔
+        text += "*⏱ 掃描設定*\n"
+        text += "• 推播間隔: `" + str(PUSH_INTERVAL_MIN) + " 分鐘`\n"
+        text += "• 掃描幣種: `" + str(len(analyzer.SCAN_POOL)) + " 個`\n\n"
+
+        # 最後推播時間
+        text += "*📡 推播狀態*\n"
+        if last_push > 0:
+            mins_ago = int((now_ts - last_push) / 60)
+            if mins_ago < 60:
+                text += "• 上次推播: `" + str(mins_ago) + " 分鐘前`\n"
+            elif mins_ago < 1440:
+                text += "• 上次推播: `" + str(mins_ago // 60) + " 小時 " + str(mins_ago % 60) + " 分前`\n"
+            else:
+                text += "• 上次推播: `" + str(mins_ago // 1440) + " 天前` ⚠️\n"
+        else:
+            text += "• 上次推播: `從未` (剛啟動或無資料)\n"
+
+        # 掃描鎖狀態
+        if locked:
+            lock_mins = int((now_ts - locked_at) / 60)
+            text += "• 掃描鎖: 🔒 鎖定中 (" + str(lock_mins) + " 分鐘)\n"
+            if lock_mins > 5:
+                text += "  ⚠️ 鎖過久，下次掃描會自動重置\n"
+        else:
+            text += "• 掃描鎖: 🔓 空閒\n"
+        text += "\n"
+
+        # 訂閱者狀態
+        text += "*👥 訂閱狀態*\n"
+        text += "• 私訊訂閱: `" + str(len(HUNTER_WATCHERS)) + " 人`\n"
+        if BLACK_HUNTER_CHANNEL:
+            text += "• 黑潮頻道: ✅ 已連結\n"
+        else:
+            text += "• 黑潮頻道: ❌ 未連結\n"
+        text += "\n"
+
+        # 活躍信號
+        text += "*🎯 活躍信號*\n"
+        text += "• 追蹤中: `" + str(len(ACTIVE_SIGNALS)) + " 個`\n"
+        text += "• 歷史記錄: `" + str(len(SIGNAL_RESULTS)) + " 筆`\n\n"
+
+        # 保護模式
+        protection_mode, protection_reason = analyzer.auto_protection_mode(SIGNAL_RESULTS)
+        mode_emoji = {"DEFENSIVE": "🛡", "AGGRESSIVE": "🚀", "NORMAL": "⚖️"}.get(protection_mode, "")
+        text += "*🤖 當前模式*\n"
+        text += "• " + mode_emoji + " " + protection_reason + "\n\n"
+
+        # 動態門檻
+        adaptive_adj = analyzer.adaptive_threshold(SIGNAL_RESULTS[-20:] if SIGNAL_RESULTS else [])
+        dyn_score = max(45, 55 + adaptive_adj)
+        if protection_mode == "DEFENSIVE":
+            dyn_score = max(dyn_score, 65)
+        text += "*📊 當前推播門檻*\n"
+        text += "• 評分門檻: `≥ " + str(dyn_score) + "` 分\n"
+
+        # 健康評估
+        text += "\n*🏥 健康評估*\n"
+        issues = []
+        if last_push > 0 and (now_ts - last_push) / 3600 > 12:
+            issues.append("⚠️ 超過 12 小時無推播")
+        if locked and (now_ts - locked_at) / 60 > 10:
+            issues.append("⚠️ 掃描鎖卡死")
+        if len(HUNTER_WATCHERS) == 0 and not BLACK_HUNTER_CHANNEL:
+            issues.append("⚠️ 無訂閱者，不會推播")
+        if not issues:
+            text += "✅ 系統運作正常\n"
+        else:
+            for i in issues:
+                text += i + "\n"
+
+        # 強制觸發按鈕
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🚀 立即執行掃描", callback_data="force_scan")],
+            [InlineKeyboardButton("🔄 重置掃描鎖", callback_data="reset_lock")],
+            [InlineKeyboardButton("🏠 返回主選單", callback_data="home")],
+        ])
+        await q.edit_message_text(text, parse_mode="Markdown", reply_markup=kb)
+
+    elif d == "force_scan":
+        # 強制執行掃描
+        await q.answer("🚀 正在執行掃描...", show_alert=False)
+        await q.edit_message_text(
+            "🚀 *強制掃描已啟動*\n\n"
+            "結果會在約 30 秒內推送\n"
+            "請稍候...",
+            parse_mode="Markdown",
+            reply_markup=back_btn()
+        )
+        # 重置鎖
+        _HUNTER_SCANNING["locked"] = False
+        # 異步觸發
+        asyncio.create_task(auto_broadcast(ctx))
+
+    elif d == "reset_lock":
+        # 重置掃描鎖
+        _HUNTER_SCANNING["locked"] = False
+        _HUNTER_SCANNING["locked_at"] = 0
+        await q.answer("✅ 掃描鎖已重置", show_alert=True)
+        await q.edit_message_text(
+            "✅ *掃描鎖已重置*\n\n"
+            "下次掃描週期會正常執行\n"
+            "或點「立即執行掃描」立刻試試",
+            parse_mode="Markdown",
+            reply_markup=back_btn()
+        )
+
     elif d.startswith("copy_"):
         sym = d[5:].replace("_", "/")
         if sym not in ACTIVE_SIGNALS:
@@ -1341,34 +1462,54 @@ async def daily_report_check(ctx: ContextTypes.DEFAULT_TYPE):
 
 
 # ⭐ 5 分鐘智能推播（含信號追蹤、冷卻機制）
-# ⭐ v38 掃描中鎖（避免 1 分鐘掃描重疊）
-_HUNTER_SCANNING = {"locked": False}
+# ⭐ v40 掃描鎖：含 timeout 防卡死
+_HUNTER_SCANNING = {"locked": False, "locked_at": 0, "last_push": 0}
 
 async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
-    """1 分鐘自動推播黑潮船長機會（v38）"""
+    """3 分鐘自動推播黑潮船長機會（v40）"""
     if not HUNTER_WATCHERS and not BLACK_HUNTER_CHANNEL:
         return
-    # ⭐ v38 鎖：上次掃描未完成則跳過
+
+    # v40 防卡死：若鎖超過 5 分鐘，強制重置
+    import time as _time
+    now_ts = _time.time()
     if _HUNTER_SCANNING["locked"]:
-        logger.info("上一輪掃描中，跳過此輪")
-        return
+        if now_ts - _HUNTER_SCANNING["locked_at"] > 300:  # 5 分鐘
+            logger.warning("⚠️ 掃描鎖卡住超過 5 分鐘，強制重置")
+            _HUNTER_SCANNING["locked"] = False
+        else:
+            logger.info("上一輪掃描中，跳過此輪")
+            return
     _HUNTER_SCANNING["locked"] = True
-    logger.info("1分推播：訂閱戶 " + str(len(HUNTER_WATCHERS)) + "，活躍信號 " + str(len(ACTIVE_SIGNALS)))
+    _HUNTER_SCANNING["locked_at"] = now_ts
+
+    # v40 強制推播保底：超過 6 小時沒推就降低門檻
+    hours_since_push = (now_ts - _HUNTER_SCANNING["last_push"]) / 3600 if _HUNTER_SCANNING["last_push"] > 0 else 999
+    if hours_since_push > 6:
+        logger.warning("⚠️ 已 " + str(round(hours_since_push, 1)) + " 小時沒推播，啟動保底模式")
+
+    logger.info("3分推播：訂閱戶 " + str(len(HUNTER_WATCHERS)) + "，活躍信號 " + str(len(ACTIVE_SIGNALS)))
     try:
         # ⭐ 先檢查活躍信號是否觸及 TP/SL/過期（通知用戶）
         await check_active_signals(ctx)
         # ⭐ v32 自適應門檻：根據近期勝率動態調整
         adaptive_adj = analyzer.adaptive_threshold(SIGNAL_RESULTS[-20:] if SIGNAL_RESULTS else [])
-        dynamic_min_score = max(50, 60 + adaptive_adj)
+        dynamic_min_score = max(45, 55 + adaptive_adj)
 
         # ⭐ v38 自動保護模式
         protection_mode, protection_reason = analyzer.auto_protection_mode(SIGNAL_RESULTS)
         if protection_mode == "DEFENSIVE":
-            dynamic_min_score = max(dynamic_min_score, 70)  # 強制提高門檻
+            dynamic_min_score = max(dynamic_min_score, 65)
             logger.info("🛡 防守模式：" + protection_reason)
         elif protection_mode == "AGGRESSIVE":
-            dynamic_min_score = max(50, dynamic_min_score - 5)
+            dynamic_min_score = max(45, dynamic_min_score - 5)
             logger.info("🚀 積極模式：" + protection_reason)
+
+        # ⭐ v40 保底模式：超過 6 小時沒推就降到 40
+        if hours_since_push > 6:
+            dynamic_min_score = min(dynamic_min_score, 45)
+            protection_mode = "FALLBACK"
+            logger.info("🆘 保底模式：放寬門檻到 " + str(dynamic_min_score))
         logger.info("v38 門檻: " + str(dynamic_min_score) + " | 模式: " + protection_mode)
         result = await asyncio.wait_for(
             analyzer.golden_hunter(
@@ -1478,6 +1619,9 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
                 "time": datetime.now(timezone.utc).isoformat(),
                 "score": sig.get("score", 0),
             }
+        # v40 記錄最後成功推播時間
+        if loss_filtered:
+            _HUNTER_SCANNING["last_push"] = _time.time()
         # 清理過期推播記錄（>2 小時）
         cutoff_recent = datetime.now(timezone.utc) - timedelta(hours=2)  # 維持 2 小時
         expired_keys = []
@@ -2639,7 +2783,29 @@ def main():
         interval=3600,
         first=120
     )
-    logger.info("🤖 Bot v38.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘")
+    logger.info("🤖 Bot v40.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘 | 黑潮頻道: " + ("ON" if BLACK_HUNTER_CHANNEL else "OFF"))
+
+    # ⭐ v40 啟動自檢：30 秒後推送啟動通知
+    async def startup_notify(ctx):
+        targets = list(HUNTER_WATCHERS)
+        if BLACK_HUNTER_CHANNEL:
+            targets.append(BLACK_HUNTER_CHANNEL)
+        if not targets:
+            logger.info("無訂閱者，跳過啟動通知")
+            return
+        msg = ("🌊 *黑潮船長 v40 已啟動*\n"
+                "━━━━━━━━━━━━━━━\n"
+                "• 推播間隔: " + str(PUSH_INTERVAL_MIN) + " 分鐘\n"
+                "• 掃描幣種: " + str(len(analyzer.SCAN_POOL)) + " 個\n"
+                "• 系統狀態: ✅ 正常運作\n\n"
+                "_v40 修復：放寬過濾、防卡死、保底推播_\n"
+                "_點 /start → 🩺 系統狀態 可查看_")
+        for t in targets:
+            try:
+                await ctx.bot.send_message(chat_id=t, text=msg, parse_mode="Markdown")
+            except Exception as e:
+                logger.error("啟動通知失敗 " + str(t) + ": " + str(e))
+    app.job_queue.run_once(startup_notify, 30)
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
