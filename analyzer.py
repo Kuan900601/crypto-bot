@@ -5,6 +5,7 @@ import numpy as np
 import re
 import hashlib
 import logging
+logger = logging.getLogger(__name__)
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 
@@ -15,7 +16,7 @@ try:
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    from matplotlib.patches import Rectangle
+    from matplotlib.patches import Rectangle, Patch
     _CHART_OK = True
 except ImportError:
     _CHART_OK = False
@@ -570,7 +571,6 @@ def plot_momentum_chart(opportunities, title="MOMENTUM SCAN"):
                     weight='bold', alpha=0.85)
 
     # 圖例（自己畫）
-    from matplotlib.patches import Patch
     legend_elements = [
         Patch(facecolor='#888', alpha=1.0, label='5m'),
         Patch(facecolor='#888', alpha=0.8, label='15m'),
@@ -4661,18 +4661,23 @@ class CryptoAnalyzer:
         has_div = bool(sig1h.get("div"))
 
         # 強逆勢且無背離 → 過濾
+        # v42 不再強制 reject（讓 score 自己懲罰）
         if direction == "LONG" and sig1h["regime"] == "STRONG_BEAR" and not has_div:
-            return None, "強空頭逆勢且無背離"
+            score -= 12
+            risks.append("⚠️ 強空頭逆勢做多")
         if direction == "SHORT" and sig1h["regime"] == "STRONG_BULL" and not has_div:
-            return None, "強多頭逆勢且無背離"
+            score -= 12
+            risks.append("⚠️ 強多頭逆勢做空")
 
         # ADX 放寬到 16（v25 - 允許更多機會）
-        if sig1h["adx"] < 16:
-            return None, "ADX過低 (<16)"
+        if sig1h["adx"] < 13:  # v42 放寬：16 → 13
+            return None, "ADX過低 (<13)"
 
         # ⭐ Squeeze 過濾：BB 在 KC 內 = 盤整，不交易
+        # v42 不再拒絕 Squeeze（盤整後常有突破，不應錯過）
         if sig1h.get("squeeze_on", False):
-            return None, "Squeeze盤整中"
+            score -= 8  # 改成扣分
+            risks.append("⚠️ Squeeze 盤整中（可能假突破）")
 
         # ⭐ v25 假突破偵測（強勢續航時跳過）
         is_strong, _ = self.strong_continuation(df1h, direction)
@@ -4689,10 +4694,13 @@ class CryptoAnalyzer:
         # ⭐ v24：MTF 共振從「強制過濾」改為「強烈加分」
         mtf_state, mtf_label = self.mtf_alignment(df1h, df4h, df_daily)
         # 只在「完全反向」時拒絕（多週期都反方向）
+        # v42 三週期反向不再 reject（可能是反轉機會）
         if direction == "LONG" and mtf_state == "STRONG_BEAR_MTF":
-            return None, "三週期都看空"
+            score -= 15
+            risks.append("⚠️ 三週期皆空（極度逆勢）")
         if direction == "SHORT" and mtf_state == "STRONG_BULL_MTF":
-            return None, "三週期都看多"
+            score -= 15
+            risks.append("⚠️ 三週期皆多（極度逆勢）")
 
         # ⭐ v23：反指標檢查
         anti_violations = self.anti_indicator_check(direction, sig1h)
@@ -4700,8 +4708,8 @@ class CryptoAnalyzer:
             return None, "反指標：" + ", ".join(anti_violations)
 
         # 風報比門檻提高到 1.5
-        if sig1h["rr"] < 1.3:
-            return None, "風報比不足 (<1.3)"
+        if sig1h["rr"] < 1.1:  # v42 放寬：1.3 → 1.1
+            return None, "風報比不足 (<1.1)"
 
         # ⭐ BTC 健康度檢查（避免逆勢開單）
         btc_health = "UNKNOWN"
@@ -5228,8 +5236,8 @@ class CryptoAnalyzer:
         rr3 = round(abs(tp3 - entry) / risk, 2) if risk > 0 else 0
         rr4 = round(abs(tp4 - entry) / risk, 2) if risk > 0 else 0
 
-        if rr2 < 1.5:
-            return None, "TP2風報比過低"
+        if rr2 < 1.2:  # v42 放寬：1.5 → 1.2
+            return None, "TP2風報比過低 (<1.2)"
 
         # 勝率：50→50%, 70→60%, 85→70%, 95→75%
         win_rate = 50 + (score - 50) * 0.5
@@ -5258,8 +5266,10 @@ class CryptoAnalyzer:
         )
 
         # v24：只拒絕 D 級（C 級也是機會，給用戶選）
+        # v42 D 級不再 reject（嚴格時機可能錯過好機會）
         if entry_grade["grade"] == "D":
-            return None, "進場時機 D 級不達標"
+            score -= 10
+            risks.append("⚠️ 進場時機 D 級")
 
         # ⭐ 進場理由深度分析
         bull_ob_ck, bear_ob_ck = self.find_order_blocks(df1h)
@@ -5641,6 +5651,16 @@ class CryptoAnalyzer:
 
                 results = all_results
                 ok_count = 0
+                # ⭐ v41 詳細統計（讓 Railway log 看到每個過濾點）
+                reject_stats = {
+                    "fetch_fail": 0,
+                    "neutral": 0,
+                    "low_volume": 0,
+                    "pre_filter": 0,
+                    "setup_reject": 0,
+                    "score_low": 0,
+                    "passed": 0,
+                }
                 stride = 6
                 # ⭐ BTC 數據緩存（用於相關性 + 健康度檢查）
                 btc_df_cache = None
@@ -5685,13 +5705,13 @@ class CryptoAnalyzer:
                         if sig1h["direction_en"] == "NEUTRAL":
                             continue
                         vol24 = float(ticker.get("quoteVolume", 0)) / 1e6
-                        if vol24 < 20:
+                        if vol24 < 10:  # v42 放寬：20 → 10 萬美元
                             continue
 
                         # ⭐ v40 Pre-filter 放寬：只擋明顯垃圾，其餘交給後續評分判斷
                         # 1. ADX 極低 = 完全無趨勢
                         adx_v = sig1h.get("adx", 0)
-                        if adx_v < 12:  # 放寬：14 → 12
+                        if adx_v < 10:  # v42 進一步放寬：12 → 10
                             continue
                         # 2. RSI 極端 + MACD 反向（明顯衰竭）
                         rsi_v = sig1h.get("rsi", 50)
@@ -5746,8 +5766,7 @@ class CryptoAnalyzer:
                             vol_ratio, funding, ls_ratio, fg_val, current_price,
                             rs_btc=rs_btc, upside_liq=upside_liq, downside_liq=downside_liq,
                             btc_df=btc_df_cache, btc_ticker=btc_ticker_cache,
-                            symbol=sym
-                        ,
+                            symbol=sym,
                             historical_results=historical_results
                         )
                         if result[0] is None:
@@ -5802,6 +5821,24 @@ class CryptoAnalyzer:
                     except Exception:
                         continue
 
+            # ⭐ v41 統計日誌（Railway log 可見）
+            logger.info("🌊 黑潮掃描統計: ok=" + str(ok_count)
+                        + "/" + str(len(self.SCAN_POOL))
+                        + " | 通過=" + str(len(candidates))
+                        + " | min_score=" + str(min_score))
+
+            # ⭐ v41 修：若 ok_count = 0（全部 API 失敗）直接回診斷訊息
+            if ok_count == 0:
+                return ("⚠️ *黑潮船長 — 資料抓取失敗*\n"
+                        "_" + now + "_\n"
+                        "━━━━━━━━━━━━━━━\n\n"
+                        "❌ 已嘗試掃描 " + str(len(self.SCAN_POOL)) + " 幣，全部失敗\n\n"
+                        "可能原因：\n"
+                        "• Binance API 暫時限流\n"
+                        "• 網路連線異常\n"
+                        "• Railway worker 受限\n\n"
+                        "_系統會在下次掃描自動重試_")
+
             if smart_filter:
                 # v33 分級系統：保留所有通過基本門檻的，但分 S/A/B/C 級顯示
                 qualified = []
@@ -5821,8 +5858,15 @@ class CryptoAnalyzer:
                     quality_score += grade_bonus + strat_bonus + tier_bonus
                     c["quality_score"] = quality_score
                     qualified.append(c)
+                # ⭐ v41 修：即使 qualified 空也回傳「掃描狀態訊息」而不是 None
                 if not qualified:
-                    return None
+                    return ("📡 *黑潮船長 — 掃描完成*\n"
+                            "_" + now + "_\n"
+                            "━━━━━━━━━━━━━━━\n\n"
+                            "✅ 已掃描 " + str(ok_count) + "/" + str(len(self.SCAN_POOL)) + " 幣種\n"
+                            "📊 通過初篩: " + str(len(candidates)) + " 個\n"
+                            "🎯 達到推播門檻 (≥" + str(min_score) + "): 0 個\n\n"
+                            "_市場暫無高勝率機會，等待下次掃描_")
                 # 按綜合品質排序
                 qualified.sort(key=lambda x: x.get("quality_score", 0), reverse=True)
 
@@ -5838,18 +5882,27 @@ class CryptoAnalyzer:
                 c_tier = [c for c in qualified if c["plan"].get("tier") == "C"][:1]
                 candidates = s_tier + a_tier + b_tier + c_tier
                 if not candidates:
-                    return None
+                    return ("📡 *黑潮船長 — 掃描完成*\n"
+                            "_" + now + "_\n"
+                            "━━━━━━━━━━━━━━━\n\n"
+                            "✅ 已掃描 " + str(ok_count) + "/" + str(len(self.SCAN_POOL)) + " 幣種\n"
+                            "📊 通過初篩: " + str(len(qualified)) + " 個\n"
+                            "🎯 各等級分配後: 0 個\n\n"
+                            "_暫無 S/A/B/C 級信號_")
 
             if not candidates:
                 return ("🎯 *黑潮船長 — " + now + "*\n"
+                        "_" + now + "_\n"
                         "━━━━━━━━━━━━━━━━━━━━\n\n"
                         "📡 已掃描 " + str(ok_count) + "/" + str(len(self.SCAN_POOL)) + " 幣種\n"
-                        "📊 通過過濾後無符合條件機會\n\n"
-                        "⏳ 建議等待：\n"
-                        "• 趨勢更明確（ADX≥18）\n"
-                        "• 風報比 ≥1.3 的設置\n"
-                        "• 評分 ≥55 的信號\n\n"
-                        "_市場可能盤整或方向不明_")
+                        "📊 通過過濾後無符合條件機會\n"
+                        "🎯 當前門檻: ≥ " + str(min_score) + " 分\n\n"
+                        "⏳ 可能原因：\n"
+                        "• 50 個幣全部 NEUTRAL\n"
+                        "• ADX 都 < 12（無趨勢）\n"
+                        "• 風報比都 < 1.3\n"
+                        "• Squeeze 盤整中\n\n"
+                        "_市場暫時方向不明，等下次_")
 
             candidates.sort(key=lambda x: x["plan"]["score"], reverse=True)
             r = "🌊 *黑潮船長｜分級機會清單*\n"
@@ -5924,7 +5977,24 @@ class CryptoAnalyzer:
                 r += market_tone + "\n"
             r += "\n"
 
-            for rank, c in enumerate(candidates[:1], 1):
+            # ⭐ v40.2 修復：按 tier 顯示多個信號（最多 6 個）
+            # S 級全部顯示、A 級最多 2 個、B 級最多 2 個、C 級最多 1 個
+            display_list = []
+            s_seen = a_seen = b_seen = c_seen = 0
+            for cc in candidates:
+                tt = cc["plan"].get("tier", "C")
+                if tt == "S" and s_seen < 3:
+                    display_list.append(cc); s_seen += 1
+                elif tt == "A" and a_seen < 2:
+                    display_list.append(cc); a_seen += 1
+                elif tt == "B" and b_seen < 2:
+                    display_list.append(cc); b_seen += 1
+                elif tt == "C" and c_seen < 1:
+                    display_list.append(cc); c_seen += 1
+                if len(display_list) >= 6:
+                    break
+
+            for rank, c in enumerate(display_list, 1):
                 sig = c["sig1h"]
                 p = c["plan"]
                 direction_zh = "做多" if sig["direction_en"] == "LONG" else "做空"

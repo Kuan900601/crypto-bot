@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 import os
 import json
 import re
@@ -21,8 +22,11 @@ except Exception as _e:
     CHART_ENABLED = False
     logging.warning("Chart 模組載入失敗: " + str(_e))
 
-# ⭐ 推播間隔：5 分鐘
+# ⭐ v40 推播間隔：3 分鐘（平衡掃描頻率與 API 配額）
 PUSH_INTERVAL_MIN = 3  # ⭐ v40 平衡為 3 分鐘
+
+# ⭐ v40 掃描鎖：含 timeout 防卡死（全域，需在 callback 用到前定義）
+_HUNTER_SCANNING = {"locked": False, "locked_at": 0, "last_push": 0}
 
 # ⭐ BingX 連結產生器
 def bingx_trade_url(symbol, direction):
@@ -123,7 +127,7 @@ def save_data():
                 "signals": SIGNAL_TRACKER,
                 "capital": {str(k): v for k, v in USER_CAPITAL.items()},
                 "active_signals": ACTIVE_SIGNALS,
-                "signal_results": SIGNAL_RESULTS[-50:],
+                "signal_results": SIGNAL_RESULTS[-200:],  # ⭐ v40.3 與 SIGNAL_RESULTS 上限一致
                 "symbol_losses": SYMBOL_LOSSES,
                 "recent_pushes": RECENT_PUSHES
             }, f)
@@ -190,19 +194,21 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "━━━━━━━━━━━━━━━\n"
         "24 小時掃描 50 個幣種，找出 *高勝率交易機會*\n"
         "每 3 分鐘高頻掃描，即時通知關鍵價位\n\n"
-        "*🎯 v40 — 修復+保底版*\n"
+        "*🎯 v42 — 大幅放寬過濾*\n"
         "━━━━━━━━━━━━━━━\n"
         "💎 *S 級* — 夢幻信號（稀有，正常倉）\n"
         "🥇 *A 級* — 重點推薦（半倉跟單）\n"
         "🥈 *B 級* — 一般機會（1/3 倉試水）\n"
         "🥉 *C 級* — 觀察為主（試水單）\n\n"
-        "*⭐ v40 重大修復*\n"
-        "• 過濾放寬（不再過嚴）\n"
-        "• 掃描鎖防卡死（5 分自動重置）\n"
-        "• 6 小時無推播自動進保底模式\n"
-        "• 啟動自檢通知\n"
-        "• 系統狀態查詢按鈕\n"
-        "• 強制觸發掃描按鈕\n\n"
+        "*⭐ v42 大幅放寬過濾*\n"
+        "• ADX 過濾：16 → 13（讓震盪市也有信號）\n"
+        "• RR 風報比：1.3 → 1.1\n"
+        "• Squeeze 盤整不再拒絕（改扣分）\n"
+        "• 三週期反向不再拒絕（可能反轉機會）\n"
+        "• 進場時機 D 不再拒絕\n"
+        "• 推播門檻：55 → 50（下限 45 → 40）\n"
+        "• 手動掃描門檻：45 → 35\n"
+        "• 永不靜默（任何狀況都回訊息）\n\n"
         "*🧠 量化分析全項*\n"
         "• 五維度評分（趨勢/動能/結構/量能/風險）\n"
         "• 真實勝率自校準\n"
@@ -442,8 +448,25 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 logger.error("分析圖失敗 " + sym_full + ": " + str(e))
 
     elif d == "hunter":
-        await q.edit_message_text("🎯 專業黑潮船長掃描中...\n(掃描 30 幣種約 20-30 秒)")
-        result = await safe_run(analyzer.golden_hunter(), timeout=90)
+        await q.edit_message_text("🎯 專業黑潮船長掃描中...\n(掃描 50 幣種約 30-60 秒)")
+        # v41：手動掃描也帶 historical_results，並用 smart_filter=False 確保有訊息回傳
+        result = await safe_run(
+            analyzer.golden_hunter(
+                smart_filter=False,  # ⭐ 手動掃描用「寬鬆模式」確保有訊息
+                min_score=35,        # v42 手動超低門檻
+                historical_results=SIGNAL_RESULTS
+            ),
+            timeout=120
+        )
+        if result is None:
+            result = ("📡 *手動掃描異常*\n"
+                      "━━━━━━━━━━━━━━━\n"
+                      "本次掃描沒有回傳結果\n\n"
+                      "可能原因：\n"
+                      "• API 連線問題\n"
+                      "• 50 個幣全部抓取失敗\n"
+                      "• 內部異常\n\n"
+                      "建議：稍候再試，或檢查 Railway log")
         await q.edit_message_text(result, parse_mode="Markdown", reply_markup=back_btn())
         # 為 TOP 3 信號附 K 線圖
         if CHART_ENABLED and result and "📡" in result:
@@ -828,6 +851,56 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 reply_markup=back_btn()
             )
 
+    elif d == "multi_tf":
+        # ⭐ v40 補上未實作的「多週期分析」
+        await q.answer("📊 分析中...", show_alert=False)
+        try:
+            async with aiohttp.ClientSession() as session:
+                df15m, df1h, df4h, ticker = await asyncio.gather(
+                    analyzer.fetch_ohlcv(session, "BTC/USDT", "15m", 100),
+                    analyzer.fetch_ohlcv(session, "BTC/USDT", "1h", 200),
+                    analyzer.fetch_ohlcv(session, "BTC/USDT", "4h", 150),
+                    analyzer.fetch_ticker(session, "BTC/USDT"),
+                    return_exceptions=True,
+                )
+            if isinstance(df1h, Exception) or df1h is None:
+                await q.edit_message_text("❌ 資料抓取失敗，請稍後再試",
+                                            parse_mode="Markdown", reply_markup=back_btn())
+                return
+
+            sig15m = analyzer.generate_signal(df15m, 50) if not isinstance(df15m, Exception) else None
+            sig1h = analyzer.generate_signal(df1h, 50)
+            sig4h = analyzer.generate_signal(df4h, 50) if not isinstance(df4h, Exception) else None
+            cur = float(ticker.get("lastPrice", 0)) if not isinstance(ticker, Exception) else float(df1h["close"].iloc[-1])
+
+            text = "📊 *BTC 多週期分析*\n"
+            text += "━━━━━━━━━━━━━━━\n"
+            text += "💰 現價 `" + str(round(cur, 2)) + "`\n\n"
+
+            # MTF 共振
+            if sig15m and sig4h:
+                mtf_state, mtf_label, _ = analyzer.mtf_resonance_grade(sig15m, sig1h, sig4h)
+                text += "🎯 *共振狀態*\n" + mtf_label + "\n\n"
+
+            # 各週期信號
+            for label, sig in [("15分鐘", sig15m), ("1小時", sig1h), ("4小時", sig4h)]:
+                if sig:
+                    dir_zh = {"LONG": "📈 多頭", "SHORT": "📉 空頭", "NEUTRAL": "➖ 中性"}.get(sig.get("direction_en", "NEUTRAL"), "➖")
+                    text += "*" + label + "*: " + dir_zh + "\n"
+                    text += "  RSI `" + str(round(sig.get("rsi", 50), 1)) + "` · ADX `" + str(round(sig.get("adx", 0), 1)) + "`\n"
+                    text += "  趨勢: " + sig.get("regime", "?") + "\n"
+            text += "\n"
+
+            # 市場 regime
+            regime_state, regime_label, _ = analyzer.market_regime_global(None, df1h)
+            text += "🌐 *整體 regime*\n" + regime_label + "\n"
+
+            await q.edit_message_text(text, parse_mode="Markdown", reply_markup=back_btn())
+        except Exception as e:
+            logger.error("multi_tf 失敗: " + str(e))
+            await q.edit_message_text("❌ 分析失敗：" + str(e)[:60],
+                                        parse_mode="Markdown", reply_markup=back_btn())
+
     elif d == "momentum":
         await q.edit_message_text("⚡ 即時動能掃描中...\n(尋找 5-15 分鐘級爆發機會)")
         result = await safe_run(analyzer.momentum_scan(), timeout=60)
@@ -855,20 +928,37 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                             except Exception:
                                 continue
                     if coin_data:
-                        buf = plot_multi_coin_chart(coin_data, title="Momentum Breakouts (5m)")
-                        if buf:
-                            await ctx.bot.send_photo(chat_id=chat_id, photo=buf,
-                                                       caption="⚡ *即時動能 5m 走勢*",
-                                                       parse_mode="Markdown")
-                            if TG_CHANNEL_ID:
-                                try:
-                                    buf2 = plot_multi_coin_chart(coin_data, title="Momentum Breakouts (5m)")
-                                    if buf2:
-                                        await ctx.bot.send_photo(chat_id=TG_CHANNEL_ID, photo=buf2,
-                                                                  caption="⚡ *即時動能 5m 走勢*",
-                                                                  parse_mode="Markdown")
-                                except Exception:
-                                    pass
+                        # ⭐ v40.3 修：用 plot_momentum_chart 替代不存在的 plot_multi_coin_chart
+                        # 轉換資料格式：[{symbol, df, chg}] → [{symbol, chg_5m, chg_15m, chg_30m}]
+                        opps = []
+                        for cd in coin_data:
+                            sym = cd["symbol"]
+                            df_c = cd["df"]
+                            if df_c is None or len(df_c) < 10:
+                                continue
+                            chg_5m = cd.get("chg", 0)
+                            try:
+                                chg_15m = (float(df_c["close"].iloc[-1]) - float(df_c["close"].iloc[-3])) / float(df_c["close"].iloc[-3]) * 100
+                                chg_30m = (float(df_c["close"].iloc[-1]) - float(df_c["close"].iloc[-6])) / float(df_c["close"].iloc[-6]) * 100
+                            except Exception:
+                                chg_15m = chg_5m
+                                chg_30m = chg_5m
+                            opps.append({"symbol": sym, "chg_5m": chg_5m, "chg_15m": chg_15m, "chg_30m": chg_30m})
+                        if opps:
+                            buf = plot_momentum_chart(opps, title="Momentum Breakouts (5m/15m/30m)")
+                            if buf:
+                                await ctx.bot.send_photo(chat_id=chat_id, photo=buf,
+                                                          caption="⚡ *即時動能走勢*",
+                                                          parse_mode="Markdown")
+                                if TG_CHANNEL_ID:
+                                    try:
+                                        buf2 = plot_momentum_chart(opps, title="Momentum Breakouts (5m/15m/30m)")
+                                        if buf2:
+                                            await ctx.bot.send_photo(chat_id=TG_CHANNEL_ID, photo=buf2,
+                                                                      caption="⚡ *即時動能走勢*",
+                                                                      parse_mode="Markdown")
+                                    except Exception:
+                                        pass
             except Exception as e:
                 logger.error("動能附圖失敗: " + str(e))
         # 推到頻道
@@ -1042,8 +1132,7 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     elif d == "sys_status":
         # ⭐ v40 系統狀態查詢
-        import time as _time
-        now_ts = _time.time()
+        now_ts = time.time()
         last_push = _HUNTER_SCANNING.get("last_push", 0)
         locked = _HUNTER_SCANNING.get("locked", False)
         locked_at = _HUNTER_SCANNING.get("locked_at", 0)
@@ -1462,17 +1551,11 @@ async def daily_report_check(ctx: ContextTypes.DEFAULT_TYPE):
 
 
 # ⭐ 5 分鐘智能推播（含信號追蹤、冷卻機制）
-# ⭐ v40 掃描鎖：含 timeout 防卡死
-_HUNTER_SCANNING = {"locked": False, "locked_at": 0, "last_push": 0}
-
 async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
     """3 分鐘自動推播黑潮船長機會（v40）"""
-    if not HUNTER_WATCHERS and not BLACK_HUNTER_CHANNEL:
-        return
-
-    # v40 防卡死：若鎖超過 5 分鐘，強制重置
-    import time as _time
-    now_ts = _time.time()
+    # ⭐ v40.3 先檢查鎖卡死，再檢查訂閱者
+    # 避免「無訂閱者 + 鎖卡死」場景永久卡死
+    now_ts = time.time()
     if _HUNTER_SCANNING["locked"]:
         if now_ts - _HUNTER_SCANNING["locked_at"] > 300:  # 5 分鐘
             logger.warning("⚠️ 掃描鎖卡住超過 5 分鐘，強制重置")
@@ -1480,6 +1563,10 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
         else:
             logger.info("上一輪掃描中，跳過此輪")
             return
+
+    if not HUNTER_WATCHERS and not BLACK_HUNTER_CHANNEL:
+        return
+
     _HUNTER_SCANNING["locked"] = True
     _HUNTER_SCANNING["locked_at"] = now_ts
 
@@ -1494,12 +1581,12 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
         await check_active_signals(ctx)
         # ⭐ v32 自適應門檻：根據近期勝率動態調整
         adaptive_adj = analyzer.adaptive_threshold(SIGNAL_RESULTS[-20:] if SIGNAL_RESULTS else [])
-        dynamic_min_score = max(45, 55 + adaptive_adj)
+        dynamic_min_score = max(40, 50 + adaptive_adj)  # v42 再放寬
 
         # ⭐ v38 自動保護模式
         protection_mode, protection_reason = analyzer.auto_protection_mode(SIGNAL_RESULTS)
         if protection_mode == "DEFENSIVE":
-            dynamic_min_score = max(dynamic_min_score, 65)
+            dynamic_min_score = max(dynamic_min_score, 60)  # v42 放寬 DEFENSIVE
             logger.info("🛡 防守模式：" + protection_reason)
         elif protection_mode == "AGGRESSIVE":
             dynamic_min_score = max(45, dynamic_min_score - 5)
@@ -1507,10 +1594,10 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
 
         # ⭐ v40 保底模式：超過 6 小時沒推就降到 40
         if hours_since_push > 6:
-            dynamic_min_score = min(dynamic_min_score, 45)
+            dynamic_min_score = min(dynamic_min_score, 35)  # v42 保底更低
             protection_mode = "FALLBACK"
             logger.info("🆘 保底模式：放寬門檻到 " + str(dynamic_min_score))
-        logger.info("v38 門檻: " + str(dynamic_min_score) + " | 模式: " + protection_mode)
+        logger.info("v40 門檻: " + str(dynamic_min_score) + " | 模式: " + protection_mode)
         result = await asyncio.wait_for(
             analyzer.golden_hunter(
                 smart_filter=True,
@@ -1520,7 +1607,30 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
             timeout=90
         )
         if result is None:
-            logger.info("5分推播：無符合動態門檻的信號，跳過")
+            # ⭐ v41：即使 golden_hunter 回 None 也要通知保底（避免完全靜默）
+            now_str = datetime.now(timezone.utc).strftime("%H:%M UTC")
+            diag_msg = (
+                "📡 *黑潮船長 — " + now_str + "*\n"
+                "━━━━━━━━━━━━━━━\n"
+                "本輪掃描異常（無回傳）\n"
+                "可能原因：\n"
+                "• API 暫時限流\n"
+                "• 網路斷線\n"
+                "• 50 個幣全部抓取失敗\n\n"
+                "_系統會在下次掃描自動重試_"
+            )
+            # 只在 6 小時保底時主動推診斷（避免每 3 分鐘狂推）
+            if hours_since_push > 6:
+                targets = list(HUNTER_WATCHERS)
+                if BLACK_HUNTER_CHANNEL:
+                    targets.append(BLACK_HUNTER_CHANNEL)
+                for t in targets:
+                    try:
+                        await ctx.bot.send_message(chat_id=t, text=diag_msg, parse_mode="Markdown")
+                    except Exception:
+                        pass
+                _HUNTER_SCANNING["last_push"] = time.time()  # 重置計時
+            logger.warning("3分推播：golden_hunter 回傳 None")
             return
         # ⭐ 從結果解析信號詳情並進行冷卻檢查
         import re as _re
@@ -1588,7 +1698,7 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
             logger.info("冷卻過濾: " + " | ".join(skipped_reasons))
 
         if not filtered_signals:
-            logger.info("5分推播：所有信號被冷卻過濾，跳過")
+            logger.info("3分推播：所有信號被冷卻過濾，跳過")
             return
 
         # ⭐ 連虧暫停過濾
@@ -1597,14 +1707,20 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
         for sig in filtered_signals:
             sym = sig.get("symbol", "")
             losses = SYMBOL_LOSSES.get(sym, [])
-            recent_losses = [t for t in losses if datetime.fromisoformat(t) > cutoff]
+            # ⭐ v40.3 加保護避免壞資料
+            def _check_loss_time(t):
+                try:
+                    return datetime.fromisoformat(t) > cutoff
+                except Exception:
+                    return False
+            recent_losses = [t for t in losses if _check_loss_time(t)]
             if len(recent_losses) >= 2:
                 skipped_reasons.append(sym + " 連虧暫停中(24h)")
                 continue
             loss_filtered.append(sig)
 
         if not loss_filtered:
-            logger.info("5分推播：全部被連虧過濾，跳過")
+            logger.info("3分推播：全部被連虧過濾，跳過")
             return
 
         # 註冊新信號到追蹤系統
@@ -1621,7 +1737,7 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
             }
         # v40 記錄最後成功推播時間
         if loss_filtered:
-            _HUNTER_SCANNING["last_push"] = _time.time()
+            _HUNTER_SCANNING["last_push"] = time.time()
         # 清理過期推播記錄（>2 小時）
         cutoff_recent = datetime.now(timezone.utc) - timedelta(hours=2)  # 維持 2 小時
         expired_keys = []
@@ -1634,7 +1750,7 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
         for k in expired_keys:
             del RECENT_PUSHES[k]
 
-        logger.info("5分推播：新信號 " + str(len(loss_filtered)) + " 個 / 過濾 " + str(len(skipped_reasons)) + " 個")
+        logger.info("3分推播：新信號 " + str(len(loss_filtered)) + " 個 / 過濾 " + str(len(skipped_reasons)) + " 個")
         # 重新組合 result 文字（只保留沒被過濾的）
         if len(loss_filtered) < len(filtered_signals):
             kept_symbols = set(s["symbol"] for s in loss_filtered)
@@ -1790,86 +1906,150 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
 import hashlib
 
 def parse_hunter_signals(result):
-    """從黑潮船長推播文本解析信號詳情"""
+    """從黑潮船長推播文本解析信號詳情（v40.2 配合 v38 實際輸出格式）
+
+    實際格式：
+    🥇 *BTC 做多 🟢*
+    ═══════════════
+    💎 *S 級 — 夢幻信號*
+    ═══════════════
+    _💎 S 級稀有信號  ·  ..._
+    📊 *82/100*  趨勢█████ ...
+    ⏰ *等回踩* 81500
+    🎯 進場 `82500` · 止損 `81000`
+    🏆 TP1 `83500` · TP2 `84500` · TP3 `85500`
+    💰 風報比 *1:2.5* · 倉位 *10%* · 預估勝率 *68%*
+    """
     signals = []
-    parts = re.split(r"🥇|🥈|🥉", result)
-    for i, part in enumerate(parts[1:], 1):
+    # 用標題行（🥇 🥈 🥉 + symbol + 做多/做空）做切割
+    # 每個信號從 "🥇 *XXX 做多" 或 "🥈 *XXX 做多" 開始
+    pattern = re.compile(
+        r"(🥇|🥈|🥉)\s*\*([A-Z0-9]+)\s+(做多|做空)\s*[🟢🔴]?\*"
+    )
+
+    # 找所有信號開頭位置
+    matches = list(pattern.finditer(result))
+    if not matches:
+        return signals
+
+    for i, m in enumerate(matches):
         try:
-            sym_match = re.search(r"\*([A-Z0-9]+)\s*(做多|做空)", part)
-            if not sym_match:
-                sym_match = re.search(r"\*([A-Z0-9]+/USDT)\*", part)
-                if not sym_match:
-                    continue
-                sym_raw = sym_match.group(1)
-            else:
-                sym_raw = sym_match.group(1)
-            if "/USDT" not in sym_raw:
-                sym = sym_raw + "/USDT"
-            else:
-                sym = sym_raw
-            # 方向
-            dir_match = re.search(r"(做多|做空)", part)
-            if not dir_match:
-                continue
-            direction = "LONG" if dir_match.group(1) == "做多" else "SHORT"
-            # 評分
-            score_match = re.search(r"信心評分 `(\d+\.?\d*)/100`", part)
-            if not score_match:
-                score_match = re.search(r"信心 `(\d+\.?\d*)/100`", part)
-            score = float(score_match.group(1)) if score_match else 0
-            # 進場價
-            entry_match = re.search(r"進場.{0,5}`([\d.]+)`", part)
-            entry = float(entry_match.group(1)) if entry_match else 0
-            # 止盈 1-4
-            tp1_match = re.search(r"止盈1?\s*`([\d.]+)`|①\s*`([\d.]+)`", part)
-            tp2_match = re.search(r"止盈2\s*`([\d.]+)`|②\s*`([\d.]+)`", part)
-            tp3_match = re.search(r"止盈3\s*`([\d.]+)`|③\s*`([\d.]+)`", part)
-            tp4_match = re.search(r"止盈4\s*`([\d.]+)`|④\s*`([\d.]+)`", part)
-            sl_match = re.search(r"止損.{0,5}`([\d.]+)`", part)
-            # 持有時間
-            tf_match = re.search(r"持有時間 \*([^*]+)\*|\*?(短線|中線)", part)
-            timeframe = tf_match.group(1).strip() if (tf_match and tf_match.group(1)) else "短線"
-            # 進場品質
-            grade_match = re.search(r"([SABCD])\s*級", part)
-            entry_grade = grade_match.group(1) if grade_match else "C"
-            # 訂單類型
-            order_match = re.search(r"(市價單|限價單)", part)
-            order_type = "MARKET" if (order_match and order_match.group(1) == "市價單") else "LIMIT"
-            # ⭐ v33 解析 tier 等級
-            tier_match = re.search(r"(💎 S 級|🥇 A 級|🥈 B 級|🥉 C 級)", part)
-            if tier_match:
-                tier_text = tier_match.group(1)
-                if "S" in tier_text: tier = "S"
-                elif "A" in tier_text: tier = "A"
-                elif "B" in tier_text: tier = "B"
-                else: tier = "C"
-            else:
+            # 取這個信號的範圍（到下一個信號開頭，或文末）
+            start = m.start()
+            end = matches[i+1].start() if i+1 < len(matches) else len(result)
+            block = result[start:end]
+
+            # 1. symbol + direction
+            sym_raw = m.group(2)
+            sym = sym_raw + "/USDT"
+            direction = "LONG" if m.group(3) == "做多" else "SHORT"
+
+            # 2. tier
+            if "💎" in block and "S 級" in block:
+                tier = "S"
+            elif "🥇" in block and "A 級" in block:
+                tier = "A"
+            elif "🥈" in block and "B 級" in block:
                 tier = "B"
-            if not (entry and tp1_match and sl_match):
+            elif "🥉" in block and "C 級" in block:
+                tier = "C"
+            else:
+                tier = "B"  # 預設
+
+            # 3. score (五維度總分)
+            score_match = re.search(r"📊\s*\*?(\d+)/100\*?", block)
+            score = float(score_match.group(1)) if score_match else 50
+
+            # 4. entry + sl
+            entry_match = re.search(r"進場\s*`([\d.]+)`", block)
+            sl_match = re.search(r"止損\s*`([\d.]+)`", block)
+            if not entry_match or not sl_match:
                 continue
-            def _grp(m):
-                return float(m.group(1) or m.group(2))
+            entry = float(entry_match.group(1))
+            sl = float(sl_match.group(1))
+
+            # 5. TP1-4
+            tp_matches = re.findall(r"TP(\d)\s*`([\d.]+)`", block)
+            tps = {1: 0, 2: 0, 3: 0, 4: 0}
+            for num, val in tp_matches:
+                tps[int(num)] = float(val)
+
+            if tps[1] == 0:
+                # 嘗試另一種格式 ① `xxx`
+                alt = re.findall(r"[①②③④]\s*`([\d.]+)`", block)
+                for idx, val in enumerate(alt[:4]):
+                    tps[idx+1] = float(val)
+
+            if tps[1] == 0:
+                continue
+
+            # 如果沒有 tp4，用 tp3 推算
+            if tps[4] == 0 and tps[3] > 0:
+                tps[4] = tps[3] * (1.02 if direction == "LONG" else 0.98)
+
+            # 6. 倉位
+            pos_match = re.search(r"倉位\s*\*?(\d+)%", block)
+            position = int(pos_match.group(1)) if pos_match else 5
+
+            # 7. 勝率
+            wr_match = re.search(r"(?:實際|預估)勝率\s*\*?(\d+(?:\.\d+)?)%", block)
+            win_rate = float(wr_match.group(1)) if wr_match else 50
+
+            # 8. 風報比
+            rr_match = re.search(r"風報比\s*\*?1:([\d.]+)", block)
+            rr = float(rr_match.group(1)) if rr_match else 1.0
+
+            # 9. 進場時機
+            if "等回踩" in block:
+                timing = "WAIT_PULLBACK"
+            elif "等突破" in block:
+                timing = "WAIT_BREAKOUT"
+            else:
+                timing = "NOW"
+
             signals.append({
-                "symbol": sym, "direction": direction, "score": score,
+                "symbol": sym,
+                "direction": direction,
+                "score": score,
                 "entry": entry,
-                "tp1": _grp(tp1_match),
-                "tp2": _grp(tp2_match) if tp2_match else 0,
-                "tp3": _grp(tp3_match) if tp3_match else 0,
-                "tp4": _grp(tp4_match) if tp4_match else 0,
-                "sl": float(sl_match.group(1)),
-                "timeframe": timeframe,
-                "entry_grade": entry_grade,
-                "order_type": order_type,
+                "sl": sl,
+                "tp1": tps[1],
+                "tp2": tps[2],
+                "tp3": tps[3],
+                "tp4": tps[4],
                 "tier": tier,
+                "entry_grade": tier,
+                "position": position,
+                "win_rate": win_rate,
+                "rr_ratio": rr,
+                "timing_state": timing,
+                "timeframe": "中線" if tier in ("S", "A") else "短線",
+                "order_type": "LIMIT" if timing == "WAIT_PULLBACK" else "MARKET",
             })
         except Exception as e:
             logger.error("解析信號失敗: " + str(e))
     return signals
 
-
 def register_signal(sig, watchers):
-    """註冊新信號到追蹤系統"""
+    """註冊新信號到追蹤系統（v40.3 修復 watchers 合併 + 同方向更新邏輯）"""
     sym = sig["symbol"]
+    new_direction = sig["direction"]
+
+    # ⭐ v40.3 修復：若已存在同 symbol 信號
+    existing = ACTIVE_SIGNALS.get(sym)
+    if existing:
+        # 同方向 → 合併 watchers，保留原進場資訊（避免覆蓋已追蹤的）
+        if existing.get("direction") == new_direction:
+            old_watchers = set(existing.get("watchers", []))
+            old_watchers.update(watchers)
+            existing["watchers"] = list(old_watchers)
+            save_data()
+            logger.info("更新信號 watchers: " + sym + " " + new_direction + " 訂閱數 " + str(len(old_watchers)))
+            return
+        # 反向 → 應該由 reversal_check 處理，這裡不覆蓋
+        logger.warning("拒絕反向覆蓋: " + sym + " 已有 " + existing.get("direction", "?") + " 信號")
+        return
+
     # 過期時間
     if "中線" in sig.get("timeframe", ""):
         expire_hours = 72
@@ -1882,7 +2062,7 @@ def register_signal(sig, watchers):
         "sl": sig["sl"],
         "tp1": sig["tp1"], "tp2": sig.get("tp2", 0),
         "tp3": sig.get("tp3", 0), "tp4": sig.get("tp4", 0),
-        "watchers": list(watchers),
+        "watchers": list(set(watchers)),  # 去重
         "tp_hit": [],
         "status": "ACTIVE",
         "created": now.isoformat(),
@@ -1894,7 +2074,7 @@ def register_signal(sig, watchers):
         "tier": sig.get("tier", "B"),
     }
     save_data()
-    logger.info("註冊信號: " + sym + " " + sig["direction"] + " 評分 " + str(sig.get("score")) + " 等級 " + str(sig.get("entry_grade", "C")))
+    logger.info("註冊信號: " + sym + " " + sig["direction"] + " 評分 " + str(sig.get("score")) + " 等級 " + str(sig.get("entry_grade", "C")) + " 訂閱 " + str(len(watchers)))
 
 
 async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None):
@@ -1957,8 +2137,13 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
             SYMBOL_LOSSES[symbol] = []
         SYMBOL_LOSSES[symbol].append(datetime.now(timezone.utc).isoformat())
         cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
-        SYMBOL_LOSSES[symbol] = [t for t in SYMBOL_LOSSES[symbol]
-                                  if datetime.fromisoformat(t) > cutoff]
+        # ⭐ v40.3 加保護：避免單一壞資料炸掉整個 SYMBOL_LOSSES
+        def _safe_parse(t):
+            try:
+                return datetime.fromisoformat(t) > cutoff
+            except Exception:
+                return False
+        SYMBOL_LOSSES[symbol] = [t for t in SYMBOL_LOSSES[symbol] if _safe_parse(t)]
 
     # v29 通知目標：訂閱者 + 黑潮船長專屬頻道
     notify_targets = list(sig.get("watchers", []))
@@ -2361,7 +2546,7 @@ async def check_near_entry(ctx):
 LAST_REVERSAL_ALERT = {}
 
 async def check_signal_reversal(ctx):
-    """檢查活躍信號是否出現即時反向訊號"""
+    """檢查活躍信號是否出現即時反向信號"""
     if not ACTIVE_SIGNALS:
         return
     try:
@@ -2398,7 +2583,7 @@ async def check_signal_reversal(ctx):
                         msg += direction_zh + " 倉位現況：\n"
                         msg += "進場 `" + str(entry) + "` → 現價 `" + str(current) + "`\n"
                         msg += "目前 *" + ("+" if change_pct >= 0 else "") + str(round(change_pct, 2)) + "%*\n\n"
-                        msg += "📌 偵測訊號：" + reasons + "\n\n"
+                        msg += "📌 偵測信號：" + reasons + "\n\n"
                         msg += "📌 建議：\n"
                         if change_pct > 0:
                             msg += "  • 有浮盈 → 立即移止損鎖利\n"
@@ -2472,7 +2657,7 @@ def main():
         interval=180,
         first=90
     )
-    # ⭐ 每 5 分鐘檢查進場後反向訊號
+    # ⭐ 每 5 分鐘檢查進場後反向信號
     async def reversal_checker(ctx):
         await check_signal_reversal(ctx)
     app.job_queue.run_repeating(
@@ -2783,7 +2968,7 @@ def main():
         interval=3600,
         first=120
     )
-    logger.info("🤖 Bot v40.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘 | 黑潮頻道: " + ("ON" if BLACK_HUNTER_CHANNEL else "OFF"))
+    logger.info("🤖 Bot v42.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘 | 黑潮頻道: " + ("ON" if BLACK_HUNTER_CHANNEL else "OFF"))
 
     # ⭐ v40 啟動自檢：30 秒後推送啟動通知
     async def startup_notify(ctx):
