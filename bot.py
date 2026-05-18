@@ -194,21 +194,30 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "━━━━━━━━━━━━━━━\n"
         "24 小時掃描 50 個幣種，找出 *高勝率交易機會*\n"
         "每 3 分鐘高頻掃描，即時通知關鍵價位\n\n"
-        "*🎯 v42 — 大幅放寬過濾*\n"
+        "*🎯 v46 — 階梯降級 + 保證每日有信號*\n"
         "━━━━━━━━━━━━━━━\n"
         "💎 *S 級* — 夢幻信號（稀有，正常倉）\n"
         "🥇 *A 級* — 重點推薦（半倉跟單）\n"
         "🥈 *B 級* — 一般機會（1/3 倉試水）\n"
         "🥉 *C 級* — 觀察為主（試水單）\n\n"
-        "*⭐ v42 大幅放寬過濾*\n"
-        "• ADX 過濾：16 → 13（讓震盪市也有信號）\n"
-        "• RR 風報比：1.3 → 1.1\n"
-        "• Squeeze 盤整不再拒絕（改扣分）\n"
-        "• 三週期反向不再拒絕（可能反轉機會）\n"
-        "• 進場時機 D 不再拒絕\n"
-        "• 推播門檻：55 → 50（下限 45 → 40）\n"
-        "• 手動掃描門檻：45 → 35\n"
-        "• 永不靜默（任何狀況都回訊息）\n\n"
+        "*⭐ v46 階梯降級系統*\n"
+        "━━━━━━━━━━━━━━━\n"
+        "🎯 *基礎標準（職業合理）*\n"
+        "• ADX ≥ 15（趨勢萌芽）\n"
+        "• 風報比 ≥ 1:1.3\n"
+        "• TP2 風報比 ≥ 1:1.5\n"
+        "• 成交量 ≥ 25 萬美元/24h\n\n"
+        "📊 *階梯式門檻調整*\n"
+        "• 0-2h 無推播：60 分（職業）\n"
+        "• 2-4h 無推播：55 分（略寬）\n"
+        "• 4-8h 無推播：50 分（較寬）\n"
+        "• 8h+ 無推播：40 分（強制保底）\n\n"
+        "🛡 *永不靜默設計*\n"
+        "• 自動偵測「多久沒推播」\n"
+        "• 動態降低門檻找信號\n"
+        "• 完全盤整時推「觀察單」\n"
+        "• 保證每天至少有訊息看\n\n"
+        "_理念：行情好推 S/A，盤整也不冷場_\n\n"
         "*🧠 量化分析全項*\n"
         "• 五維度評分（趨勢/動能/結構/量能/風險）\n"
         "• 真實勝率自校準\n"
@@ -450,10 +459,12 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif d == "hunter":
         await q.edit_message_text("🎯 專業黑潮船長掃描中...\n(掃描 50 幣種約 30-60 秒)")
         # v41：手動掃描也帶 historical_results，並用 smart_filter=False 確保有訊息回傳
+        # ⭐ v46 手動掃描：用戶主動要看，標準稍寬讓他看到東西
+        # 但用 smart_filter=False 確保任何情況都有訊息回傳
         result = await safe_run(
             analyzer.golden_hunter(
-                smart_filter=False,  # ⭐ 手動掃描用「寬鬆模式」確保有訊息
-                min_score=35,        # v42 手動超低門檻
+                smart_filter=False,
+                min_score=45,        # v46：手動掃描門檻 45（看到更多 B/C 級）
                 historical_results=SIGNAL_RESULTS
             ),
             timeout=120
@@ -1581,23 +1592,38 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
         await check_active_signals(ctx)
         # ⭐ v32 自適應門檻：根據近期勝率動態調整
         adaptive_adj = analyzer.adaptive_threshold(SIGNAL_RESULTS[-20:] if SIGNAL_RESULTS else [])
-        dynamic_min_score = max(40, 50 + adaptive_adj)  # v42 再放寬
 
-        # ⭐ v38 自動保護模式
+        # ⭐ v46 階梯式降級：根據「多久沒推」自動調整
+        # 階段 1: 0-2 小時 = 職業標準
+        # 階段 2: 2-4 小時 = 略放寬
+        # 階段 3: 4-8 小時 = 較寬鬆
+        # 階段 4: 8+ 小時 = 強制保底
+        if hours_since_push <= 2:
+            dynamic_min_score = max(55, 60 + adaptive_adj)  # 階段 1
+            stage_label = "PRO"
+        elif hours_since_push <= 4:
+            dynamic_min_score = max(50, 55 + adaptive_adj)  # 階段 2
+            stage_label = "BALANCED"
+        elif hours_since_push <= 8:
+            dynamic_min_score = max(45, 50 + adaptive_adj)  # 階段 3
+            stage_label = "LOOSE"
+        else:
+            dynamic_min_score = 40  # 階段 4：強制保底
+            stage_label = "FALLBACK"
+
+        # ⭐ v38 自動保護模式（在階梯之上微調）
         protection_mode, protection_reason = analyzer.auto_protection_mode(SIGNAL_RESULTS)
         if protection_mode == "DEFENSIVE":
-            dynamic_min_score = max(dynamic_min_score, 60)  # v42 放寬 DEFENSIVE
+            # 防守模式：階梯 1-2 提高，3-4 不調（避免完全沒信號）
+            if stage_label in ("PRO", "BALANCED"):
+                dynamic_min_score = max(dynamic_min_score, 65)
             logger.info("🛡 防守模式：" + protection_reason)
         elif protection_mode == "AGGRESSIVE":
-            dynamic_min_score = max(45, dynamic_min_score - 5)
+            dynamic_min_score = max(dynamic_min_score - 5, 40)
             logger.info("🚀 積極模式：" + protection_reason)
 
-        # ⭐ v40 保底模式：超過 6 小時沒推就降到 40
-        if hours_since_push > 6:
-            dynamic_min_score = min(dynamic_min_score, 35)  # v42 保底更低
-            protection_mode = "FALLBACK"
-            logger.info("🆘 保底模式：放寬門檻到 " + str(dynamic_min_score))
-        logger.info("v40 門檻: " + str(dynamic_min_score) + " | 模式: " + protection_mode)
+        logger.info("v46 門檻: " + str(dynamic_min_score) + " | 階梯: " + stage_label +
+                    " | 距上次推: " + str(round(hours_since_push, 1)) + "h | 模式: " + protection_mode)
         result = await asyncio.wait_for(
             analyzer.golden_hunter(
                 smart_filter=True,
@@ -2968,7 +2994,7 @@ def main():
         interval=3600,
         first=120
     )
-    logger.info("🤖 Bot v42.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘 | 黑潮頻道: " + ("ON" if BLACK_HUNTER_CHANNEL else "OFF"))
+    logger.info("🤖 Bot v46.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘 | 黑潮頻道: " + ("ON" if BLACK_HUNTER_CHANNEL else "OFF"))
 
     # ⭐ v40 啟動自檢：30 秒後推送啟動通知
     async def startup_notify(ctx):

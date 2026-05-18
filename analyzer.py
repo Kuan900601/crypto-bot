@@ -1574,13 +1574,13 @@ class CryptoAnalyzer:
 
         # v25：加入 S 級（極佳機會）
         if grade_score >= 80:
-            grade, pos_mult, desc = "S", 1.2, "💎 極佳進場時機（重倉）"
+            grade, pos_mult, desc = "S", 1.0, "💎 極佳進場時機"  # v45 職業：S 級不過度加倉
         elif grade_score >= 60:
-            grade, pos_mult, desc = "A", 1.0, "🟢 完美進場時機"
+            grade, pos_mult, desc = "A", 0.8, "🟢 完美進場時機"
         elif grade_score >= 40:
-            grade, pos_mult, desc = "B", 0.7, "🟡 良好進場時機"
+            grade, pos_mult, desc = "B", 0.5, "🟡 良好進場時機"
         elif grade_score >= 20:
-            grade, pos_mult, desc = "C", 0.4, "🟠 可進場但風險較高"
+            grade, pos_mult, desc = "C", 0.3, "🟠 可進場但風險較高（試水）"
         else:
             grade, pos_mult, desc = "D", 0.0, "🔴 不建議進場（等更好時機）"
 
@@ -1864,13 +1864,14 @@ class CryptoAnalyzer:
             highest_in_recent = float(recent_bars["high"].max())
             lowest_in_recent = float(recent_bars["low"].min())
 
+            # v44 修：假突破必須是「明確失敗」(回穿 0.5% 以上)
             if direction == "LONG":
-                # 假突破：曾觸及阻力上方，但現價回到下方
-                if highest_in_recent > prev_high * 1.001 and last_close < prev_high * 0.998:
+                # 真假突破：曾觸及阻力上方 + 現價回到阻力下方 1% 以上
+                if highest_in_recent > prev_high * 1.005 and last_close < prev_high * 0.99:
                     return True, "近期突破 " + str(round(prev_high, 4)) + " 失敗回落"
             else:
-                # 做空假突破：曾跌破支撐，但現價回到上方
-                if lowest_in_recent < prev_low * 0.999 and last_close > prev_low * 1.002:
+                # 真假突破：曾跌破支撐 + 現價回到支撐上方 1% 以上
+                if lowest_in_recent < prev_low * 0.995 and last_close > prev_low * 1.01:
                     return True, "近期跌破 " + str(round(prev_low, 4)) + " 失敗回升"
             return False, ""
         except Exception:
@@ -1974,24 +1975,18 @@ class CryptoAnalyzer:
             return "OFF", "🌙 收盤時段", 0.9
 
     # ⭐ 異常波動偵測（黑天鵝事件保護）
-    def extreme_volatility_check(self, df, threshold=7.0):
-        """檢查最近 K 線是否有異常波動"""
+    def extreme_volatility_check(self, df, threshold=12.0):
+        """
+        v44 大幅放寬：
+        - threshold 7→12（單根 12% 才算極端）
+        - 不再用「連 3 根同向大漲/跌」（這是最好的趨勢訊號）
+        """
         try:
             recent5 = df.tail(5)
             max_change = ((recent5["high"] - recent5["low"]) / recent5["close"]).max() * 100
             if max_change > threshold:
                 return True, "最近5根 K 線單根振幅 " + str(round(max_change, 1)) + "% 過大"
-            # 檢查連續 3 根同向大漲/大跌
-            chgs = []
-            for i in range(-3, 0):
-                if i == 0:
-                    continue
-                c = (float(df["close"].iloc[i]) - float(df["close"].iloc[i-1])) / float(df["close"].iloc[i-1]) * 100
-                chgs.append(c)
-            if all(c > 1.5 for c in chgs):
-                return True, "連續 3 根大漲，可能末端"
-            if all(c < -1.5 for c in chgs):
-                return True, "連續 3 根大跌，可能恐慌"
+            # v44 移除「連 3 根同向」誤判：那是最強的順勢訊號
             return False, ""
         except Exception:
             return False, ""
@@ -2004,17 +1999,14 @@ class CryptoAnalyzer:
         adx = sig1h.get("adx", 20)
         regime = sig1h.get("regime", "")
 
+        # v44 進一步放寬：只在極極端值才反指標
         if direction == "LONG":
-            # 只在「弱多頭 + 嚴重過熱」才拒絕
-            if rsi > 88 and regime not in ("STRONG_BULL",) and adx < 25:
-                violations.append("RSI " + str(int(rsi)) + " 過熱且趨勢弱")
-            elif rsi > 95:
-                violations.append("RSI " + str(int(rsi)) + " 極端高位")
+            if rsi > 92 and regime not in ("STRONG_BULL", "BULL") and adx < 20:
+                violations.append("RSI " + str(int(rsi)) + " 極熱且趨勢弱")
         else:
-            if rsi < 12 and regime not in ("STRONG_BEAR",) and adx < 25:
-                violations.append("RSI " + str(int(rsi)) + " 過冷且趨勢弱")
-            elif rsi < 5:
-                violations.append("RSI " + str(int(rsi)) + " 極端低位")
+            # SHORT：跌時 RSI 低是正常的，極端才擋
+            if rsi < 8 and regime not in ("STRONG_BEAR", "BEAR") and adx < 20:
+                violations.append("RSI " + str(int(rsi)) + " 極冷且趨勢弱")
         return violations
 
     # ⭐ v25 強勢續航判斷：用動能而非 RSI
@@ -2037,16 +2029,17 @@ class CryptoAnalyzer:
             slope = (float(ema20.iloc[-1]) - float(ema20.iloc[-10])) / float(ema20.iloc[-10])
 
             if direction == "LONG":
-                # 多頭續航：陽多陰少 + 量能持平 + EMA 上升
-                if ups >= 14 and slope > 0.005 and vol_trend > 0.7:
-                    return True, "強勢續航中（量增配合）"
-                if ups >= 16 and slope > 0.003:
-                    return True, "極強多頭續航"
+                # v44 放寬：14→10, vol 0.7→0.5
+                if ups >= 10 and slope > 0.003 and vol_trend > 0.5:
+                    return True, "強勢續航中"
+                if ups >= 12 and slope > 0.002:
+                    return True, "多頭續航"
             else:
-                if downs >= 14 and slope < -0.005 and vol_trend > 0.7:
+                # 空頭同樣放寬
+                if downs >= 10 and slope < -0.003 and vol_trend > 0.5:
                     return True, "強勢崩跌續航"
-                if downs >= 16 and slope < -0.003:
-                    return True, "極強空頭續航"
+                if downs >= 12 and slope < -0.002:
+                    return True, "空頭續航"
             return False, ""
         except Exception:
             return False, ""
@@ -4557,10 +4550,10 @@ class CryptoAnalyzer:
             elif p > vah:
                 score -= 1
                 reasons.append("價格在價值區上方")
-        if score >= 2.5:  # 放寬到 2.5
+        if score >= 1.8:  # v46 平衡：±1.8 在雜訊和靈敏度之間
             direction = "做多 🟢"
             den = "LONG"
-        elif score <= -2.5:
+        elif score <= -1.8:
             direction = "做空 🔴"
             den = "SHORT"
         else:
@@ -4670,8 +4663,8 @@ class CryptoAnalyzer:
             risks.append("⚠️ 強多頭逆勢做空")
 
         # ADX 放寬到 16（v25 - 允許更多機會）
-        if sig1h["adx"] < 13:  # v42 放寬：16 → 13
-            return None, "ADX過低 (<13)"
+        if sig1h["adx"] < 15:  # v46 平衡：15+ 是趨勢萌芽
+            return None, "ADX過低 (<15，無趨勢)"
 
         # ⭐ Squeeze 過濾：BB 在 KC 內 = 盤整，不交易
         # v42 不再拒絕 Squeeze（盤整後常有突破，不應錯過）
@@ -4708,8 +4701,8 @@ class CryptoAnalyzer:
             return None, "反指標：" + ", ".join(anti_violations)
 
         # 風報比門檻提高到 1.5
-        if sig1h["rr"] < 1.1:  # v42 放寬：1.3 → 1.1
-            return None, "風報比不足 (<1.1)"
+        if sig1h["rr"] < 1.3:  # v46 平衡：1.3+ 是合理賠率
+            return None, "風報比不足 (<1.3)"
 
         # ⭐ BTC 健康度檢查（避免逆勢開單）
         btc_health = "UNKNOWN"
@@ -5236,8 +5229,8 @@ class CryptoAnalyzer:
         rr3 = round(abs(tp3 - entry) / risk, 2) if risk > 0 else 0
         rr4 = round(abs(tp4 - entry) / risk, 2) if risk > 0 else 0
 
-        if rr2 < 1.2:  # v42 放寬：1.5 → 1.2
-            return None, "TP2風報比過低 (<1.2)"
+        if rr2 < 1.5:  # v46 平衡：TP2 1.5+ 即可
+            return None, "TP2風報比過低 (<1.5)"
 
         # 勝率：50→50%, 70→60%, 85→70%, 95→75%
         win_rate = 50 + (score - 50) * 0.5
@@ -5246,7 +5239,7 @@ class CryptoAnalyzer:
         # Kelly 倉位（保守）
         avg_rr = (rr1 + rr2) / 2
         kelly = max(0, (win_rate/100 - (1 - win_rate/100) / avg_rr)) * 100
-        position = round(min(kelly * 0.5, 8), 1)
+        position = round(min(kelly * 0.5, 6), 1)  # v45 職業：單筆上限 6%
 
         # 風險等級
         if score >= 80:
@@ -5705,22 +5698,22 @@ class CryptoAnalyzer:
                         if sig1h["direction_en"] == "NEUTRAL":
                             continue
                         vol24 = float(ticker.get("quoteVolume", 0)) / 1e6
-                        if vol24 < 10:  # v42 放寬：20 → 10 萬美元
+                        if vol24 < 25:  # v46 平衡：25 萬是合理流動性
                             continue
 
                         # ⭐ v40 Pre-filter 放寬：只擋明顯垃圾，其餘交給後續評分判斷
                         # 1. ADX 極低 = 完全無趨勢
                         adx_v = sig1h.get("adx", 0)
-                        if adx_v < 10:  # v42 進一步放寬：12 → 10
+                        if adx_v < 12:  # v46 平衡：Pre-filter 較寬，讓更多進入評分
                             continue
                         # 2. RSI 極端 + MACD 反向（明顯衰竭）
                         rsi_v = sig1h.get("rsi", 50)
                         macd_h = sig1h.get("macd_hist", 0)
                         if sig1h["direction_en"] == "LONG":
-                            if rsi_v > 85 and macd_h <= 0:  # 放寬：80 → 85
+                            if rsi_v > 78 and macd_h <= 0:  # v45 職業：RSI 78+MACD轉弱 = 衰竭
                                 continue
                         else:
-                            if rsi_v < 15 and macd_h >= 0:  # 放寬：20 → 15
+                            if rsi_v < 22 and macd_h >= 0:  # v45 職業：RSI 22+MACD轉強 = 衰竭
                                 continue
 
                         sig15m = self.generate_signal(df15m, fg_val, current_price)
@@ -5820,6 +5813,102 @@ class CryptoAnalyzer:
                         })
                     except Exception:
                         continue
+
+            # ⭐ v46 即使 candidates 不空，但都被 score 過濾掉時也要保底
+            # 不過 candidates 在 v46 還沒被 score 過濾，所以這裡是「全部都因為其他原因 reject」的情況
+            
+            # ⭐ v43+v46 緊急保底：candidates 為 0 時，從 NEUTRAL 信號中挑「最有方向」的 3 個
+            if not candidates and ok_count > 0:
+                logger.warning("🆘 緊急保底：candidates 為 0，從 NEUTRAL 信號挑選")
+                emergency_candidates = []
+                stride = 6
+                for idx, sym in enumerate(self.SCAN_POOL):
+                    try:
+                        df1h = results[idx*stride+1]
+                        df15m = results[idx*stride]
+                        df4h = results[idx*stride+2]
+                        ticker = results[idx*stride+3]
+                        if isinstance(df1h, Exception) or df1h is None:
+                            continue
+                        if isinstance(ticker, Exception) or not ticker:
+                            continue
+                        current_price = float(ticker.get("lastPrice", 0))
+                        if current_price == 0:
+                            continue
+                        # 即使是 NEUTRAL 也產生信號，看 RSI 偏向
+                        sig1h = self.generate_signal(df1h, 50, current_price)
+                        rsi = sig1h.get("rsi", 50)
+                        adx = sig1h.get("adx", 0)
+
+                        # 緊急模式：用 RSI 偏離 50 + ADX > 8 判斷方向
+                        if adx < 10:  # v46 緊急保底放寬 ADX 10
+                            continue
+                        # v46 緊急保底放寬：RSI 偏向 55/45 就算
+                        if rsi > 55:
+                            direction_emg = "LONG"
+                            score_emg = (rsi - 50) * 2 + adx
+                        elif rsi < 45:
+                            direction_emg = "SHORT"
+                            score_emg = (50 - rsi) * 2 + adx
+                        else:
+                            continue
+
+                        # 用 ATR 算簡易 SL/TP
+                        atr_val = float(self.atr(df1h).iloc[-1])
+                        if direction_emg == "LONG":
+                            entry = current_price
+                            sl = current_price - atr_val * 1.5
+                            tp1 = current_price + atr_val * 1.5
+                            tp2 = current_price + atr_val * 2.5
+                            tp3 = current_price + atr_val * 4
+                            tp4 = current_price + atr_val * 6
+                        else:
+                            entry = current_price
+                            sl = current_price + atr_val * 1.5
+                            tp1 = current_price - atr_val * 1.5
+                            tp2 = current_price - atr_val * 2.5
+                            tp3 = current_price - atr_val * 4
+                            tp4 = current_price - atr_val * 6
+
+                        emergency_candidates.append({
+                            "symbol": sym,
+                            "direction": direction_emg,
+                            "score": score_emg,
+                            "plan": {
+                                "score": int(score_emg),
+                                "direction": direction_emg,
+                                "tier": "C",
+                                "tier_label": "⚠️ 觀察單（市場盤整，僅供參考）",
+                                "entry_grade": "D",
+                                "entry": round(entry, 6),
+                                "sl": round(sl, 6),
+                                "tp1": round(tp1, 6),
+                                "tp2": round(tp2, 6),
+                                "tp3": round(tp3, 6),
+                                "tp4": round(tp4, 6),
+                                "rr_ratio": 1.0,
+                                "position": 2,
+                                "win_rate": 50,
+                                "strategy_label": "緊急保底（RSI偏向）",
+                                "strategy_type": "RSI_BIAS",
+                                "one_line_thesis": "⚠️ 市場盤整期觀察單，RSI " + str(int(rsi)) + " · 建議小倉位試水",
+                                "consensus_count": 0,
+                                "timing_state": "NOW",
+                                "timing_msg": "市場盤整，視為觀察單",
+                                "dimensions": {"trend": 5, "momentum": 8, "structure": 5,
+                                                "volume": 5, "risk": 3, "total": 26},
+                                "regime_label": "盤整期",
+                                "market_health": 40,
+                                "expected_value": 0.3,
+                            }
+                        })
+                    except Exception:
+                        continue
+                # 取前 3 個分數最高的
+                emergency_candidates.sort(key=lambda x: x["score"], reverse=True)
+                candidates = emergency_candidates[:3]
+                if candidates:
+                    logger.warning("✅ 緊急保底找到 " + str(len(candidates)) + " 個 RSI 偏向信號")
 
             # ⭐ v41 統計日誌（Railway log 可見）
             logger.info("🌊 黑潮掃描統計: ok=" + str(ok_count)
