@@ -5835,6 +5835,15 @@ class CryptoAnalyzer:
                         current_price = float(ticker.get("lastPrice", 0))
                         if current_price == 0:
                             continue
+                        # v46.2 修：在迴圈內定義 vol24/chg（避免後面 KeyError）
+                        try:
+                            vol24 = float(ticker.get("quoteVolume", 0)) / 1e6
+                        except Exception:
+                            vol24 = 0
+                        try:
+                            chg = float(ticker.get("priceChangePercent", 0))
+                        except Exception:
+                            chg = 0
                         # 即使是 NEUTRAL 也產生信號，看 RSI 偏向
                         sig1h = self.generate_signal(df1h, 50, current_price)
                         rsi = sig1h.get("rsi", 50)
@@ -5870,13 +5879,43 @@ class CryptoAnalyzer:
                             tp3 = current_price - atr_val * 4
                             tp4 = current_price - atr_val * 6
 
+                        # v46.1 補完結構：必須跟正常 candidate 一致
+                        # 把 sig1h 強制設置 direction_en（雖然原本可能是 NEUTRAL）
+                        sig1h_emg = dict(sig1h)
+                        sig1h_emg["direction_en"] = direction_emg
+                        sig1h_emg["direction"] = "做多 🟢" if direction_emg == "LONG" else "做空 🔴"
+
                         emergency_candidates.append({
                             "symbol": sym,
+                            "sig1h": sig1h_emg,  # ⭐ v46.1 補上 sig1h（顯示時會用）
                             "direction": direction_emg,
                             "score": score_emg,
+                            "current_price": current_price,
+                            "vol24": vol24,
+                            "chg": chg,
+                            "funding": 0,
+                            "ls_ratio": 1.0,
+                            "btc_corr": 0,
+                            "expiry_time": None,
+                            "expiry_hours": 4,
+                            "timing_emoji": "⚠️",
+                            "timing_reason": "觀察單",
+                            "confluence_zones": [],
+                            "whale_signals": [],
+                            "pattern": None,
+                            "rs_btc": 0,
+                            "upside_liq": [],
+                            "downside_liq": [],
+                            "sig_hash": sym + "_" + direction_emg + "_emg",
+                            "mkt_label": "盤整期",
+                            "bull_ob": [], "bear_ob": [],
+                            "bull_fvg": [], "bear_fvg": [],
+                            "bos_dir": None, "bos_level": 0,
+                            "quality_score": int(score_emg),  # v46.1 修：補 quality_score
                             "plan": {
                                 "score": int(score_emg),
                                 "direction": direction_emg,
+                                "direction_en": direction_emg,
                                 "tier": "C",
                                 "tier_label": "⚠️ 觀察單（市場盤整，僅供參考）",
                                 "entry_grade": "D",
@@ -5886,6 +5925,7 @@ class CryptoAnalyzer:
                                 "tp2": round(tp2, 6),
                                 "tp3": round(tp3, 6),
                                 "tp4": round(tp4, 6),
+                                "rr": 1.0,
                                 "rr_ratio": 1.0,
                                 "position": 2,
                                 "win_rate": 50,
@@ -5900,6 +5940,31 @@ class CryptoAnalyzer:
                                 "regime_label": "盤整期",
                                 "market_health": 40,
                                 "expected_value": 0.3,
+                                "symbol": sym,
+                                "timeframe": "短線",
+                                "order_type": "MARKET",
+                                "regime_state": "RANGING",
+                                "struct_state": "NEUTRAL",
+                                "mtf_grade": "NEUTRAL_MTF",
+                                "sweep_type": "NONE",
+                                "ofi_state": "NEUTRAL",
+                                # v46.1 修：補上原本 strict access 的 keys（避免 KeyError）
+                                "rr2": 1.7,
+                                "rr4": 4.0,
+                                "pros": ["⚠️ 市場盤整期觀察單"],
+                                "cons": ["⚠️ 非高品質信號，僅供參考"],
+                                "sweep_msg": "",
+                                "wyckoff_msg": "",
+                                "tier_emoji": "⚠️",
+                                "has_confirmation": False,
+                                "order_instruction": "盤整期觀察單，建議小倉位試水",
+                                "order_type_label": "市價單",
+                                "order_valid_hours": 4,
+                                "original_position": 2,
+                                "sl_label": "ATR 止損",
+                                "tp": [],
+                                "real_win_rate": None,
+                                "timing_zone": round(entry, 6),
                             }
                         })
                     except Exception:
@@ -6258,7 +6323,21 @@ class CryptoAnalyzer:
             r += "_⚠️ 黑潮船長將自動追蹤本輪信號並通知關鍵價位_"
             return r
         except Exception as e:
-            return "❌ 黑潮船長失敗：" + str(e)
+            import traceback
+            err_type = type(e).__name__
+            err_msg = str(e)
+            err_trace = traceback.format_exc()
+            # log 完整 traceback 到 Railway
+            try:
+                logger.error("🔥 golden_hunter 崩潰: " + err_type + ": " + err_msg + "\n" + err_trace)
+            except Exception:
+                pass
+            return ("❌ *黑潮船長執行錯誤*\n"
+                    "━━━━━━━━━━━━━━━\n"
+                    "錯誤類型: `" + err_type + "`\n"
+                    "錯誤訊息: `" + err_msg + "`\n\n"
+                    "_詳細追蹤已記錄到 Railway log_\n"
+                    "_請截圖回報給開發者_")
 
     async def detect_movers(self):
         """市場異動掃描 — 資深分析師版"""
