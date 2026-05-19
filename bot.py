@@ -28,6 +28,11 @@ PUSH_INTERVAL_MIN = 3  # ⭐ v40 平衡為 3 分鐘
 # ⭐ v40 掃描鎖：含 timeout 防卡死（全域，需在 callback 用到前定義）
 _HUNTER_SCANNING = {"locked": False, "locked_at": 0, "last_push": 0}
 
+# ⭐ v48 C 級延遲：記錄最後一次 B 級以上推播時間
+# 用途：4.5 小時內若有 B 級以上推播，C 級就不推
+# 一旦推 B+，重置計時；一旦推 C，也重置（避免狂推 C）
+_C_TIER_GATE = {"last_high_tier_push": 0}
+
 # ⭐ BingX 連結產生器
 def bingx_trade_url(symbol, direction):
     """
@@ -194,30 +199,30 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "━━━━━━━━━━━━━━━\n"
         "24 小時掃描 50 個幣種，找出 *高勝率交易機會*\n"
         "每 3 分鐘高頻掃描，即時通知關鍵價位\n\n"
-        "*🎯 v46 — 階梯降級 + 保證每日有信號*\n"
+        "*🎯 v49 — 職業勝率分級*\n"
         "━━━━━━━━━━━━━━━\n"
         "💎 *S 級* — 夢幻信號（稀有，正常倉）\n"
         "🥇 *A 級* — 重點推薦（半倉跟單）\n"
         "🥈 *B 級* — 一般機會（1/3 倉試水）\n"
         "🥉 *C 級* — 觀察為主（試水單）\n\n"
-        "*⭐ v46 階梯降級系統*\n"
+        "*⭐ v49 職業勝率分級*\n"
         "━━━━━━━━━━━━━━━\n"
-        "🎯 *基礎標準（職業合理）*\n"
-        "• ADX ≥ 15（趨勢萌芽）\n"
-        "• 風報比 ≥ 1:1.3\n"
-        "• TP2 風報比 ≥ 1:1.5\n"
-        "• 成交量 ≥ 25 萬美元/24h\n\n"
-        "📊 *階梯式門檻調整*\n"
-        "• 0-2h 無推播：60 分（職業）\n"
-        "• 2-4h 無推播：55 分（略寬）\n"
-        "• 4-8h 無推播：50 分（較寬）\n"
-        "• 8h+ 無推播：40 分（強制保底）\n\n"
-        "🛡 *永不靜默設計*\n"
-        "• 自動偵測「多久沒推播」\n"
-        "• 動態降低門檻找信號\n"
-        "• 完全盤整時推「觀察單」\n"
-        "• 保證每天至少有訊息看\n\n"
-        "_理念：行情好推 S/A，盤整也不冷場_\n\n"
+        "🎯 *每級最低勝率保證*\n"
+        "• 💎 S 級 — 勝率 ≥ 65% (EV ≥ 2.4)\n"
+        "• 🥇 A 級 — 勝率 ≥ 58% (EV ≥ 1.9)\n"
+        "• 🥈 B 級 — 勝率 ≥ 54% (EV ≥ 1.5)\n"
+        "• 🥉 C 級 — 勝率 ≥ 51% (EV ≥ 1.0)\n"
+        "• 低於 51% → 完全拒絕（不推播）\n\n"
+        "📊 *多維度勝率計算*\n"
+        "• ADX 趨勢強度（基礎 47-60%）\n"
+        "• 6 策略共識數（+0~+8%）\n"
+        "• 進場時機等級（-3~+6%）\n"
+        "• MTF 多週期共振（+0~+5%）\n"
+        "• K 線確認 / Squeeze / 逆勢調整\n\n"
+        "⏰ *C 級智能延遲（保留 v48）*\n"
+        "• C 級需累積冷卻 4.5h 才推\n"
+        "• B+ 級推播後重置 C 冷卻\n\n"
+        "_理念：每個推播都至少有 51% 勝率_\n\n"
         "*🧠 量化分析全項*\n"
         "• 五維度評分（趨勢/動能/結構/量能/風險）\n"
         "• 真實勝率自校準\n"
@@ -1207,6 +1212,18 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         text += "*📊 當前推播門檻*\n"
         text += "• 評分門檻: `≥ " + str(dyn_score) + "` 分\n"
 
+        # v48 C 級冷卻狀態
+        last_high = _C_TIER_GATE.get("last_high_tier_push", 0)
+        if last_high > 0:
+            hrs_since = (now_ts - last_high) / 3600
+            if hrs_since < 4.5:
+                remaining = 4.5 - hrs_since
+                text += "• C 級冷卻: 🟡 還需 `" + str(round(remaining, 1)) + "h`\n"
+            else:
+                text += "• C 級冷卻: ✅ 已過，下次有 C 會推\n"
+        else:
+            text += "• C 級冷卻: 🆕 未啟用\n"
+
         # 健康評估
         text += "\n*🏥 健康評估*\n"
         issues = []
@@ -1668,6 +1685,11 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
         skipped_reasons = []
         for sig in parsed_signals:
             sym = sig.get("symbol", "")
+            # v47 修：若該 symbol 已有 entered 信號 → 跳過（不推同 symbol 新信號）
+            existing = ACTIVE_SIGNALS.get(sym)
+            if existing and existing.get("entered", False):
+                logger.info("跳過 " + sym + " 新信號（已有 entered 同 symbol 信號）")
+                continue
             if sym in ACTIVE_SIGNALS:
                 active = ACTIVE_SIGNALS[sym]
                 # 同方向 → 直接跳過（冷卻中）
@@ -1726,6 +1748,38 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
         if not filtered_signals:
             logger.info("3分推播：所有信號被冷卻過濾，跳過")
             return
+
+        # ⭐ v48 C 級延遲推播邏輯
+        # 分組：高品質 (S/A/B) vs C 級 (含緊急保底觀察單)
+        high_tier_signals = [s for s in filtered_signals if s.get("tier") in ("S", "A", "B")]
+        c_tier_signals = [s for s in filtered_signals if s.get("tier") == "C"]
+
+        now_ts = time.time()
+        if high_tier_signals:
+            # 有 B 級以上 → 優先推這些，並更新 LAST_NON_C
+            filtered_signals = high_tier_signals
+            _C_TIER_GATE["last_high_tier_push"] = now_ts
+            logger.info("📊 推播 " + str(len(high_tier_signals)) + " 個 S/A/B 級信號，重置 C 級冷卻")
+        else:
+            # 只有 C 級 → 看是否已過 4.5 小時冷卻
+            hours_since_high = (now_ts - _C_TIER_GATE["last_high_tier_push"]) / 3600
+            # 啟動時 last_high_tier_push = 0，會非常大 → 視為從未推過（要等冷卻）
+            if _C_TIER_GATE["last_high_tier_push"] == 0:
+                # 第一次啟動：用 bot 啟動時間當基準（避免一啟動就狂推 C）
+                _C_TIER_GATE["last_high_tier_push"] = now_ts
+                logger.info("🕐 v48 啟動：C 級冷卻計時開始（4.5 小時後才推 C 級）")
+                return
+            if hours_since_high < 4.5:
+                # 冷卻中，不推 C
+                remaining = 4.5 - hours_since_high
+                logger.info("⏸ C 級冷卻中：距上次 B+ 推播 " + str(round(hours_since_high, 1)) +
+                            "h，還需 " + str(round(remaining, 1)) + "h 才推 C")
+                return
+            # 冷卻完成，可以推 C 級
+            filtered_signals = c_tier_signals
+            _C_TIER_GATE["last_high_tier_push"] = now_ts  # 推 C 也重置冷卻
+            logger.info("✅ C 級冷卻完成（" + str(round(hours_since_high, 1)) + "h），推 " +
+                        str(len(c_tier_signals)) + " 個 C 級信號")
 
         # ⭐ 連虧暫停過濾
         loss_filtered = []
@@ -1970,17 +2024,23 @@ def parse_hunter_signals(result):
             sym = sym_raw + "/USDT"
             direction = "LONG" if m.group(3) == "做多" else "SHORT"
 
-            # 2. tier
-            if "💎" in block and "S 級" in block:
+            # 2. tier — v47 修：直接抓 tier 標籤行（避免被排名 emoji 誤導）
+            # 真正的 tier 寫在「💎 *S 級 — 夢幻信號*」這種固定格式的行
+            tier_match = re.search(r"\*([SABC])\s*級\s*—", block)
+            if tier_match:
+                tier = tier_match.group(1)
+            elif "S 級" in block and "夢幻" in block:
                 tier = "S"
-            elif "🥇" in block and "A 級" in block:
+            elif "A 級" in block and "重點推薦" in block:
                 tier = "A"
-            elif "🥈" in block and "B 級" in block:
+            elif "B 級" in block and "一般" in block:
                 tier = "B"
-            elif "🥉" in block and "C 級" in block:
+            elif "C 級" in block and ("觀察" in block or "試水" in block):
                 tier = "C"
+            elif "觀察單" in block:
+                tier = "C"  # v46 緊急保底信號
             else:
-                tier = "B"  # 預設
+                tier = "C"  # v47：預設改為 C（保守，避免誤判為 A）
 
             # 3. score (五維度總分)
             score_match = re.search(r"📊\s*\*?(\d+)/100\*?", block)
@@ -2044,7 +2104,7 @@ def parse_hunter_signals(result):
                 "tp3": tps[3],
                 "tp4": tps[4],
                 "tier": tier,
-                "entry_grade": tier,
+                "entry_grade": tier,  # v47: 暫用 tier（analyzer 沒在訊息輸出 entry_grade）
                 "position": position,
                 "win_rate": win_rate,
                 "rr_ratio": rr,
@@ -2057,14 +2117,18 @@ def parse_hunter_signals(result):
     return signals
 
 def register_signal(sig, watchers):
-    """註冊新信號到追蹤系統（v40.3 修復 watchers 合併 + 同方向更新邏輯）"""
+    """註冊新信號到追蹤系統（v47 修：已進場拒絕新同向信號）"""
     sym = sig["symbol"]
     new_direction = sig["direction"]
 
-    # ⭐ v40.3 修復：若已存在同 symbol 信號
+    # ⭐ v40.3 + v47：若已存在同 symbol 信號
     existing = ACTIVE_SIGNALS.get(sym)
     if existing:
-        # 同方向 → 合併 watchers，保留原進場資訊（避免覆蓋已追蹤的）
+        # v47 新增：已進場 → 完全拒絕新信號（不再合併、不再覆蓋）
+        if existing.get("entered", False):
+            logger.warning("拒絕新信號: " + sym + " 已進場，不接受同 symbol 新信號")
+            return
+        # 同方向且尚未進場 → 合併 watchers，保留原進場資訊
         if existing.get("direction") == new_direction:
             old_watchers = set(existing.get("watchers", []))
             old_watchers.update(watchers)
@@ -2097,7 +2161,9 @@ def register_signal(sig, watchers):
         "timeframe": sig.get("timeframe", "短線"),
         "entry_grade": sig.get("entry_grade", "C"),
         "order_type": sig.get("order_type", "MARKET"),
-        "tier": sig.get("tier", "B"),
+        "tier": sig.get("tier", "C"),  # v47: 預設 C 避免誤判
+        "entered": False,  # v47: 標記是否已觸及進場價
+        "entered_at": None,
     }
     save_data()
     logger.info("註冊信號: " + sym + " " + sig["direction"] + " 評分 " + str(sig.get("score")) + " 等級 " + str(sig.get("entry_grade", "C")) + " 訂閱 " + str(len(watchers)))
@@ -2531,7 +2597,10 @@ async def check_near_entry(ctx):
     try:
         async with aiohttp.ClientSession() as session:
             for sym, sig in list(ACTIVE_SIGNALS.items()):
+                # v47 修：已 TP 命中 或 已標記進場 → 不再提醒
                 if sig.get("tp_hit"):
+                    continue
+                if sig.get("entered", False):  # v47: 已進場標記
                     continue
                 try:
                     ticker = await analyzer.fetch_ticker(session, sym)
@@ -2539,7 +2608,28 @@ async def check_near_entry(ctx):
                     entry = sig.get("entry", 0)
                     if not current or not entry:
                         continue
+                    direction = sig.get("direction", "LONG")
                     dist_pct = abs(current - entry) / entry * 100
+
+                    # v47 修：價格已穿越進場價 → 標記為已進場，不再提醒
+                    if direction == "LONG" and current <= entry * 1.001:
+                        # LONG：價格觸及或低於進場價
+                        if not sig.get("entered"):
+                            sig["entered"] = True
+                            sig["entered_at"] = datetime.now(timezone.utc).isoformat()
+                            save_data()
+                            logger.info(sym + " 已觸及進場價，標記為 entered")
+                        continue
+                    elif direction == "SHORT" and current >= entry * 0.999:
+                        # SHORT：價格觸及或高於進場價
+                        if not sig.get("entered"):
+                            sig["entered"] = True
+                            sig["entered_at"] = datetime.now(timezone.utc).isoformat()
+                            save_data()
+                            logger.info(sym + " 已觸及進場價，標記為 entered")
+                        continue
+
+                    # 只在「即將觸及但還沒到」才提醒
                     if dist_pct < 0.3:
                         last_alert = LAST_NEAR_ENTRY_ALERT.get(sym, 0)
                         now_ts = datetime.now(timezone.utc).timestamp()
@@ -2994,7 +3084,7 @@ def main():
         interval=3600,
         first=120
     )
-    logger.info("🤖 Bot v46.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘 | 黑潮頻道: " + ("ON" if BLACK_HUNTER_CHANNEL else "OFF"))
+    logger.info("🤖 Bot v49.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘 | 黑潮頻道: " + ("ON" if BLACK_HUNTER_CHANNEL else "OFF"))
 
     # ⭐ v40 啟動自檢：30 秒後推送啟動通知
     async def startup_notify(ctx):
