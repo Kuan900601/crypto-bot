@@ -6936,3 +6936,4 @@ class CryptoAnalyzer:
             return r
         except Exception as e:
             return "❌ 失敗：" + str(e)
+

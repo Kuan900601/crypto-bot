@@ -1109,7 +1109,7 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
             text = "📊 *歷史戰績* (" + str(total) + " 筆)\n"
             text += "━━━━━━━━━━━━━━━\n"
-            text += "🎯 *總體勝率* `" + str(round(win_rate, 1)) + "%*\n"
+            text += "🎯 *總體勝率* `" + str(round(win_rate, 1)) + "%`\n"
             text += "💵 平均盈利 `+" + str(round(avg_win, 2)) + "%` · 平均虧損 `-" + str(round(avg_loss, 2)) + "%`\n"
             text += "📈 實際期望值 `" + ("+" if real_ev >= 0 else "") + str(round(real_ev, 2)) + "%/筆`\n"
             text += "🏆 勝場 `" + str(len(wins)) + "` · 敗場 `" + str(len(losses)) + "`\n\n"
@@ -3096,7 +3096,7 @@ def main():
         interval=3600,
         first=120
     )
-    logger.info("🤖 Bot v51.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘 | 黑潮頻道: " + ("ON" if BLACK_HUNTER_CHANNEL else "OFF"))
+    logger.info("🤖 Bot v52.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘 | 黑潮頻道: " + ("ON" if BLACK_HUNTER_CHANNEL else "OFF"))
 
     # ⭐ v40 啟動自檢：30 秒後推送啟動通知
     async def startup_notify(ctx):
