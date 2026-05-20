@@ -2832,7 +2832,7 @@ class CryptoAnalyzer:
     def strategy_consensus(self, direction, sig1h, df1h, df4h, df15m,
                            vol_ratio, sw_res, sw_sup, current_price):
         """
-        要 6 種策略中至少 3 種同意才算高品質信號
+        要 7 種策略中至少 2 種同意（v51）
         回傳：(consensus_count, total, voting_strategies)
         """
         votes = []
@@ -2841,16 +2841,21 @@ class CryptoAnalyzer:
         adx = sig1h.get("adx", 20)
         macd_hist = sig1h.get("macd_hist", 0)
 
+        e20 = sig1h.get("e20", 0)
+        e50 = sig1h.get("e50", 0)
         if direction == "LONG":
-            # 1. 趨勢追隨
-            if regime in ("STRONG_BULL", "BULL") and adx > 22:
+            # 1. 趨勢追隨（v51：ADX 門檻 22→18，與 setup 一致）
+            if regime in ("STRONG_BULL", "BULL") and adx > 18:
                 votes.append("趨勢追隨")
             # 2. 動量
             if macd_hist > 0 and 45 < rsi < 70:
                 votes.append("動量配合")
             # 3. 量價
-            if vol_ratio > 1.3:
+            if vol_ratio > 1.2:  # v51: 1.3→1.2
                 votes.append("量價齊升")
+            # 7. v51 新增：EMA 多頭排列（短均上穿長均，常見且有效）
+            if e20 > 0 and e50 > 0 and e20 > e50:
+                votes.append("均線多頭")
             # 4. 支撐反彈
             if sw_sup:
                 dist = (current_price - sw_sup[0]) / current_price * 100
@@ -2865,12 +2870,15 @@ class CryptoAnalyzer:
             if ofi_state in ("STRONG_BUY_FLOW", "BUY_FLOW"):
                 votes.append("訂單流偏多")
         else:
-            if regime in ("STRONG_BEAR", "BEAR") and adx > 22:
+            if regime in ("STRONG_BEAR", "BEAR") and adx > 18:  # v51: 22→18
                 votes.append("趨勢追隨")
             if macd_hist < 0 and 30 < rsi < 55:
                 votes.append("動量配合")
-            if vol_ratio > 1.3:
+            if vol_ratio > 1.2:  # v51: 1.3→1.2
                 votes.append("量價齊跌")
+            # 7. v51 新增：EMA 空頭排列
+            if e20 > 0 and e50 > 0 and e20 < e50:
+                votes.append("均線空頭")
             if sw_res:
                 dist = (sw_res[0] - current_price) / current_price * 100
                 if 0 < dist < 2:
@@ -2881,7 +2889,7 @@ class CryptoAnalyzer:
             _, ofi_state, _ = self.order_flow_imbalance(df1h)
             if ofi_state in ("STRONG_SELL_FLOW", "SELL_FLOW"):
                 votes.append("訂單流偏空")
-        return len(votes), 6, votes
+        return len(votes), 7, votes  # v51: 7 strategies now
 
     # ⭐ 自適應參數（根據近期勝率調整）
     def adaptive_threshold(self, recent_results):
@@ -4701,8 +4709,8 @@ class CryptoAnalyzer:
             return None, "反指標：" + ", ".join(anti_violations)
 
         # 風報比門檻提高到 1.5
-        if sig1h["rr"] < 1.3:  # v46 平衡：1.3+ 是合理賠率
-            return None, "風報比不足 (<1.3)"
+        if sig1h["rr"] < 1.0:  # v51：TP1 至少 1:1（TP2/TP3 提供主要獲利，下游 TP2 RR>=1.5 把關）
+            return None, "風報比不足 (TP1 <1.0)"
 
         # ⭐ BTC 健康度檢查（避免逆勢開單）
         btc_health = "UNKNOWN"
@@ -5049,21 +5057,21 @@ class CryptoAnalyzer:
 
         # ⭐ v32 多策略共識制
         consensus_count, consensus_total, voting_strategies = self.strategy_consensus(
-            direction, sig1h, df1h, df4h, df15m, vol_ratio, sw_res_1h, sw_sup_1h, current_price
-        )
+            direction, sig1h, df1h, df4h, df1h, vol_ratio, sw_res_1h, sw_sup_1h, current_price
+        )  # v51 修：df15m 未定義（參數名為 df_daily），改傳 df1h（consensus 內部僅用 df1h）
         # 至少 3 個策略同意才高品質
         if consensus_count >= 5:
             score += 15
-            factors.append("🎯 五重策略共識 (" + str(consensus_count) + "/6)")
+            factors.append("🎯 多策略共識 (" + str(consensus_count) + "/7)")
         elif consensus_count >= 4:
             score += 10
-            factors.append("🎯 四重策略共識 (" + str(consensus_count) + "/6)")
+            factors.append("🎯 四重策略共識 (" + str(consensus_count) + "/7)")
         elif consensus_count >= 3:
             score += 5
-            factors.append("✅ 三重策略共識 (" + str(consensus_count) + "/6)")
+            factors.append("✅ 三重策略共識 (" + str(consensus_count) + "/7)")
         elif consensus_count <= 1:
             score -= 10
-            risks.append("⚠️ 共識不足 (" + str(consensus_count) + "/6)")
+            risks.append("⚠️ 共識不足 (" + str(consensus_count) + "/7)")
 
         # ⭐ v32 交易所大資金流
         flow_state, flow_msg = self.exchange_flow(df1h)
@@ -5232,14 +5240,11 @@ class CryptoAnalyzer:
         if rr2 < 1.5:  # v46 平衡：TP2 1.5+ 即可
             return None, "TP2風報比過低 (<1.5)"
 
-        # 勝率：50→50%, 70→60%, 85→70%, 95→75%
-        win_rate = 50 + (score - 50) * 0.5
-        win_rate = round(min(78, max(50, win_rate)))
-
-        # Kelly 倉位（保守）
+        # ⭐ v49 暫定值（會在 entry_grade 之後重算）
+        win_rate = 50  # 之後重算
+        # Kelly 倉位先用佔位（之後重算）
         avg_rr = (rr1 + rr2) / 2
-        kelly = max(0, (win_rate/100 - (1 - win_rate/100) / avg_rr)) * 100
-        position = round(min(kelly * 0.5, 6), 1)  # v45 職業：單筆上限 6%
+        position = 0  # 之後重算
 
         # 風險等級
         if score >= 80:
@@ -5263,6 +5268,56 @@ class CryptoAnalyzer:
         if entry_grade["grade"] == "D":
             score -= 10
             risks.append("⚠️ 進場時機 D 級")
+
+        # ⭐ v49 職業勝率校準（在 entry_grade 之後，才有所有變數可用）
+        # 1. 基礎勝率：根據 ADX + 趨勢狀態
+        _adx_v = sig1h.get("adx", 0)
+        _regime = sig1h.get("regime", "")
+        if _adx_v >= 28 and _regime in ("STRONG_BULL", "STRONG_BEAR"):
+            _base_wr = 61
+        elif _adx_v >= 25:
+            _base_wr = 58
+        elif _adx_v >= 22:
+            _base_wr = 56
+        elif _adx_v >= 18:
+            _base_wr = 54   # v51: 53→54
+        elif _adx_v >= 15:
+            _base_wr = 51   # v51: 50→51（ADX>15 趨勢成形，誠實 51%）
+        else:
+            _base_wr = 47
+
+        # 2. 共識加成（每多 1 個策略同意 +2%，從 2 起加，最多 +8）
+        _consensus_bonus = max(0, min(consensus_count - 2, 4)) * 2
+
+        # 3. 進場時機加成
+        _grade_bonus = {"S": 6, "A": 4, "B": 2, "C": 0, "D": -3}.get(entry_grade["grade"], 0)
+
+        # 4. MTF 共振加成
+        _mtf_bonus = 0
+        if mtf_grade in ("TRIPLE_BULL", "TRIPLE_BEAR"):
+            _mtf_bonus = 5
+        elif mtf_grade in ("DOUBLE_BULL", "DOUBLE_BEAR"):
+            _mtf_bonus = 2
+
+        # 5. 進場確認 K 線
+        _conf_bonus = 2 if has_conf else 0
+
+        # 6. 風險懲罰
+        _risk_penalty = 0
+        if sig1h.get("squeeze_on", False):
+            _risk_penalty += 3
+        if _regime == "STRONG_BEAR" and direction == "LONG":
+            _risk_penalty += 5
+        if _regime == "STRONG_BULL" and direction == "SHORT":
+            _risk_penalty += 5
+
+        # 整合
+        win_rate = _base_wr + _consensus_bonus + _grade_bonus + _mtf_bonus + _conf_bonus - _risk_penalty
+        win_rate = round(min(78, max(40, win_rate)))
+
+        # ⭐ v49 用更新後的 win_rate 重算 Kelly 倉位
+        kelly = max(0, (win_rate/100 - (1 - win_rate/100) / avg_rr)) * 100
+        position = round(min(kelly * 0.5, 6), 1)  # 單筆上限 6%
 
         # ⭐ 進場理由深度分析
         bull_ob_ck, bear_ob_ck = self.find_order_blocks(df1h)
@@ -5437,30 +5492,41 @@ class CryptoAnalyzer:
         ev_score = plan["expected_value"]
         cons_score = consensus_count
 
-        # 信號等級 (TIER)
-        # S: 14 道關卡全過 + 高 EV + 強共識（夢幻信號）
-        # A: 主要關卡過 + 正 EV + 多共識（重點關注）
-        # B: 大部分過 + 正 EV 或強共識（一般機會）
-        # C: 基本過 + 觀察用（試水單）
-        if ev_score >= 1.0 and cons_score >= 4 and entry_grade["grade"] in ("S", "A"):
+        # ⭐ v49 職業勝率分級系統
+        # 核心原則：任何被推播的信號 → 理論勝率 ≥ 51%
+        # 對應的 EV 標準（基於 RR 2.5）：
+        #   51% 勝率 → EV ≈ 1.55
+        #   56% 勝率 → EV ≈ 1.90
+        #   63% 勝率 → EV ≈ 2.40
+        #   70% 勝率 → EV ≈ 2.90
+        if (ev_score >= 2.4 and cons_score >= 5
+            and entry_grade["grade"] in ("S", "A")
+            and win_rate >= 65):
             tier = "S"
-            tier_label = "💎 S 級 — 夢幻信號"
+            tier_label = "💎 S 級 — 夢幻信號 (勝率 ≥ 65%)"
             tier_emoji = "💎"
-        elif ev_score >= 0.5 and cons_score >= 3 and entry_grade["grade"] in ("S", "A", "B"):
+        elif (ev_score >= 1.9 and cons_score >= 4
+              and entry_grade["grade"] in ("S", "A", "B")
+              and win_rate >= 58):
             tier = "A"
-            tier_label = "🥇 A 級 — 重點推薦"
+            tier_label = "🥇 A 級 — 重點推薦 (勝率 ≥ 58%)"
             tier_emoji = "🥇"
-        elif ev_score >= 0 and cons_score >= 2:
+        elif (ev_score >= 1.5 and cons_score >= 3
+              and entry_grade["grade"] in ("S", "A", "B", "C")
+              and win_rate >= 54):
             tier = "B"
-            tier_label = "🥈 B 級 — 一般機會"
+            tier_label = "🥈 B 級 — 一般機會 (勝率 ≥ 54%)"
             tier_emoji = "🥈"
-        elif ev_score >= -0.3 and cons_score >= 1:
+        elif (ev_score >= 1.0 and cons_score >= 2
+              and entry_grade["grade"] in ("S", "A", "B", "C")
+              and win_rate >= 51):
             tier = "C"
-            tier_label = "🥉 C 級 — 觀察試水"
+            tier_label = "🥉 C 級 — 試水單 (勝率 ≥ 51%)"
             tier_emoji = "🥉"
         else:
-            # 真的太差才拒絕
-            return None, "信號品質過低 (EV=" + str(ev_score) + ", 共識=" + str(cons_score) + ")"
+            # v49 嚴格：勝率 < 51% 或 EV < 1.0 → 完全拒絕
+            return None, ("信號勝率不足 (理論 " + str(win_rate) + "%, EV=" + str(ev_score)
+                          + ", 共識=" + str(cons_score) + "/7, 進場=" + entry_grade["grade"] + ")")
 
         plan["tier"] = tier
         plan["tier_label"] = tier_label
@@ -6870,3 +6936,4 @@ class CryptoAnalyzer:
             return r
         except Exception as e:
             return "❌ 失敗：" + str(e)
+

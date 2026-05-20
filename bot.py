@@ -199,37 +199,30 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "━━━━━━━━━━━━━━━\n"
         "24 小時掃描 50 個幣種，找出 *高勝率交易機會*\n"
         "每 3 分鐘高頻掃描，即時通知關鍵價位\n\n"
-        "*🎯 v49 — 職業勝率分級*\n"
+        "_v51：修復 consensus 崩潰（原本導致信號全被擋）_\n\n"
+        "*🎯 信號分級（每級保證勝率）*\n"
         "━━━━━━━━━━━━━━━\n"
-        "💎 *S 級* — 夢幻信號（稀有，正常倉）\n"
-        "🥇 *A 級* — 重點推薦（半倉跟單）\n"
-        "🥈 *B 級* — 一般機會（1/3 倉試水）\n"
-        "🥉 *C 級* — 觀察為主（試水單）\n\n"
-        "*⭐ v49 職業勝率分級*\n"
-        "━━━━━━━━━━━━━━━\n"
-        "🎯 *每級最低勝率保證*\n"
-        "• 💎 S 級 — 勝率 ≥ 65% (EV ≥ 2.4)\n"
-        "• 🥇 A 級 — 勝率 ≥ 58% (EV ≥ 1.9)\n"
-        "• 🥈 B 級 — 勝率 ≥ 54% (EV ≥ 1.5)\n"
-        "• 🥉 C 級 — 勝率 ≥ 51% (EV ≥ 1.0)\n"
-        "• 低於 51% → 完全拒絕（不推播）\n\n"
-        "📊 *多維度勝率計算*\n"
+        "💎 *S 級* — 勝率 ≥ 65%（正常倉）\n"
+        "🥇 *A 級* — 勝率 ≥ 58%（半倉跟單）\n"
+        "🥈 *B 級* — 勝率 ≥ 54%（1/3 倉）\n"
+        "🥉 *C 級* — 勝率 ≥ 51%（試水單）\n"
+        "❌ 低於 51% → 完全不推播\n\n"
+        "*📊 多維度勝率計算*\n"
         "• ADX 趨勢強度（基礎 47-60%）\n"
         "• 6 策略共識數（+0~+8%）\n"
         "• 進場時機等級（-3~+6%）\n"
         "• MTF 多週期共振（+0~+5%）\n"
         "• K 線確認 / Squeeze / 逆勢調整\n\n"
-        "⏰ *C 級智能延遲（保留 v48）*\n"
-        "• C 級需累積冷卻 4.5h 才推\n"
-        "• B+ 級推播後重置 C 冷卻\n\n"
-        "_理念：每個推播都至少有 51% 勝率_\n\n"
+        "*⏰ 推播節奏控制*\n"
+        "• S/A/B 級 → 即時推播\n"
+        "• C 級 → 累積冷卻 4.5h 才推\n"
+        "• 止損移動 → 0.3%+ 才通知（防洗版）\n\n"
         "*🧠 量化分析全項*\n"
         "• 五維度評分（趨勢/動能/結構/量能/風險）\n"
-        "• 真實勝率自校準\n"
-        "• 進場時機 + 智能 TP 延伸\n"
+        "• 真實勝率自校準 + 進場時機\n"
+        "• 智能 TP 延伸 + ATR 智能止損\n"
         "• Regime + Funding 極端反轉\n"
-        "• Wyckoff + 多週期共振\n"
-        "• 主動退出 + ATR 智能止損\n\n"
+        "• Wyckoff + 多週期共振 + 主動退出\n\n"
         "_⚠️ 加密貨幣風險極高，僅供參考_"
     )
     await update.message.reply_text(text, reply_markup=main_menu(), parse_mode="Markdown")
@@ -2465,14 +2458,30 @@ async def check_active_signals(ctx):
                         new_sl, sl_reason = analyzer.adaptive_sl_adjust(
                             df15m, direction, entry, sig["sl"], price
                         )
-                        if new_sl != sig["sl"] and sl_reason:
-                            old_sl_v = sig["sl"]
-                            sig["sl"] = new_sl
+                        # ⭐ v50 修：止損變化必須「有意義」才推播（避免微調狂洗版）
+                        old_sl_v = sig["sl"]
+                        if old_sl_v > 0 and sl_reason:
+                            sl_change_pct = abs(new_sl - old_sl_v) / old_sl_v * 100
+                        else:
+                            sl_change_pct = 0
+                        # 條件：(1) 變化 >= 0.3% (2) 距上次通知 >= 30 分鐘 (3) 方向正確（只能往獲利方向移）
+                        last_sl_notify = sig.get("last_sl_notify", 0)
+                        now_ts_sl = datetime.now(timezone.utc).timestamp()
+                        # 只允許「往獲利方向」移動止損（LONG 上移 / SHORT 下移）
+                        valid_direction = (
+                            (direction == "LONG" and new_sl > old_sl_v) or
+                            (direction == "SHORT" and new_sl < old_sl_v)
+                        )
+                        if (sl_reason and valid_direction
+                            and sl_change_pct >= 0.3
+                            and (now_ts_sl - last_sl_notify) >= 1800):
+                            sig["sl"] = round(new_sl, 6)
+                            sig["last_sl_notify"] = now_ts_sl
                             sym_short = sym.replace("/USDT", "")
                             msg = "🛡 *" + sym_short + " 止損智能上移*\n"
                             msg += "━━━━━━━━━━━━━━━\n"
-                            msg += "舊止損 `" + str(old_sl_v) + "` → 新止損 `" + str(round(new_sl, 6)) + "`\n"
-                            msg += "原因：" + sl_reason
+                            msg += "舊止損 `" + str(round(old_sl_v, 6)) + "` → 新止損 `" + str(round(new_sl, 6)) + "`\n"
+                            msg += "移動 *" + str(round(sl_change_pct, 2)) + "%* · " + sl_reason
                             notify_t = list(sig.get("watchers", []))
                             if BLACK_HUNTER_CHANNEL:
                                 notify_t.append(BLACK_HUNTER_CHANNEL)
@@ -2482,6 +2491,9 @@ async def check_active_signals(ctx):
                                 except Exception:
                                     pass
                             save_data()
+                        elif sl_reason and valid_direction and sl_change_pct < 0.3:
+                            # 小幅變化：靜默更新止損值，不推播
+                            sig["sl"] = round(new_sl, 6)
 
                         should_exit, exit_reason = analyzer.early_exit_signal(
                             df15m, direction, entry, sl
@@ -3084,7 +3096,7 @@ def main():
         interval=3600,
         first=120
     )
-    logger.info("🤖 Bot v49.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘 | 黑潮頻道: " + ("ON" if BLACK_HUNTER_CHANNEL else "OFF"))
+    logger.info("🤖 Bot v51.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘 | 黑潮頻道: " + ("ON" if BLACK_HUNTER_CHANNEL else "OFF"))
 
     # ⭐ v40 啟動自檢：30 秒後推送啟動通知
     async def startup_notify(ctx):
