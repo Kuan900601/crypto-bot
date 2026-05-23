@@ -782,6 +782,9 @@ class CryptoAnalyzer:
         self._funding_cache = {}  # {symbol: (value, timestamp)}
         self._lsr_cache = {}  # {symbol: (value, timestamp)}
         self._cache_ttl_sec = 300  # 5 分鐘
+        self._external_results = []  # v53：真實勝率校準用的歷史，由 bot.py 注入
+        self._last_plans = {}  # v54：結構化 plan，golden_hunter 每輪填充
+        self._last_plans_ready = False  # v54：本輪掛載是否正常完成
 
     async def fetch_funding_cached(self, session, symbol):
         """v38 帶快取的 funding rate 取得"""
@@ -2294,6 +2297,8 @@ class CryptoAnalyzer:
             if avg_loss_pct == 0:
                 return None
             b = avg_win_pct / avg_loss_pct
+            if b <= 0:  # v53 修復：avg_win_pct=0 → b=0 → 下行除零崩潰
+                return None
             kelly_f = (b * p - q) / b
             # 半凱利
             half_kelly = max(0, kelly_f * 0.5)
@@ -5700,6 +5705,9 @@ class CryptoAnalyzer:
 
     # ⭐ 平衡版黑潮船長
     async def golden_hunter(self, smart_filter=False, min_score=60, historical_results=None):
+        # ⭐ v54 每輪入口重置：避免任何 return 路徑殘留上一輪的結構化數據
+        self._last_plans = {}
+        self._last_plans_ready = False
         try:
             now = datetime.now(timezone.utc).strftime("%m-%d %H:%M:%S UTC")
             candidates = []
@@ -6193,6 +6201,44 @@ class CryptoAnalyzer:
                         "_市場暫時方向不明，等下次_")
 
             candidates.sort(key=lambda x: x["plan"]["score"], reverse=True)
+
+            # ⭐ v54 結構化輸出：把最終 plan 掛到 self._last_plans，供 bot.py 優先取用
+            # 消除「文字→regex 反解析」的失真（entry_grade 真值、rr1、真實勝率全部保留）
+            self._last_plans = {}
+            self._last_plans_ready = False  # v54：標記本輪掛載是否正常完成
+            try:
+                for _c in candidates:
+                    _p = _c["plan"]
+                    _sym = _c["symbol"]
+                    _dir = _p.get("direction") or _c.get("sig1h", {}).get("direction_en", "LONG")
+                    _key = _sym + "|" + _dir
+                    self._last_plans[_key] = {
+                        "symbol": _sym,
+                        "direction": _dir,
+                        "score": _p.get("score", 50),
+                        "entry": _p.get("entry"),
+                        "sl": _p.get("sl"),
+                        "tp1": _p.get("tp1", 0),
+                        "tp2": _p.get("tp2", 0),
+                        "tp3": _p.get("tp3", 0),
+                        "tp4": _p.get("tp4", 0),
+                        "tier": _p.get("tier", "C"),
+                        "entry_grade": _p.get("entry_grade", "C"),  # v54：真值，不再用 tier 頂替
+                        "position": _p.get("position", 5),
+                        "win_rate": _p.get("win_rate", 50),
+                        "real_win_rate": _p.get("real_win_rate"),
+                        "rr_ratio": _p.get("rr1", 0),  # v54：直接給 rr1
+                        "rr1": _p.get("rr1", 0),
+                        "timing_state": _p.get("timing_state", "NOW"),
+                        "timeframe": _p.get("timeframe", "短線"),
+                        "order_type": _p.get("order_type", "MARKET"),
+                    }
+                self._last_plans_ready = True  # 掛載正常完成（即使 candidates 空，也是正常的「無機會」）
+            except Exception as _e:
+                logger.error("v54 結構化掛載失敗: " + str(_e))
+                self._last_plans = {}
+                self._last_plans_ready = False
+
             r = "🌊 *黑潮船長｜分級機會清單*\n"
             r += "_" + now + "_\n"
             r += "━━━━━━━━━━━━━━━\n"
@@ -6339,7 +6385,8 @@ class CryptoAnalyzer:
                     r += "🏆 " + " · ".join(tp_parts) + "\n"
 
                 # 風險回報 + 倉位（一行）
-                rr = p.get("rr_ratio", p.get("rr", 0))
+                # v53 修正：plan 存的是 rr1，舊代碼找 rr_ratio/rr 找不到 → 顯示 1:0
+                rr = p.get("rr1", p.get("rr_ratio", p.get("rr", 0)))
                 pos = p.get("position", 5)
                 win_rate = p.get("win_rate", 0)
                 # 真實勝率（如果有歷史數據）

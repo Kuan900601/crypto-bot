@@ -33,6 +33,9 @@ _HUNTER_SCANNING = {"locked": False, "locked_at": 0, "last_push": 0}
 # 一旦推 B+，重置計時；一旦推 C，也重置（避免狂推 C）
 _C_TIER_GATE = {"last_high_tier_push": 0, "circuit_break_until": 0}
 
+# ⭐ v54 版本標識
+BOT_VERSION = "v54"
+
 # ⭐ BingX 連結產生器
 def bingx_trade_url(symbol, direction):
     """
@@ -1690,10 +1693,28 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
                 _HUNTER_SCANNING["last_push"] = time.time()  # 重置計時
             logger.warning("3分推播：golden_hunter 回傳 None")
             return
-        # ⭐ 從結果解析信號詳情並進行冷卻檢查
-        import re as _re
-        # 解析推播訊息中的每個候選信號
-        parsed_signals = parse_hunter_signals(result)
+        # ⭐ v54 完整重構：主路徑完全使用結構化 plan，不經過任何文字反解析
+        # entry_grade/rr1/win_rate 全部是真值；三種情況精確區分：
+        #   ready=True + 有資料 → 正常使用
+        #   ready=True + 空     → 本輪無機會（正常，靜默結束）
+        #   ready=False         → analyzer 異常未正常掛載（安全網：警告 + 回退 regex 兜底）
+        last_plans = getattr(analyzer, "_last_plans", None)
+        plans_ready = getattr(analyzer, "_last_plans_ready", False)
+
+        if plans_ready:
+            structured = list((last_plans or {}).values())
+            valid = [s for s in structured
+                     if s.get("entry") and s.get("sl") and s.get("tp1")]
+            parsed_signals = valid
+            if valid:
+                logger.info("v54 結構化 plan: " + str(len(valid)) + " 筆")
+            else:
+                logger.info("v54 本輪無機會（結構化正常，candidates 為空）")
+        else:
+            # 安全網：analyzer 未正常掛載（異常或舊版），回退 regex，並警告
+            logger.warning("⚠️ v54 結構化未就緒（analyzer 異常？），啟用 regex 安全網")
+            parsed_signals = parse_hunter_signals(result)
+            logger.info("v54 安全網 regex 解析: " + str(len(parsed_signals)) + " 筆")
 
         # ⭐ 冷卻機制：過濾掉已有活躍信號的幣種
         filtered_signals = []
@@ -1998,7 +2019,6 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
 
 
 # ===== 信號追蹤系統 =====
-import hashlib
 
 def parse_hunter_signals(result):
     """從黑潮船長推播文本解析信號詳情（v40.2 配合 v38 實際輸出格式）
@@ -2119,7 +2139,7 @@ def parse_hunter_signals(result):
                 "tp3": tps[3],
                 "tp4": tps[4],
                 "tier": tier,
-                "entry_grade": tier,  # v47: 暫用 tier（analyzer 沒在訊息輸出 entry_grade）
+                "entry_grade": tier,  # v54: 此為 regex fallback 路徑，拿不到真值才用 tier 頂替；結構化路徑(_last_plans)已是真值
                 "position": position,
                 "win_rate": win_rate,
                 "rr_ratio": rr,
@@ -2217,6 +2237,13 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
         exit_price = sig["tp4"]
     else:
         exit_price = cp
+    # v53 加固：若已達過 TP（tp_hit 非空），代表止損應已移至保本價。
+    # 萬一 sl 未成功移動（重啟/狀態遺失），剩餘倉位出場價不應低於成本，避免重複計虧。
+    if tp_hit:
+        if direction == "LONG":
+            exit_price = max(exit_price, entry)
+        else:
+            exit_price = min(exit_price, entry)
     remaining_pct = (exit_price - entry) / entry * 100 * _dir
 
     final_pct = realized + remaining_pct * remaining_weight
@@ -3140,7 +3167,7 @@ def main():
         interval=3600,
         first=120
     )
-    logger.info("🤖 Bot v52.0 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘 | 黑潮頻道: " + ("ON" if BLACK_HUNTER_CHANNEL else "OFF"))
+    logger.info("🤖 Bot " + BOT_VERSION + " 啟動 | 推播間隔 " + str(PUSH_INTERVAL_MIN) + " 分鐘 | 黑潮頻道: " + ("ON" if BLACK_HUNTER_CHANNEL else "OFF"))
 
     # ⭐ v40 啟動自檢：30 秒後推送啟動通知
     async def startup_notify(ctx):

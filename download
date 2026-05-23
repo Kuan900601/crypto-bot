@@ -1,0 +1,69 @@
+# ───────────── 密鑰 / 環境變數（最重要，務必擋）─────────────
+# 你的 bot 用 TELEGRAM_BOT_TOKEN / TG_CHANNEL_ID 等環境變數
+.env
+.env.*
+!.env.example
+*.env
+secrets.json
+config.local.py
+credentials*.json
+
+# ───────────── 執行時產生的資料 / 狀態檔 ─────────────
+# bot_data.json 預設寫在 /tmp（repo 外），但若改路徑或本機測試會落地
+bot_data.json
+*_data.json
+state.json
+*.db
+*.sqlite
+*.sqlite3
+
+# ───────────── 日誌 ─────────────
+*.log
+logs/
+log/
+
+# ───────────── 圖表 / 媒體輸出（analyzer 用 BytesIO，通常不落地，保險擋）─────────────
+*.png
+*.jpg
+*.jpeg
+charts/
+output/
+tmp/
+
+# ───────────── Python 通用 ─────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# 虛擬環境
+venv/
+.venv/
+env/
+ENV/
+virtualenv/
+
+# ───────────── 測試 / 快取 ─────────────
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ───────────── 編輯器 / 作業系統 ─────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ───────────── 部署平台殘留（Railway / Render / Heroku 等）─────────────
+.railway/
+.render/
+*.pid
