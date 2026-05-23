@@ -31,7 +31,7 @@ _HUNTER_SCANNING = {"locked": False, "locked_at": 0, "last_push": 0}
 # ⭐ v48 C 級延遲：記錄最後一次 B 級以上推播時間
 # 用途：4.5 小時內若有 B 級以上推播，C 級就不推
 # 一旦推 B+，重置計時；一旦推 C，也重置（避免狂推 C）
-_C_TIER_GATE = {"last_high_tier_push": 0}
+_C_TIER_GATE = {"last_high_tier_push": 0, "circuit_break_until": 0}
 
 # ⭐ BingX 連結產生器
 def bingx_trade_url(symbol, direction):
@@ -1285,11 +1285,11 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         msg += "🔸 *進場價*：`" + str(sig["entry"]) + "`\n"
         msg += "🔸 *止損價*：`" + str(sig["sl"]) + "`\n\n"
         msg += "*📍 階梯止盈設定*\n"
-        msg += "TP1：`" + str(sig["tp1"]) + "` 平 25%\n"
+        msg += "TP1：`" + str(sig["tp1"]) + "` 平 15%\n"
         if sig.get("tp2", 0) > 0:
             msg += "TP2：`" + str(sig["tp2"]) + "` 平 35%\n"
         if sig.get("tp3", 0) > 0:
-            msg += "TP3：`" + str(sig["tp3"]) + "` 平 25%\n"
+            msg += "TP3：`" + str(sig["tp3"]) + "` 平 35%\n"
         if sig.get("tp4", 0) > 0:
             msg += "TP4：`" + str(sig["tp4"]) + "` 平 15%\n"
         msg += "\n*💡 BingX 設定步驟*\n"
@@ -1623,6 +1623,28 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
 
         # ⭐ v38 自動保護模式（在階梯之上微調）
         protection_mode, protection_reason = analyzer.auto_protection_mode(SIGNAL_RESULTS)
+
+        # ⭐ v53 熔斷：連虧 8+ 暫停 6 小時，到點自動恢復
+        if protection_mode == "CIRCUIT_BREAK":
+            cb_until = _C_TIER_GATE.get("circuit_break_until", 0)
+            if cb_until == 0:
+                _C_TIER_GATE["circuit_break_until"] = now_ts + 6 * 3600
+                logger.info("🚨 熔斷啟動：暫停推播 6 小時")
+                _HUNTER_SCANNING["locked"] = False
+                return
+            elif now_ts < cb_until:
+                logger.info("🚨 熔斷中：剩 " + str(round((cb_until - now_ts) / 3600, 1)) + "h")
+                _HUNTER_SCANNING["locked"] = False
+                return
+            else:
+                _C_TIER_GATE["circuit_break_until"] = 0
+                logger.info("✅ 熔斷自動解除，恢復推播")
+        else:
+            _C_TIER_GATE["circuit_break_until"] = 0   # 非熔斷狀態清除計時
+
+        # ⭐ v53 注入真實歷史，讓分析器的勝率校準看得到實績
+        analyzer._external_results = SIGNAL_RESULTS
+
         if protection_mode == "DEFENSIVE":
             # 防守模式：階梯 1-2 提高，3-4 不調（避免完全沒信號）
             if stage_label in ("PRO", "BALANCED"):
@@ -1728,9 +1750,9 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-            # ⭐ v38 防守模式只推 S/A 級
-            if protection_mode == "DEFENSIVE" and sig.get("tier") not in ("S", "A"):
-                skipped_reasons.append(sym + " 防守模式只推 S/A")
+            # ⭐ v53 防守模式放寬到 B 級以上（避免靜音）
+            if protection_mode == "DEFENSIVE" and sig.get("tier") not in ("S", "A", "B"):
+                skipped_reasons.append(sym + " 防守模式只推 B 級以上")
                 continue
 
             filtered_signals.append(sig)
@@ -2171,12 +2193,33 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
     entry = sig["entry"]
     # 計算結果百分比
     cp = current_price or entry
+    # ⭐ v53 正確結算：計入分批止盈已實現的利潤
+    # 倉位權重：TP1 平 15%、TP2 平 35%、TP3 平 35%、TP4 平 15%（v53 後段加重）
+    _weights = {1: 0.15, 2: 0.35, 3: 0.35, 4: 0.15}
+    _dir = 1 if direction == "LONG" else -1
+    tp_hit = sig.get("tp_hit", [])
+
+    # 已實現部分：每個已達成的 TP，按其權重結算該段利潤
+    realized = 0.0
+    realized_weight = 0.0
+    for lvl in tp_hit:
+        tp_price = sig.get("tp" + str(lvl))
+        if tp_price:
+            seg_pct = (tp_price - entry) / entry * 100 * _dir
+            realized += seg_pct * _weights.get(lvl, 0)
+            realized_weight += _weights.get(lvl, 0)
+
+    # 剩餘部分：用最終出場價結算
+    remaining_weight = max(0.0, 1.0 - realized_weight)
     if reason_code == "SL_HIT":
-        final_pct = -abs(entry - sig["sl"]) / entry * 100
+        exit_price = sig["sl"]
     elif reason_code == "TP4_HIT":
-        final_pct = abs(sig["tp4"] - entry) / entry * 100 * (1 if direction == "LONG" else -1)
+        exit_price = sig["tp4"]
     else:
-        final_pct = (cp - entry) / entry * 100 * (1 if direction == "LONG" else -1)
+        exit_price = cp
+    remaining_pct = (exit_price - entry) / entry * 100 * _dir
+
+    final_pct = realized + remaining_pct * remaining_weight
 
     sym_short = symbol.replace("/USDT", "")
     direction_zh = "做多" if direction == "LONG" else "做空"
@@ -2248,6 +2291,7 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
         "tp_hit_count": len(sig.get("tp_hit", [])),
         "score": sig.get("score", 0),
         "tier": sig.get("tier", "B"),  # v38 新增
+        "entry_grade": sig.get("entry_grade", ""),  # v53：為真實勝率校準
         "is_win": is_win,  # v38 新增
         "closed_at": datetime.now(timezone.utc).isoformat(),
         "duration_min": (datetime.now(timezone.utc) - datetime.fromisoformat(sig.get("created", datetime.now(timezone.utc).isoformat()))).total_seconds() / 60 if sig.get("created") else 0,
@@ -2328,9 +2372,9 @@ async def notify_tp_hit(ctx, symbol, tp_level, current_price):
             logger.error("智能 TP 延伸失敗: " + str(e))
 
     tp_messages = {
-        1: ("✅", "達到 TP1 保本點", "*立即平 25% 倉位*"),
+        1: ("✅", "達到 TP1 保本點", "*立即平 15% 倉位*"),
         2: ("💰", "達到 TP2 鎖利", "*平 35% 倉位*"),
-        3: ("🏆", "達到 TP3 大勝", "*平 25% 倉位*"),
+        3: ("🏆", "達到 TP3 大勝", "*平 35% 倉位*"),
         4: ("🎯", "達到 TP4 滿貫", "*平剩餘 15%*"),
     }
     emoji, title, action = tp_messages[tp_level]

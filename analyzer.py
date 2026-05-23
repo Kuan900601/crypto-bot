@@ -1652,6 +1652,17 @@ class CryptoAnalyzer:
         """
         智能止損 - 取最寬鬆的保護位
         """
+        # ⭐ v53 波動自適應止損：高波動放寬、低波動收緊（避免被正常波動掃出場）
+        try:
+            atr_pct = atr_v / entry * 100
+            if atr_pct > 4:        # 高波動幣（如 NEAR/FET 暴動時）
+                atr_mult = 2.2
+            elif atr_pct > 2.5:
+                atr_mult = 1.8
+            elif atr_pct < 1.0:    # 低波動幣
+                atr_mult = 1.2
+        except Exception:
+            pass
         candidates = []
         labels = []
         if direction == "LONG":
@@ -2131,32 +2142,37 @@ class CryptoAnalyzer:
                 # 計算 Fibonacci 擴展
                 fib_1618 = entry + risk * 2.0  # 黃金比例擴展
                 fib_2618 = entry + risk * 3.2  # 瘋狂擴展
-                # TP1: 1:1 風報（保本）
-                tp1 = round(entry + risk * 1.0, 4)
-                # TP2: 最近的阻力或 1:1.8（取近者）
+                # v53 重設 Fib 擴展，配合 TP1=1.5R 的新階梯
+                fib_1618 = entry + risk * 3.5  # TP3 目標
+                fib_2618 = entry + risk * 5.0  # TP4 目標
+                # TP1: 1.5R（v53：低勝率策略不用 1:1，避免浪費盈虧比）
+                tp1 = round(entry + risk * 1.5, 4)
+                # TP2: 最近阻力或 2.5R（取近者，但須 > TP1）
                 if ref_res and ref_res[0] > entry:
-                    tp2_candidates = [ref_res[0], entry + risk * 1.8]
-                    tp2 = min([t for t in tp2_candidates if t > tp1])
+                    tp2_candidates = [ref_res[0], entry + risk * 2.5]
+                    valid_tp2 = [t for t in tp2_candidates if t > tp1]
+                    tp2 = min(valid_tp2) if valid_tp2 else round(entry + risk * 2.5, 4)
                 else:
-                    tp2 = round(entry + risk * 1.8, 4)
-                # TP3: Fib 1.618 或第二阻力
+                    tp2 = round(entry + risk * 2.5, 4)
+                # TP3: Fib 3.5R 或第二阻力（取遠者）
                 if ref_res and len(ref_res) >= 2:
                     tp3 = max(ref_res[1], fib_1618)
                 else:
                     tp3 = round(fib_1618, 4)
-                # TP4: Fib 2.618 或近期高點 + ATR
+                # TP4: Fib 5R 或近期高點 + ATR
                 tp4_candidates = [fib_2618, recent_high + atr_v]
                 tp4 = round(max(tp4_candidates), 4)
             else:
                 recent_low = float(df.tail(30)["low"].min())
-                fib_1618 = entry - risk * 2.0
-                fib_2618 = entry - risk * 3.2
-                tp1 = round(entry - risk * 1.0, 4)
+                fib_1618 = entry - risk * 3.5  # v53 TP3 目標
+                fib_2618 = entry - risk * 5.0  # v53 TP4 目標
+                tp1 = round(entry - risk * 1.5, 4)  # v53：1.5R
                 if ref_sup and ref_sup[0] < entry:
-                    tp2_candidates = [ref_sup[0], entry - risk * 1.8]
-                    tp2 = max([t for t in tp2_candidates if t < tp1])
+                    tp2_candidates = [ref_sup[0], entry - risk * 2.5]
+                    valid_tp2 = [t for t in tp2_candidates if t < tp1]
+                    tp2 = max(valid_tp2) if valid_tp2 else round(entry - risk * 2.5, 4)
                 else:
-                    tp2 = round(entry - risk * 1.8, 4)
+                    tp2 = round(entry - risk * 2.5, 4)
                 if ref_sup and len(ref_sup) >= 2:
                     tp3 = min(ref_sup[1], fib_1618)
                 else:
@@ -3350,10 +3366,10 @@ class CryptoAnalyzer:
     # ⭐ v38 連勝/連敗自動調節
     def auto_protection_mode(self, signal_results, lookback=10):
         """
-        檢查最近表現決定保護模式
-        - 連虧 3+ → DEFENSIVE：只推 S/A 級
-        - 連勝 5+ → AGGRESSIVE：放寬門檻
-        - 普通 → NORMAL
+        v53：保護模式不再靜音
+        - 連虧 4-7 → DEFENSIVE：只推 B 級以上、倉位減半（仍持續運作）
+        - 連虧 8+  → CIRCUIT_BREAK：暫停 6 小時後自動恢復（真的很糟才全停）
+        - 連勝 3+  → AGGRESSIVE
         """
         try:
             if not signal_results or len(signal_results) < 5:
@@ -3373,9 +3389,11 @@ class CryptoAnalyzer:
                         consecutive_loss += 1
                     else:
                         break
-            if consecutive_loss >= 5:  # v40 放寬：5 次才防守
-                return "DEFENSIVE", "連虧 " + str(consecutive_loss) + " 次，僅推 S/A 級"
-            if consecutive_win >= 3:  # v40：3 連勝就積極
+            if consecutive_loss >= 8:
+                return "CIRCUIT_BREAK", "連虧 " + str(consecutive_loss) + " 次，暫停 6 小時後自動恢復"
+            if consecutive_loss >= 4:
+                return "DEFENSIVE", "連虧 " + str(consecutive_loss) + " 次，僅推 B 級以上、倉位減半"
+            if consecutive_win >= 3:
                 return "AGGRESSIVE", "連勝 " + str(consecutive_win) + " 次，放寬門檻"
             return "NORMAL", "正常模式"
         except Exception:
@@ -5315,6 +5333,25 @@ class CryptoAnalyzer:
         win_rate = _base_wr + _consensus_bonus + _grade_bonus + _mtf_bonus + _conf_bonus - _risk_penalty
         win_rate = round(min(78, max(40, win_rate)))
 
+        # ⭐ v53 真實勝率校準：理論值整體下修，並用歷史實績覆蓋
+        # 理由：v52 理論勝率系統性高估（理論 51% vs 實際 10%）
+        win_rate = round(win_rate * 0.82)          # 理論值統一打 82 折（消除樂觀偏差）
+        try:
+            _hist = getattr(self, "_external_results", None)  # bot.py 會在呼叫前注入
+            if _hist:
+                # 先看「同進場 grade」的真實勝率（樣本要求較低）
+                _g = entry_grade["grade"]
+                _grade_hist = [r for r in _hist[-100:] if r.get("entry_grade") == _g]
+                if len(_grade_hist) >= 10:
+                    _gw = sum(1 for r in _grade_hist if r.get("final_pct", 0) > 0)
+                    _real_g = _gw / len(_grade_hist) * 100
+                    # 真實值權重 0.7，理論值 0.3（樣本越多越信真實）
+                    _w = min(0.7, 0.4 + len(_grade_hist) * 0.01)
+                    win_rate = round(win_rate * (1 - _w) + _real_g * _w)
+        except Exception:
+            pass
+        win_rate = round(min(75, max(20, win_rate)))   # 下限放寬到 20（誠實反映可能很低）
+
         # ⭐ v49 用更新後的 win_rate 重算 Kelly 倉位
         kelly = max(0, (win_rate/100 - (1 - win_rate/100) / avg_rr)) * 100
         position = round(min(kelly * 0.5, 6), 1)  # 單筆上限 6%
@@ -5491,6 +5528,21 @@ class CryptoAnalyzer:
         # 三個等級的判定（給後續分級推播用）
         ev_score = plan["expected_value"]
         cons_score = consensus_count
+
+        # ⭐ v53 盈虧比硬門檻：TP1 報酬必須 ≥ 止損距 * 1.2，否則直接拒絕
+        # 修掉戰績「平均盈利 +0.2% / 平均虧損 -1.93%」的結構性虧損單
+        try:
+            _entry = plan.get("entry", 0)
+            _sl = plan.get("sl", 0)
+            _tp1 = plan.get("tp1", 0)
+            if _entry and _sl and _tp1:
+                _risk = abs(_entry - _sl) / _entry
+                _reward1 = abs(_tp1 - _entry) / _entry
+                if _risk > 0 and _reward1 / _risk < 1.2:
+                    return None, ("TP1 風報比過低 (" + str(round(_reward1 / _risk, 2))
+                                  + " < 1.2)，拒絕爛盈虧比單")
+        except Exception:
+            pass
 
         # ⭐ v49 職業勝率分級系統
         # 核心原則：任何被推播的信號 → 理論勝率 ≥ 51%
@@ -5733,6 +5785,22 @@ class CryptoAnalyzer:
                         if not isinstance(r_ticker, Exception):
                             btc_ticker_cache = r_ticker
                         break
+
+                # ⭐ v53 大盤閘門：BTC 無趨勢高波動時暫停（山寨最易插針雙殺）
+                try:
+                    if btc_df_cache is not None and len(btc_df_cache) >= 30:
+                        _btc_adx = self.safe_val(self.adx(btc_df_cache), 20)
+                        _btc_atr = self.safe_val(self.atr(btc_df_cache))
+                        _btc_price = float(btc_df_cache["close"].iloc[-1])
+                        _btc_atr_pct = (_btc_atr / _btc_price * 100) if _btc_price else 0
+                        if _btc_adx < 15 and _btc_atr_pct > 2:
+                            logger.info("🌊 v53 大盤無趨勢高波動 (BTC ADX=%.0f ATR=%.1f%%)，本輪暫停" % (_btc_adx, _btc_atr_pct))
+                            return ("📡 *黑潮船長 — 大盤閘門*\n"
+                                    "━━━━━━━━━━━━━━━\n"
+                                    "🌊 BTC 無趨勢高波動，本輪暫停推播\n"
+                                    "_避免區間插針雙殺，下輪自動重試_")
+                except Exception as _e:
+                    logger.error("大盤閘門檢查失敗: " + str(_e))
                 for i, sym in enumerate(self.SCAN_POOL):
                     df15m = results[i*stride]
                     df1h = results[i*stride+1]
