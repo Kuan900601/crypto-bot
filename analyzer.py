@@ -5803,6 +5803,7 @@ class CryptoAnalyzer:
                         _btc_atr_pct = (_btc_atr / _btc_price * 100) if _btc_price else 0
                         if _btc_adx < 15 and _btc_atr_pct > 2:
                             logger.info("🌊 v53 大盤無趨勢高波動 (BTC ADX=%.0f ATR=%.1f%%)，本輪暫停" % (_btc_adx, _btc_atr_pct))
+                            self._last_plans_ready = True  # v54: 正常無信號路徑，非異常
                             return ("📡 *黑潮船長 — 大盤閘門*\n"
                                     "━━━━━━━━━━━━━━━\n"
                                     "🌊 BTC 無趨勢高波動，本輪暫停推播\n"
@@ -6003,6 +6004,8 @@ class CryptoAnalyzer:
                             score_emg = (50 - rsi) * 2 + adx
                         else:
                             continue
+                        # v54 修復：緊急保底 score 沒有上限（RSI 79 → 110），統一夾到 0~100
+                        score_emg = max(0, min(100, score_emg))
 
                         # 用 ATR 算簡易 SL/TP
                         atr_val = float(self.atr(df1h).iloc[-1])
@@ -6031,7 +6034,7 @@ class CryptoAnalyzer:
                             "symbol": sym,
                             "sig1h": sig1h_emg,  # ⭐ v46.1 補上 sig1h（顯示時會用）
                             "direction": direction_emg,
-                            "score": score_emg,
+                            "score": 26,  # v54：與 plan/dimensions 一致
                             "current_price": current_price,
                             "vol24": vol24,
                             "chg": chg,
@@ -6053,9 +6056,9 @@ class CryptoAnalyzer:
                             "bull_ob": [], "bear_ob": [],
                             "bull_fvg": [], "bear_fvg": [],
                             "bos_dir": None, "bos_level": 0,
-                            "quality_score": int(score_emg),  # v46.1 修：補 quality_score
+                            "quality_score": 26,  # v54：與 score 一致（後續會在 6146 重算覆蓋，此處統一避免混淆）
                             "plan": {
-                                "score": int(score_emg),
+                                "score": 26,  # v54：與 dimensions.total 一致（原本用 score_emg 導致圖表顯示 100、文字顯示 26 的矛盾）
                                 "direction": direction_emg,
                                 "direction_en": direction_emg,
                                 "tier": "C",
@@ -6125,6 +6128,7 @@ class CryptoAnalyzer:
 
             # ⭐ v41 修：若 ok_count = 0（全部 API 失敗）直接回診斷訊息
             if ok_count == 0:
+                self._last_plans_ready = True  # v54: 正常無信號路徑，非異常
                 return ("⚠️ *黑潮船長 — 資料抓取失敗*\n"
                         "_" + now + "_\n"
                         "━━━━━━━━━━━━━━━\n\n"
@@ -6156,6 +6160,7 @@ class CryptoAnalyzer:
                     qualified.append(c)
                 # ⭐ v41 修：即使 qualified 空也回傳「掃描狀態訊息」而不是 None
                 if not qualified:
+                    self._last_plans_ready = True  # v54: 正常無信號路徑，非異常
                     return ("📡 *黑潮船長 — 掃描完成*\n"
                             "_" + now + "_\n"
                             "━━━━━━━━━━━━━━━\n\n"
@@ -6178,6 +6183,7 @@ class CryptoAnalyzer:
                 c_tier = [c for c in qualified if c["plan"].get("tier") == "C"][:1]
                 candidates = s_tier + a_tier + b_tier + c_tier
                 if not candidates:
+                    self._last_plans_ready = True  # v54: 正常無信號路徑，非異常
                     return ("📡 *黑潮船長 — 掃描完成*\n"
                             "_" + now + "_\n"
                             "━━━━━━━━━━━━━━━\n\n"
@@ -6187,6 +6193,7 @@ class CryptoAnalyzer:
                             "_暫無 S/A/B/C 級信號_")
 
             if not candidates:
+                self._last_plans_ready = True  # v54: 正常無信號路徑，非異常
                 return ("🎯 *黑潮船長 — " + now + "*\n"
                         "_" + now + "_\n"
                         "━━━━━━━━━━━━━━━━━━━━\n\n"

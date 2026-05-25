@@ -36,6 +36,15 @@ _C_TIER_GATE = {"last_high_tier_push": 0, "circuit_break_until": 0}
 # ⭐ v54 版本標識
 BOT_VERSION = "v54"
 
+# ⭐ v54 進場品質顯示：內部值 S/A/B/C/D 不變（邏輯依賴），僅在顯示層翻譯成三級中文
+def entry_grade_display(grade):
+    """S/A → 高品質, B/C → 一般品質, D → 低品質"""
+    return {
+        "S": "高品質", "A": "高品質",
+        "B": "一般品質", "C": "一般品質",
+        "D": "低品質",
+    }.get(grade, "一般品質")
+
 # ⭐ BingX 連結產生器
 def bingx_trade_url(symbol, direction):
     """
@@ -496,7 +505,7 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                                     sym_short = sym.replace("/USDT", "")
                                     grade = sig.get("entry_grade", "")
                                     direction = sig.get("direction", "LONG")
-                                    title_suffix = grade + " GRADE" if grade else ""
+                                    title_suffix = entry_grade_display(grade) if grade else ""
                                     caption = (
                                         "📊 *" + sym_short + " " + ("Long" if direction == "LONG" else "Short") + "*\n"
                                         "Entry: `" + str(sig.get("entry", 0)) + "` | SL: `" + str(sig.get("sl", 0)) + "`"
@@ -1949,13 +1958,13 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
                     tier = sig.get("tier", "B")
                     tier_emoji = {"S": "💎", "A": "🥇", "B": "🥈", "C": "🥉"}.get(tier, "")
                     tier_text = {"S": "[S] DIAMOND", "A": "[A] GOLD", "B": "[B] SILVER", "C": "[C] BRONZE"}.get(tier, "[B] SILVER")
-                    title_suffix = tier_text + " | " + grade + " GRADE" if grade else tier_text
+                    title_suffix = tier_text + " | " + entry_grade_display(grade) if grade else tier_text
                     score = sig.get("score", "?")
                     # v33 副標題：tier + 評分
                     subtitle = tier_text + "  |  Score " + str(score) + "  |  " + ("LONG" if direction == "LONG" else "SHORT")
                     caption = (
                         tier_emoji + " *" + sym_short + " " + ("Long ▲" if direction == "LONG" else "Short ▼") + "  " + tier + " 級*\n"
-                        "進場品質: " + grade + " | 信心: " + str(score) + "\n"
+                        "進場品質: " + entry_grade_display(grade) + " | 信心: " + str(score) + "\n"
                         "Entry: `" + str(sig.get("entry", 0)) + "`  |  SL: `" + str(sig.get("sl", 0)) + "`\n"
                         "TP1-4: `" + str(sig.get("tp1", 0)) + "` / `" + str(sig.get("tp2", 0)) + "` / `" + str(sig.get("tp3", 0)) + "` / `" + str(sig.get("tp4", 0)) + "`"
                     )
@@ -2350,8 +2359,11 @@ async def notify_tp_hit(ctx, symbol, tp_level, current_price):
     new_sl = None
     old_sl = sig["sl"]
     if tp_level == 1:
-        new_sl = entry  # 移到成本價
-        sl_action = "止損自動移至*成本價* `" + str(entry) + "` (保本)"
+        # v54 改進：不再鉤死在成本價（太緊→一回調就被洗出，贏家只吃到 TP1 15%）
+        # 改移到「成本價 + TP1漲幅的 30%」，鎖一小段利潤但留波動空間，讓贏家跑到 TP2/TP3
+        tp1_price = sig.get("tp1", entry)
+        new_sl = round(entry + (tp1_price - entry) * 0.3, 6)
+        sl_action = "止損自動移至 `" + str(new_sl) + "` (鎖利保本，留波動空間)"
     elif tp_level == 2:
         new_sl = sig.get("tp1", entry)
         sl_action = "止損自動移至 *TP1* `" + str(new_sl) + "` (鎖利)"
