@@ -5992,14 +5992,15 @@ class CryptoAnalyzer:
                         rsi = sig1h.get("rsi", 50)
                         adx = sig1h.get("adx", 0)
 
-                        # 緊急模式：用 RSI 偏離 50 + ADX > 8 判斷方向
-                        if adx < 10:  # v46 緊急保底放寬 ADX 10
+                        # 緊急模式：用 RSI 偏離 50 + ADX 判斷方向
+                        # v54 加嚴：原本 ADX 10 / RSI 55-45 太鬆，盤整期硬擠爛單（score 26、勝率 50%）
+                        # 改成 ADX>15（有一定趨勢）+ RSI>60 或 <40（真有動能偏向）才出，寧缺勿濫
+                        if adx < 15:
                             continue
-                        # v46 緊急保底放寬：RSI 偏向 55/45 就算
-                        if rsi > 55:
+                        if rsi > 60:
                             direction_emg = "LONG"
                             score_emg = (rsi - 50) * 2 + adx
-                        elif rsi < 45:
+                        elif rsi < 40:
                             direction_emg = "SHORT"
                             score_emg = (50 - rsi) * 2 + adx
                         else:
@@ -6007,22 +6008,23 @@ class CryptoAnalyzer:
                         # v54 修復：緊急保底 score 沒有上限（RSI 79 → 110），統一夾到 0~100
                         score_emg = max(0, min(100, score_emg))
 
-                        # 用 ATR 算簡易 SL/TP
+                        # 用 ATR 算 SL/TP（v54：TP 改用風險倍數，與正常單的 1.5R 階梯一致，不再 1:1）
                         atr_val = float(self.atr(df1h).iloc[-1])
+                        _risk = atr_val * 1.5  # 風險距離
                         if direction_emg == "LONG":
                             entry = current_price
-                            sl = current_price - atr_val * 1.5
-                            tp1 = current_price + atr_val * 1.5
-                            tp2 = current_price + atr_val * 2.5
-                            tp3 = current_price + atr_val * 4
-                            tp4 = current_price + atr_val * 6
+                            sl = current_price - _risk
+                            tp1 = current_price + _risk * 1.5
+                            tp2 = current_price + _risk * 2.5
+                            tp3 = current_price + _risk * 3.5
+                            tp4 = current_price + _risk * 5.0
                         else:
                             entry = current_price
-                            sl = current_price + atr_val * 1.5
-                            tp1 = current_price - atr_val * 1.5
-                            tp2 = current_price - atr_val * 2.5
-                            tp3 = current_price - atr_val * 4
-                            tp4 = current_price - atr_val * 6
+                            sl = current_price + _risk
+                            tp1 = current_price - _risk * 1.5
+                            tp2 = current_price - _risk * 2.5
+                            tp3 = current_price - _risk * 3.5
+                            tp4 = current_price - _risk * 5.0
 
                         # v46.1 補完結構：必須跟正常 candidate 一致
                         # 把 sig1h 強制設置 direction_en（雖然原本可能是 NEUTRAL）

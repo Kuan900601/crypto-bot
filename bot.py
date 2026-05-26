@@ -107,47 +107,121 @@ SYMBOL_LOSSES = {}
 # 格式：{symbol_direction: {"entry": price, "time": iso, "score": score}}
 RECENT_PUSHES = {}
 
-DATA_FILE = "/tmp/bot_data.json"
+# ⭐ v54 A 方案：Upstash Redis 雲端持久化（優先），本地檔案 fallback
+# 設了 UPSTASH 兩個環境變數 → 用 Redis（永久保存，不受部署/重啟/換平台影響）
+# 沒設 → 退回本地檔案（至少不崩，但重啟會丟）
+import urllib.request as _urlreq
+import urllib.parse as _urlparse
+
+_REDIS_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "").rstrip("/")
+_REDIS_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
+_REDIS_KEY = "bot_data"  # Redis 裡存數據用的 key
+_USE_REDIS = bool(_REDIS_URL and _REDIS_TOKEN)
+
+# 本地檔案 fallback 路徑
+_DATA_DIR = os.environ.get("DATA_DIR", "/tmp")
+try:
+    os.makedirs(_DATA_DIR, exist_ok=True)
+    DATA_FILE = os.path.join(_DATA_DIR, "bot_data.json")
+except Exception:
+    DATA_FILE = "/tmp/bot_data.json"
+
+if _USE_REDIS:
+    logger.info("✅ 使用 Upstash Redis 雲端持久化（數據永久保存）")
+else:
+    logger.warning("⚠️ 未設定 Upstash Redis，退回本地檔案 " + DATA_FILE + "（重啟會丟失！）")
+
+
+def _redis_set(value_str):
+    """寫入 Redis（用 POST，避免長字串塞進 URL）"""
+    url = _REDIS_URL + "/set/" + _REDIS_KEY
+    req = _urlreq.Request(url, data=value_str.encode("utf-8"),
+                          headers={"Authorization": "Bearer " + _REDIS_TOKEN})
+    with _urlreq.urlopen(req, timeout=10) as resp:
+        return resp.read()
+
+
+def _redis_get():
+    """從 Redis 讀取，回傳字串或 None"""
+    url = _REDIS_URL + "/get/" + _REDIS_KEY
+    req = _urlreq.Request(url, headers={"Authorization": "Bearer " + _REDIS_TOKEN})
+    with _urlreq.urlopen(req, timeout=10) as resp:
+        result = json.loads(resp.read().decode("utf-8"))
+        return result.get("result")  # Upstash 回傳 {"result": "..."}
+
+
+def _pack_data():
+    """把所有狀態打包成 dict（Redis 和檔案共用）"""
+    return {
+        "favorites": {str(k): v for k, v in USER_FAVORITES.items()},
+        "history": {str(k): v for k, v in PUSH_HISTORY.items()},
+        "watchers": list(HUNTER_WATCHERS),
+        "daily_schedule": {str(k): v for k, v in USER_DAILY_SCHEDULE.items()},
+        "signals": SIGNAL_TRACKER,
+        "capital": {str(k): v for k, v in USER_CAPITAL.items()},
+        "active_signals": ACTIVE_SIGNALS,
+        "signal_results": SIGNAL_RESULTS[-200:],
+        "symbol_losses": SYMBOL_LOSSES,
+        "recent_pushes": RECENT_PUSHES
+    }
+
+
+def _unpack_data(data):
+    """從 dict 還原所有狀態（Redis 和檔案共用）"""
+    global USER_FAVORITES, PUSH_HISTORY, HUNTER_WATCHERS, USER_DAILY_SCHEDULE, SIGNAL_TRACKER, USER_CAPITAL, ACTIVE_SIGNALS, SIGNAL_RESULTS, SYMBOL_LOSSES, RECENT_PUSHES
+    USER_FAVORITES = {int(k): v for k, v in data.get("favorites", {}).items()}
+    PUSH_HISTORY = {int(k): v for k, v in data.get("history", {}).items()}
+    HUNTER_WATCHERS = set(int(x) for x in data.get("watchers", []))
+    USER_DAILY_SCHEDULE = {int(k): v for k, v in data.get("daily_schedule", {}).items()}
+    SIGNAL_TRACKER = data.get("signals", {})
+    USER_CAPITAL = {int(k): v for k, v in data.get("capital", {}).items()}
+    ACTIVE_SIGNALS.update(data.get("active_signals", {}))
+    SIGNAL_RESULTS.extend(data.get("signal_results", []))
+    SYMBOL_LOSSES.update(data.get("symbol_losses", {}))
+    RECENT_PUSHES.update(data.get("recent_pushes", {}))
+
 
 DEFAULT_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT", "DOGE/USDT"]
 
 
 def load_data():
-    global USER_FAVORITES, PUSH_HISTORY, HUNTER_WATCHERS, USER_DAILY_SCHEDULE, SIGNAL_TRACKER, USER_CAPITAL, ACTIVE_SIGNALS, SIGNAL_RESULTS, SYMBOL_LOSSES, RECENT_PUSHES
+    # 優先從 Redis 讀
+    if _USE_REDIS:
+        try:
+            raw = _redis_get()
+            if raw:
+                _unpack_data(json.loads(raw))
+                logger.info("✅ 從 Redis 載入：自選 " + str(len(USER_FAVORITES)) + " 戶，獵手 " + str(len(HUNTER_WATCHERS)) + " 戶，追蹤中 " + str(len(ACTIVE_SIGNALS)) + " 個信號，歷史 " + str(len(SIGNAL_RESULTS)) + " 筆")
+                return
+            else:
+                logger.info("Redis 初次啟動（尚無數據）")
+                return
+        except Exception as e:
+            logger.error("Redis 讀取失敗，嘗試本地檔案: " + str(e))
+    # Fallback：本地檔案
     try:
         with open(DATA_FILE, "r") as f:
-            data = json.load(f)
-            USER_FAVORITES = {int(k): v for k, v in data.get("favorites", {}).items()}
-            PUSH_HISTORY = {int(k): v for k, v in data.get("history", {}).items()}
-            HUNTER_WATCHERS = set(int(x) for x in data.get("watchers", []))
-            schedule_raw = data.get("daily_schedule", {})
-            USER_DAILY_SCHEDULE = {int(k): v for k, v in schedule_raw.items()}
-            SIGNAL_TRACKER = data.get("signals", {})
-            USER_CAPITAL = {int(k): v for k, v in data.get("capital", {}).items()}
-            ACTIVE_SIGNALS.update(data.get("active_signals", {}))
-            SIGNAL_RESULTS.extend(data.get("signal_results", []))
-            SYMBOL_LOSSES.update(data.get("symbol_losses", {}))
-            RECENT_PUSHES.update(data.get("recent_pushes", {}))
-            logger.info("載入：自選 " + str(len(USER_FAVORITES)) + " 戶，獵手 " + str(len(HUNTER_WATCHERS)) + " 戶，簡報 " + str(len(USER_DAILY_SCHEDULE)) + " 戶，追蹤中 " + str(len(ACTIVE_SIGNALS)) + " 個信號")
+            _unpack_data(json.load(f))
+            logger.info("從本地檔案載入，歷史 " + str(len(SIGNAL_RESULTS)) + " 筆")
     except Exception as e:
         logger.info("初次啟動: " + str(e))
 
 
 def save_data():
+    payload = json.dumps(_pack_data())
+    # 優先寫 Redis
+    if _USE_REDIS:
+        try:
+            _redis_set(payload)
+            return
+        except Exception as e:
+            logger.error("Redis 儲存失敗，改存本地檔案: " + str(e))
+    # Fallback：本地檔案（原子寫入）
     try:
-        with open(DATA_FILE, "w") as f:
-            json.dump({
-                "favorites": {str(k): v for k, v in USER_FAVORITES.items()},
-                "history": {str(k): v for k, v in PUSH_HISTORY.items()},
-                "watchers": list(HUNTER_WATCHERS),
-                "daily_schedule": {str(k): v for k, v in USER_DAILY_SCHEDULE.items()},
-                "signals": SIGNAL_TRACKER,
-                "capital": {str(k): v for k, v in USER_CAPITAL.items()},
-                "active_signals": ACTIVE_SIGNALS,
-                "signal_results": SIGNAL_RESULTS[-200:],  # ⭐ v40.3 與 SIGNAL_RESULTS 上限一致
-                "symbol_losses": SYMBOL_LOSSES,
-                "recent_pushes": RECENT_PUSHES
-            }, f)
+        tmp_file = DATA_FILE + ".tmp"
+        with open(tmp_file, "w") as f:
+            f.write(payload)
+        os.replace(tmp_file, DATA_FILE)
     except Exception as e:
         logger.error("儲存失敗: " + str(e))
 
@@ -2935,7 +3009,7 @@ def main():
                 else:
                     sl_pct = (sl - price) / price * 100
 
-                msg += "*" + sym_short + "* " + dir_emoji + " " + grade + " | " + tp_status + "\n"
+                msg += "*" + sym_short + "* " + dir_emoji + " " + entry_grade_display(grade) + " | " + tp_status + "\n"
                 msg += "  進場 `" + str(entry) + "` → `" + str(price) + "`\n"
                 msg += "  " + pnl_emoji + " *" + ("+" if pnl_pct >= 0 else "") + str(round(pnl_pct, 2)) + "%*"
                 if next_tp_pct is not None:
