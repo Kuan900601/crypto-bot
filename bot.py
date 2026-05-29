@@ -3315,7 +3315,7 @@ def main():
         if not targets:
             logger.info("無訂閱者，跳過啟動通知")
             return
-        msg = ("🌊 *黑潮船長 v40 已啟動*\n"
+        msg = ("🌊 *黑潮船長 " + BOT_VERSION + " 已啟動*\n"
                 "━━━━━━━━━━━━━━━\n"
                 "• 推播間隔: " + str(PUSH_INTERVAL_MIN) + " 分鐘\n"
                 "• 掃描幣種: " + str(len(analyzer.SCAN_POOL)) + " 個\n"
