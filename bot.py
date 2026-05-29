@@ -116,6 +116,10 @@ _REDIS_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "").rstrip("/")
 _REDIS_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
 _REDIS_KEY = "bot_data"  # Redis 裡存數據用的 key
 _USE_REDIS = bool(_REDIS_URL and _REDIS_TOKEN)
+logger.info("DEBUG URL repr: " + repr(_REDIS_URL))
+logger.info("DEBUG URL length: " + str(len(_REDIS_URL)))
+logger.info("DEBUG TOKEN length: " + str(len(_REDIS_TOKEN)))
+logger.info("DEBUG TOKEN starts: " + repr(_REDIS_TOKEN[:5]))
 
 # 本地檔案 fallback 路徑
 _DATA_DIR = os.environ.get("DATA_DIR", "/tmp")
