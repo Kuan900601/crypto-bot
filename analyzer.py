@@ -3,11 +3,139 @@ import aiohttp
 import pandas as pd
 import numpy as np
 import re
+import os
+import json
 import hashlib
 import logging
 logger = logging.getLogger(__name__)
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
+
+
+# ===== v55 新聞分析模組（獨立、安全、可關閉）=====
+# 設計原則：完全自包含。沒設 API key 或抓取失敗 → 靜默回傳「無數據」，絕不影響主流程。
+# 用 CryptoPanic 免費 API 抓新聞 + Claude Haiku 分析市場情緒。
+# ⭐ 第一版「零權重觀察模式」：只顯示，不參與開單決策。
+
+_NEWS_CACHE = {"data": None, "ts": 0}  # 快取，避免每次掃描都叫 API 浪費錢
+_NEWS_CACHE_TTL = 600  # 10 分鐘內用快取（新聞不會 10 分鐘變很多次）
+
+_ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+_CRYPTOPANIC_TOKEN = os.environ.get("CRYPTOPANIC_TOKEN", "")  # 可選，沒有也能用免費端點
+_NEWS_ENABLED = bool(_ANTHROPIC_KEY)  # 至少要有 Claude key 才啟用
+
+
+async def _fetch_crypto_news(session, limit=10):
+    """抓最近的加密新聞標題。失敗回傳空列表，不拋錯。"""
+    try:
+        # CryptoPanic 免費 API（有 token 用 token，沒有用公開端點）
+        if _CRYPTOPANIC_TOKEN:
+            url = "https://cryptopanic.com/api/v1/posts/?auth_token=" + _CRYPTOPANIC_TOKEN + "&public=true&kind=news"
+        else:
+            url = "https://cryptopanic.com/api/v1/posts/?public=true&kind=news"
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            if resp.status != 200:
+                return []
+            data = await resp.json()
+            posts = data.get("results", [])[:limit]
+            return [p.get("title", "") for p in posts if p.get("title")]
+    except Exception as e:
+        logger.error("新聞抓取失敗: " + str(e))
+        return []
+
+
+async def _analyze_news_with_claude(session, headlines):
+    """用 Claude Haiku 分析新聞情緒。回傳 dict 或 None。"""
+    if not headlines or not _ANTHROPIC_KEY:
+        return None
+    try:
+        news_text = "\n".join("- " + h for h in headlines)
+        prompt = (
+            "你是加密貨幣市場分析助手。以下是最近的加密貨幣新聞標題：\n\n"
+            + news_text +
+            "\n\n請分析整體市場情緒，並嚴格按以下 JSON 格式回答（不要任何其他文字）：\n"
+            '{"sentiment": "看多/看空/中性", "strength": 1-5的整數, '
+            '"major_event": true或false, "reason": "一句話理由（繁體中文，30字內）"}\n\n'
+            "注意：strength 是情緒強度，5最強。major_event 指有沒有重大事件"
+            "（監管、交易所暴雷、大型駭客、宏觀政策等）。"
+            "若新聞普通無方向，sentiment 填中性。"
+        )
+        payload = {
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 200,
+            "messages": [{"role": "user", "content": prompt}]
+        }
+        headers = {
+            "x-api-key": _ANTHROPIC_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
+        async with session.post("https://api.anthropic.com/v1/messages",
+                                json=payload, headers=headers,
+                                timeout=aiohttp.ClientTimeout(total=20)) as resp:
+            if resp.status != 200:
+                logger.error("Claude API 回傳 " + str(resp.status))
+                return None
+            result = await resp.json()
+            text = result["content"][0]["text"].strip()
+            # 去掉可能的 markdown 圍欄
+            text = text.replace("```json", "").replace("```", "").strip()
+            parsed = json.loads(text)
+            return parsed
+    except Exception as e:
+        logger.error("Claude 新聞分析失敗: " + str(e))
+        return None
+
+
+async def get_news_sentiment():
+    """
+    對外主入口：回傳新聞情緒分析 dict，或 None（未啟用/失敗）。
+    帶 10 分鐘快取，避免重複叫 API。
+    回傳格式：{"sentiment","strength","major_event","reason","headlines_count"}
+    """
+    if not _NEWS_ENABLED:
+        return None
+    # 快取
+    now = datetime.now(timezone.utc).timestamp()
+    if _NEWS_CACHE["data"] and (now - _NEWS_CACHE["ts"]) < _NEWS_CACHE_TTL:
+        return _NEWS_CACHE["data"]
+    try:
+        async with aiohttp.ClientSession() as session:
+            headlines = await _fetch_crypto_news(session)
+            if not headlines:
+                return None
+            analysis = await _analyze_news_with_claude(session, headlines)
+            if analysis:
+                analysis["headlines_count"] = len(headlines)
+                _NEWS_CACHE["data"] = analysis
+                _NEWS_CACHE["ts"] = now
+                logger.info("✅ 新聞分析: " + str(analysis.get("sentiment")) + " 強度" + str(analysis.get("strength")))
+            return analysis
+    except Exception as e:
+        logger.error("新聞情緒分析失敗: " + str(e))
+        return None
+
+
+def format_news_section(analysis):
+    """把新聞分析格式化成顯示文字。零權重觀察模式：標明僅供參考。"""
+    if not analysis:
+        return ""
+    emoji = {"看多": "🟢", "看空": "🔴", "中性": "⚪"}.get(analysis.get("sentiment", "中性"), "⚪")
+    try:
+        strength = int(analysis.get("strength", 0))
+        strength = max(0, min(5, strength))  # 夾在 0~5
+    except (ValueError, TypeError):
+        strength = 0
+    bars = "▮" * strength + "▯" * (5 - strength)
+    s = "\n📰 *市場快訊分析* _(觀察中·不影響開單)_\n"
+    s += emoji + " 情緒：" + str(analysis.get("sentiment", "中性")) + "  強度 " + bars + "\n"
+    if analysis.get("major_event"):
+        s += "⚠️ *偵測到重大事件，請特別留意*\n"
+    s += "_" + str(analysis.get("reason", "")) + "_\n"
+    return s
+
+
+
 
 
 
@@ -785,6 +913,7 @@ class CryptoAnalyzer:
         self._external_results = []  # v53：真實勝率校準用的歷史，由 bot.py 注入
         self._last_plans = {}  # v54：結構化 plan，golden_hunter 每輪填充
         self._last_plans_ready = False  # v54：本輪掛載是否正常完成
+        self._news_sentiment = None  # v55：新聞情緒，每輪掃描開始時更新
 
     async def fetch_funding_cached(self, session, symbol):
         """v38 帶快取的 funding rate 取得"""
@@ -5082,19 +5211,41 @@ class CryptoAnalyzer:
         consensus_count, consensus_total, voting_strategies = self.strategy_consensus(
             direction, sig1h, df1h, df4h, df1h, vol_ratio, sw_res_1h, sw_sup_1h, current_price
         )  # v51 修：df15m 未定義（參數名為 df_daily），改傳 df1h（consensus 內部僅用 df1h）
+
+        # ⭐ v55 新聞情緒第 8 票：方向與新聞情緒一致才加票，並記錄來源以便驗證
+        news_vote = False
+        try:
+            _ns = getattr(self, "_news_sentiment", None)
+            if _ns:
+                _sent = _ns.get("sentiment", "中性")
+                try:
+                    _strength = int(_ns.get("strength", 0))
+                except (ValueError, TypeError):
+                    _strength = 0
+                # 只有強度 >= 3 的明確情緒才算數，避免雜訊
+                if _strength >= 3:
+                    if (direction == "LONG" and _sent == "看多") or \
+                       (direction == "SHORT" and _sent == "看空"):
+                        consensus_count += 1
+                        news_vote = True
+                        voting_strategies = list(voting_strategies) + ["📰新聞情緒"]
+        except Exception:
+            pass
         # 至少 3 個策略同意才高品質
+        # v55: 顯示總票數動態 — 有新聞票時是 /8，否則 /7
+        _total_votes = 8 if news_vote else 7
         if consensus_count >= 5:
             score += 15
-            factors.append("🎯 多策略共識 (" + str(consensus_count) + "/7)")
+            factors.append("🎯 多策略共識 (" + str(consensus_count) + "/" + str(_total_votes) + ")")
         elif consensus_count >= 4:
             score += 10
-            factors.append("🎯 四重策略共識 (" + str(consensus_count) + "/7)")
+            factors.append("🎯 四重策略共識 (" + str(consensus_count) + "/" + str(_total_votes) + ")")
         elif consensus_count >= 3:
             score += 5
-            factors.append("✅ 三重策略共識 (" + str(consensus_count) + "/7)")
+            factors.append("✅ 三重策略共識 (" + str(consensus_count) + "/" + str(_total_votes) + ")")
         elif consensus_count <= 1:
             score -= 10
-            risks.append("⚠️ 共識不足 (" + str(consensus_count) + "/7)")
+            risks.append("⚠️ 共識不足 (" + str(consensus_count) + "/" + str(_total_votes) + ")")
 
         # ⭐ v32 交易所大資金流
         flow_state, flow_msg = self.exchange_flow(df1h)
@@ -5445,6 +5596,7 @@ class CryptoAnalyzer:
             "tp1": tp1, "tp2": tp2, "tp3": tp3, "tp4": tp4,
             "sl": sl,
             "rr1": rr1, "rr2": rr2, "rr3": rr3, "rr4": rr4,
+            "news_vote": news_vote,  # v55：這單有沒有吃到新聞情緒票（供事後驗證新聞準不準）
             "position": adjusted_position,
             "original_position": position,
             "factors": factors, "risks": risks,
@@ -5708,6 +5860,11 @@ class CryptoAnalyzer:
         # ⭐ v54 每輪入口重置：避免任何 return 路徑殘留上一輪的結構化數據
         self._last_plans = {}
         self._last_plans_ready = False
+        # ⭐ v55 整輪掃描開始前，抓一次新聞情緒（全市場共用，避免每幣重複叫 API）
+        try:
+            self._news_sentiment = await get_news_sentiment()
+        except Exception:
+            self._news_sentiment = None
         try:
             now = datetime.now(timezone.utc).strftime("%m-%d %H:%M:%S UTC")
             candidates = []
@@ -6318,6 +6475,15 @@ class CryptoAnalyzer:
                 else:
                     market_tone = "🟠 *本輪行情普通*，建議小倉試水"
                 r += market_tone + "\n"
+
+            # ⭐ v55 新聞分析（零權重觀察模式：顯示但不影響開單）
+            try:
+                _news = await get_news_sentiment()
+                if _news:
+                    r += format_news_section(_news)
+            except Exception as _ne:
+                logger.error("新聞區塊顯示失敗: " + str(_ne))
+
             r += "\n"
 
             # ⭐ v40.2 修復：按 tier 顯示多個信號（最多 6 個）

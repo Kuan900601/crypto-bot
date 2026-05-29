@@ -34,7 +34,7 @@ _HUNTER_SCANNING = {"locked": False, "locked_at": 0, "last_push": 0}
 _C_TIER_GATE = {"last_high_tier_push": 0, "circuit_break_until": 0}
 
 # ⭐ v54 版本標識
-BOT_VERSION = "v54"
+BOT_VERSION = "v55"
 
 # ⭐ v54 進場品質顯示：內部值 S/A/B/C/D 不變（邏輯依賴），僅在顯示層翻譯成三級中文
 def entry_grade_display(grade):
@@ -111,7 +111,6 @@ RECENT_PUSHES = {}
 # 設了 UPSTASH 兩個環境變數 → 用 Redis（永久保存，不受部署/重啟/換平台影響）
 # 沒設 → 退回本地檔案（至少不崩，但重啟會丟）
 import urllib.request as _urlreq
-import urllib.parse as _urlparse
 
 _REDIS_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "").rstrip("/")
 _REDIS_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
@@ -133,12 +132,16 @@ else:
 
 
 def _redis_set(value_str):
-    """寫入 Redis（用 POST，避免長字串塞進 URL）"""
-    url = _REDIS_URL + "/set/" + _REDIS_KEY
-    req = _urlreq.Request(url, data=value_str.encode("utf-8"),
+    """寫入 Redis。用命令數組格式 POST 到根端點 ["SET", key, value]，
+    這是 Upstash 文檔明確支持的方式，能正確處理任意長度的 JSON 值。"""
+    body = json.dumps(["SET", _REDIS_KEY, value_str]).encode("utf-8")
+    req = _urlreq.Request(_REDIS_URL, data=body,
                           headers={"Authorization": "Bearer " + _REDIS_TOKEN})
     with _urlreq.urlopen(req, timeout=10) as resp:
-        return resp.read()
+        result = json.loads(resp.read().decode("utf-8"))
+        if "error" in result:
+            raise Exception("Redis SET 失敗: " + str(result["error"]))
+        return result
 
 
 def _redis_get():
@@ -1158,18 +1161,23 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             now = datetime.now(timezone.utc)
             kb_rows = []
             for sym, sig in ACTIVE_SIGNALS.items():
-                direction = "做多 🟢" if sig["direction"] == "LONG" else "做空 🔴"
+                # v55 修：用 .get 容錯，缺字段的信號跳過，不拖垮整個清單
+                _dir = sig.get("direction")
+                _entry = sig.get("entry")
+                if not _dir or not _entry:
+                    continue
+                direction = "做多 🟢" if _dir == "LONG" else "做空 🔴"
                 tp_hit = sig.get("tp_hit", [])
                 tp_status = "✅TP" + ",".join(str(t) for t in tp_hit) if tp_hit else "進行中"
                 try:
-                    created = datetime.fromisoformat(sig["created"])
+                    created = datetime.fromisoformat(sig.get("created", ""))
                     age = now - created
                     age_str = str(int(age.total_seconds() / 3600)) + "h前"
                 except Exception:
                     age_str = ""
                 sym_short = sym.replace("/USDT", "")
                 text += "• *" + sym_short + "* " + direction + "\n"
-                text += "  進場 `" + str(sig["entry"]) + "` 止損 `" + str(sig["sl"]) + "`\n"
+                text += "  進場 `" + str(_entry) + "` 止損 `" + str(sig.get("sl", "?")) + "`\n"
                 text += "  狀態 " + tp_status + " | 評分 `" + str(sig.get("score", "?")) + "` | " + age_str + "\n"
                 kb_rows.append([
                     InlineKeyboardButton("📱 " + sym_short + " 開 BingX", url=bingx_swap_url(sym)),
@@ -1360,18 +1368,23 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await q.answer("⚠️ 此信號已過期或已關閉", show_alert=True)
             return
         sig = ACTIVE_SIGNALS[sym]
+        # v55 修：缺關鍵字段時告知用戶而非崩潰
+        if not sig.get("direction") or not sig.get("entry") or not sig.get("sl"):
+            await q.answer("⚠️ 此信號資料不完整，請等下一輪掃描", show_alert=True)
+            return
         sym_short = sym.replace("/USDT", "")
-        direction_zh = "做多/Long" if sig["direction"] == "LONG" else "做空/Short"
+        direction_zh = "做多/Long" if sig.get("direction") == "LONG" else "做空/Short"
 
         msg = "📋 *" + sym_short + " 下單參數*\n"
         msg += "━━━━━━━━━━━━━━━\n"
         msg += "請在 BingX 中設定以下參數：\n\n"
         msg += "🔸 *交易對*：`" + sym.replace("/", "-") + "`\n"
         msg += "🔸 *方向*：" + direction_zh + "\n"
-        msg += "🔸 *進場價*：`" + str(sig["entry"]) + "`\n"
-        msg += "🔸 *止損價*：`" + str(sig["sl"]) + "`\n\n"
+        msg += "🔸 *進場價*：`" + str(sig.get("entry")) + "`\n"
+        msg += "🔸 *止損價*：`" + str(sig.get("sl")) + "`\n\n"
         msg += "*📍 階梯止盈設定*\n"
-        msg += "TP1：`" + str(sig["tp1"]) + "` 平 15%\n"
+        if sig.get("tp1", 0) > 0:
+            msg += "TP1：`" + str(sig.get("tp1")) + "` 平 15%\n"
         if sig.get("tp2", 0) > 0:
             msg += "TP2：`" + str(sig["tp2"]) + "` 平 35%\n"
         if sig.get("tp3", 0) > 0:
@@ -2291,6 +2304,11 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
     """關閉信號並通知用戶（v26 不再推播到頻道）"""
     if symbol not in ACTIVE_SIGNALS:
         return
+    # v55 修：先檢查關鍵字段，缺字段不 pop（避免信號丟失），記錄錯誤後退出
+    _sig_peek = ACTIVE_SIGNALS[symbol]
+    if not _sig_peek.get("direction") or not _sig_peek.get("entry"):
+        logger.error("close_signal: " + symbol + " 缺關鍵字段，跳過此次結算（信號保留）sig=" + str(_sig_peek))
+        return
     sig = ACTIVE_SIGNALS.pop(symbol)
     direction = sig["direction"]
     entry = sig["entry"]
@@ -2315,9 +2333,9 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
     # 剩餘部分：用最終出場價結算
     remaining_weight = max(0.0, 1.0 - realized_weight)
     if reason_code == "SL_HIT":
-        exit_price = sig["sl"]
+        exit_price = sig.get("sl", entry)  # v55: 缺sl时用entry兜底
     elif reason_code == "TP4_HIT":
-        exit_price = sig["tp4"]
+        exit_price = sig.get("tp4", entry)
     else:
         exit_price = cp
     # v53 加固：若已達過 TP（tp_hit 非空），代表止損應已移至保本價。
@@ -2339,7 +2357,7 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
     if reason_code == "TP4_HIT":
         msg = "🎉 *" + sym_short + " " + direction_zh + " — 完美下車*\n"
         msg += "━━━━━━━━━━━━━━━\n"
-        msg += "已達最後止盈\n進場 `" + str(entry) + "` → 出場 `" + str(sig["tp4"]) + "`\n"
+        msg += "已達最後止盈\n進場 `" + str(entry) + "` → 出場 `" + str(sig.get("tp4", "?")) + "`\n"
         msg += "完整收益約 *+" + str(round(final_pct, 2)) + "%*"
     elif reason_code == "SL_HIT":
         tp_hit = sig.get("tp_hit", [])
@@ -2350,7 +2368,7 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
         else:
             msg = "🛑 *" + sym_short + " " + direction_zh + " — 觸發止損*\n"
             msg += "━━━━━━━━━━━━━━━\n"
-            msg += "請立即出場\n進場 `" + str(entry) + "` → 止損 `" + str(sig["sl"]) + "`\n"
+            msg += "請立即出場\n進場 `" + str(entry) + "` → 止損 `" + str(sig.get("sl", "?")) + "`\n"
             msg += "本次虧損 *" + str(round(final_pct, 2)) + "%*\n\n"
             msg += "_該幣 24 小時內若再虧損將暫停推送_"
     elif reason_code == "EXPIRED":
@@ -2417,12 +2435,16 @@ async def notify_tp_hit(ctx, symbol, tp_level, current_price):
     if symbol not in ACTIVE_SIGNALS:
         return
     sig = ACTIVE_SIGNALS[symbol]
-    if tp_level in sig["tp_hit"]:
+    # v55 修：用 .get 容錯
+    if tp_level in sig.get("tp_hit", []):
         return
-    sig["tp_hit"].append(tp_level)
-    direction = sig["direction"]
-    entry = sig["entry"]
-    tp_price = sig["tp" + str(tp_level)]
+    direction = sig.get("direction")
+    entry = sig.get("entry")
+    tp_price = sig.get("tp" + str(tp_level))
+    if not direction or not entry or not tp_price:
+        logger.warning("notify_tp_hit: " + symbol + " 缺關鍵字段，跳過 tp_level=" + str(tp_level))
+        return
+    sig.setdefault("tp_hit", []).append(tp_level)
     profit_pct = abs(tp_price - entry) / entry * 100
     sym_short = symbol.replace("/USDT", "")
     direction_zh = "做多" if direction == "LONG" else "做空"
@@ -2431,7 +2453,7 @@ async def notify_tp_hit(ctx, symbol, tp_level, current_price):
 
     # ⭐ v31 動態移動止損
     new_sl = None
-    old_sl = sig["sl"]
+    old_sl = sig.get("sl", entry)  # v55: 缺sl時用entry兜底
     if tp_level == 1:
         # v54 改進：不再鉤死在成本價（太緊→一回調就被洗出，贏家只吃到 TP1 15%）
         # 改移到「成本價 + TP1漲幅的 30%」，鎖一小段利潤但留波動空間，讓贏家跑到 TP2/TP3
@@ -2542,12 +2564,19 @@ async def check_active_signals(ctx):
             df15m = results[i * 2 + 1]
             if isinstance(ticker, Exception):
                 continue
-            price = float(ticker.get("lastPrice", 0))
+            try:
+                price = float(ticker.get("lastPrice", 0))
+            except (ValueError, TypeError):
+                price = 0
             if price == 0:
                 continue
-            direction = sig["direction"]
-            entry = sig["entry"]
-            sl = sig["sl"]
+            # v55 修：缺關鍵字段的信號跳過，不拖垮整個追蹤循環（會錯過其他信號的止損！）
+            direction = sig.get("direction")
+            entry = sig.get("entry")
+            sl = sig.get("sl")
+            if not direction or not entry or sl is None:
+                logger.warning("TP侦测: " + sym + " 缺關鍵字段，本輪跳過")
+                continue
 
             # === 止損 ===
             if direction == "LONG" and price <= sl:
@@ -2966,27 +2995,43 @@ def main():
             msg += "目前追蹤中 *" + str(len(ACTIVE_SIGNALS)) + "* 個信號\n\n"
 
             total_pnl = 0
+            shown_count = 0
             for i, (sym, sig) in enumerate(ACTIVE_SIGNALS.items()):
-                ticker = tickers[i]
-                if isinstance(ticker, Exception):
-                    continue
-                price = float(ticker.get("lastPrice", 0))
+                # v55 修復：用 .get 容錯，缺字段的單獨信號跳過，不拖垮整個報告（避免空白）
+                direction = sig.get("direction")
+                entry = sig.get("entry")
+                if not direction or not entry:
+                    continue  # 這個信號資料不完整，跳過但繼續處理其他
+                sym_short = sym.replace("/USDT", "")
+                dir_emoji = "🟢" if direction == "LONG" else "🔴"
+                tp_hit = sig.get("tp_hit", [])
+                tp_status = "達 TP" + str(max(tp_hit)) if tp_hit else "待 TP1"
+                grade = sig.get("entry_grade", "?")
+
+                # v55 修復：價格抓不到時不再整個跳過，至少顯示基本資訊（避免空白報告）
+                ticker = tickers[i] if i < len(tickers) else None
+                price = 0
+                if ticker and not isinstance(ticker, Exception):
+                    try:
+                        price = float(ticker.get("lastPrice", 0))
+                    except (ValueError, TypeError):
+                        price = 0
+
                 if price == 0:
+                    # 抓不到即時價，顯示基本資訊
+                    msg += "*" + sym_short + "* " + dir_emoji + " " + entry_grade_display(grade) + " | " + tp_status + "\n"
+                    msg += "  進場 `" + str(entry) + "` · _價格更新中_\n\n"
+                    shown_count += 1
                     continue
-                direction = sig["direction"]
-                entry = sig["entry"]
+
                 if direction == "LONG":
                     pnl_pct = (price - entry) / entry * 100
                 else:
                     pnl_pct = (entry - price) / entry * 100
                 total_pnl += pnl_pct
+                shown_count += 1
 
-                sym_short = sym.replace("/USDT", "")
-                dir_emoji = "🟢" if direction == "LONG" else "🔴"
                 pnl_emoji = "📈" if pnl_pct >= 0 else "📉"
-                tp_hit = sig.get("tp_hit", [])
-                tp_status = "達 TP" + str(max(tp_hit)) if tp_hit else "待 TP1"
-                grade = sig.get("entry_grade", "?")
 
                 # 距下個 TP 多遠
                 next_tp = None
@@ -3003,11 +3048,13 @@ def main():
                         next_tp_pct = (price - next_tp) / price * 100
 
                 # 距止損多遠
-                sl = sig["sl"]
-                if direction == "LONG":
+                sl = sig.get("sl")
+                if sl and direction == "LONG":
                     sl_pct = (price - sl) / price * 100
-                else:
+                elif sl:
                     sl_pct = (sl - price) / price * 100
+                else:
+                    sl_pct = 0
 
                 msg += "*" + sym_short + "* " + dir_emoji + " " + entry_grade_display(grade) + " | " + tp_status + "\n"
                 msg += "  進場 `" + str(entry) + "` → `" + str(price) + "`\n"
@@ -3016,12 +3063,17 @@ def main():
                     msg += " | " + next_tp_label + " 還差 " + str(round(next_tp_pct, 2)) + "%"
                 msg += "\n  🛡 止損距 " + str(round(sl_pct, 2)) + "%\n\n"
 
-            # 整體勝率
-            avg_pnl = total_pnl / len(ACTIVE_SIGNALS) if ACTIVE_SIGNALS else 0
+            # v55 兜底：若所有信號都無法顯示，給提示而非空白
+            if shown_count == 0:
+                msg += "_信號資料更新中，稍後再試_\n\n"
+            # 整體浮盈（v55 修：分母用實際算到價格的數量，不是全部，避免被抓不到價的拉低）
+            priced_count = shown_count if shown_count > 0 else 1
+            # 只對有計入 total_pnl 的（即有價格的）求平均
+            valid_pnl_count = sum(1 for i, (sym, sig) in enumerate(ACTIVE_SIGNALS.items())
+                                  if i < len(tickers) and tickers[i] and not isinstance(tickers[i], Exception))
+            avg_pnl = total_pnl / valid_pnl_count if valid_pnl_count > 0 else 0
             msg += "━━━━━━━━━━━━━━━\n"
             msg += "📊 *整體浮盈*: " + ("+" if avg_pnl >= 0 else "") + str(round(avg_pnl, 2)) + "% (平均)\n"
-            in_profit = sum(1 for s in ACTIVE_SIGNALS.values()
-                              if (s["direction"] == "LONG" and tickers[list(ACTIVE_SIGNALS.keys()).index(s.get("_sym", ""))] if False else True))
             msg += "_系統持續追蹤中，將即時通知關鍵事件_"
 
             # 推給訂閱者 + 黑潮頻道
