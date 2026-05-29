@@ -34,7 +34,7 @@ _HUNTER_SCANNING = {"locked": False, "locked_at": 0, "last_push": 0}
 _C_TIER_GATE = {"last_high_tier_push": 0, "circuit_break_until": 0}
 
 # ⭐ v54 版本標識
-BOT_VERSION = "v55"
+BOT_VERSION = "v56"
 
 # ⭐ v54 進場品質顯示：內部值 S/A/B/C/D 不變（邏輯依賴），僅在顯示層翻譯成三級中文
 def entry_grade_display(grade):
@@ -136,11 +136,16 @@ def _redis_set(value_str):
     這是 Upstash 文檔明確支持的方式，能正確處理任意長度的 JSON 值。"""
     body = json.dumps(["SET", _REDIS_KEY, value_str]).encode("utf-8")
     req = _urlreq.Request(_REDIS_URL, data=body,
-                          headers={"Authorization": "Bearer " + _REDIS_TOKEN})
+                          headers={
+                              "Authorization": "Bearer " + _REDIS_TOKEN,
+                              "Content-Type": "application/json"
+                          })
     with _urlreq.urlopen(req, timeout=10) as resp:
         result = json.loads(resp.read().decode("utf-8"))
         if "error" in result:
             raise Exception("Redis SET 失敗: " + str(result["error"]))
+        if result.get("result") != "OK":
+            raise Exception("Redis SET 未回傳 OK，實際回傳: " + str(result))
         return result
 
 
@@ -150,6 +155,8 @@ def _redis_get():
     req = _urlreq.Request(url, headers={"Authorization": "Bearer " + _REDIS_TOKEN})
     with _urlreq.urlopen(req, timeout=10) as resp:
         result = json.loads(resp.read().decode("utf-8"))
+        if "error" in result:
+            raise Exception("Redis GET 失敗: " + str(result["error"]))
         return result.get("result")  # Upstash 回傳 {"result": "..."}
 
 
@@ -197,7 +204,17 @@ def load_data():
                 logger.info("✅ 從 Redis 載入：自選 " + str(len(USER_FAVORITES)) + " 戶，獵手 " + str(len(HUNTER_WATCHERS)) + " 戶，追蹤中 " + str(len(ACTIVE_SIGNALS)) + " 個信號，歷史 " + str(len(SIGNAL_RESULTS)) + " 筆")
                 return
             else:
-                logger.info("Redis 初次啟動（尚無數據）")
+                logger.warning("⚠️ Redis 回傳空值，嘗試從本地檔案恢復...")
+                try:
+                    with open(DATA_FILE, "r") as f:
+                        content = f.read()
+                    if content.strip():
+                        _unpack_data(json.loads(content))
+                        logger.warning("⚠️ 已從本地檔案恢復數據（Redis 為空），歷史 " + str(len(SIGNAL_RESULTS)) + " 筆")
+                    else:
+                        logger.info("Redis 及本地檔案皆無數據，初次啟動")
+                except Exception as fe:
+                    logger.info("Redis 及本地檔案皆無數據，初次啟動: " + str(fe))
                 return
         except Exception as e:
             logger.error("Redis 讀取失敗，嘗試本地檔案: " + str(e))
@@ -210,15 +227,60 @@ def load_data():
         logger.info("初次啟動: " + str(e))
 
 
+def _redis_health_check():
+    """啟動時驗證 Redis 讀寫是否真的正常"""
+    if not _USE_REDIS:
+        return
+    test_key = _REDIS_KEY + "_healthcheck"
+    test_val = "ok_" + str(int(__import__("time").time()))
+    try:
+        # 寫入測試 key
+        body = json.dumps(["SET", test_key, test_val]).encode("utf-8")
+        req = _urlreq.Request(_REDIS_URL, data=body,
+                              headers={
+                                  "Authorization": "Bearer " + _REDIS_TOKEN,
+                                  "Content-Type": "application/json"
+                              })
+        with _urlreq.urlopen(req, timeout=10) as resp:
+            r = json.loads(resp.read().decode("utf-8"))
+            if r.get("result") != "OK":
+                raise Exception("SET 回傳非 OK: " + str(r))
+        # 讀回比對
+        url = _REDIS_URL + "/get/" + test_key
+        req2 = _urlreq.Request(url, headers={"Authorization": "Bearer " + _REDIS_TOKEN})
+        with _urlreq.urlopen(req2, timeout=10) as resp2:
+            r2 = json.loads(resp2.read().decode("utf-8"))
+            got = r2.get("result")
+            if got != test_val:
+                raise Exception("讀回值不符，期望 " + test_val + "，實際 " + str(got))
+        # 刪除測試 key
+        body3 = json.dumps(["DEL", test_key]).encode("utf-8")
+        req3 = _urlreq.Request(_REDIS_URL, data=body3,
+                               headers={
+                                   "Authorization": "Bearer " + _REDIS_TOKEN,
+                                   "Content-Type": "application/json"
+                               })
+        with _urlreq.urlopen(req3, timeout=10) as resp3:
+            pass
+        logger.info("✅ Redis 健康檢查通過（讀寫正常）")
+    except Exception as e:
+        logger.error("🔴🔴🔴 Redis 健康檢查失敗：" + str(e))
+
+
 def save_data():
     payload = json.dumps(_pack_data())
     # 優先寫 Redis
     if _USE_REDIS:
         try:
             _redis_set(payload)
-            return
+            verified = _redis_get()
+            if verified and len(verified) >= len(payload) * 0.5:
+                return
+            else:
+                actual_len = len(verified) if verified else 0
+                logger.error("🔴🔴🔴 Redis 寫入驗證失敗：寫入 " + str(len(payload)) + " bytes，讀回 " + str(actual_len) + " bytes，改存本地檔案")
         except Exception as e:
-            logger.error("Redis 儲存失敗，改存本地檔案: " + str(e))
+            logger.error("🔴🔴🔴 Redis 儲存失敗，改存本地檔案: " + str(e))
     # Fallback：本地檔案（原子寫入）
     try:
         tmp_file = DATA_FILE + ".tmp"
@@ -2925,6 +2987,7 @@ async def check_signal_reversal(ctx):
 
 def main():
     load_data()
+    _redis_health_check()
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
         raise ValueError("請設定 TELEGRAM_BOT_TOKEN")
