@@ -170,7 +170,7 @@ def _pack_data():
         "signals": SIGNAL_TRACKER,
         "capital": {str(k): v for k, v in USER_CAPITAL.items()},
         "active_signals": ACTIVE_SIGNALS,
-        "signal_results": SIGNAL_RESULTS[-200:],
+        "signal_results": SIGNAL_RESULTS[-1000:],
         "symbol_losses": SYMBOL_LOSSES,
         "recent_pushes": RECENT_PUSHES
     }
@@ -2357,6 +2357,13 @@ def register_signal(sig, watchers):
         "tier": sig.get("tier", "C"),  # v47: 預設 C 避免誤判
         "entered": False,  # v47: 標記是否已觸及進場價
         "entered_at": None,
+        "sl_at_entry": sig.get("sl", 0),
+        "rr_at_entry": sig.get("rr", sig.get("rr_ratio", 0)),
+        "regime_at_entry": sig.get("regime", ""),
+        "adx_at_entry": sig.get("adx", 0),
+        "consensus_at_entry": sig.get("consensus_count", 0),
+        "news_vote_at_entry": sig.get("news_vote", False),
+        "created_hour_utc": now.hour,
     }
     save_data()
     logger.info("註冊信號: " + sym + " " + sig["direction"] + " 評分 " + str(sig.get("score")) + " 等級 " + str(sig.get("entry_grade", "C")) + " 訂閱 " + str(len(watchers)))
@@ -2485,10 +2492,17 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
         "is_win": is_win,  # v38 新增
         "closed_at": datetime.now(timezone.utc).isoformat(),
         "duration_min": (datetime.now(timezone.utc) - datetime.fromisoformat(sig.get("created", datetime.now(timezone.utc).isoformat()))).total_seconds() / 60 if sig.get("created") else 0,
+        "sl_at_entry": sig.get("sl_at_entry", 0),
+        "rr_at_entry": sig.get("rr_at_entry", 0),
+        "regime_at_entry": sig.get("regime_at_entry", ""),
+        "adx_at_entry": sig.get("adx_at_entry", 0),
+        "consensus_at_entry": sig.get("consensus_at_entry", 0),
+        "news_vote_at_entry": sig.get("news_vote_at_entry", False),
+        "created_hour_utc": sig.get("created_hour_utc", 0),
     })
-    # 只保留最近 200 筆
-    if len(SIGNAL_RESULTS) > 200:
-        del SIGNAL_RESULTS[:len(SIGNAL_RESULTS) - 200]
+    # 只保留最近 1000 筆
+    if len(SIGNAL_RESULTS) > 1000:
+        del SIGNAL_RESULTS[:len(SIGNAL_RESULTS) - 1000]
     save_data()
 
 
