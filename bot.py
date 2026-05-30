@@ -2387,6 +2387,8 @@ def register_signal(sig, watchers):
         "consensus_at_entry": sig.get("consensus_count", 0),
         "news_vote_at_entry": sig.get("news_vote", False),
         "created_hour_utc": now.hour,
+        "funding_at_entry": sig.get("funding", 0),
+        "ls_ratio_at_entry": sig.get("ls_ratio", 1.0),
     }
     save_data()
     logger.info("註冊信號: " + sym + " " + sig["direction"] + " 評分 " + str(sig.get("score")) + " 等級 " + str(sig.get("entry_grade", "C")) + " 訂閱 " + str(len(watchers)))
@@ -2522,6 +2524,8 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
         "consensus_at_entry": sig.get("consensus_at_entry", 0),
         "news_vote_at_entry": sig.get("news_vote_at_entry", False),
         "created_hour_utc": sig.get("created_hour_utc", 0),
+        "funding_at_entry": sig.get("funding_at_entry", 0),
+        "ls_ratio_at_entry": sig.get("ls_ratio_at_entry", 1.0),
     })
     # 只保留最近 1000 筆
     if len(SIGNAL_RESULTS) > 1000:
