@@ -6513,33 +6513,17 @@ class CryptoAnalyzer:
                 # === 標題區 ===
                 r += medal + " *" + c["symbol"].replace("/USDT", "") + " " + direction_zh + " " + direction_emoji + "*\n"
 
-                # === 進場品質徽章（最醒目）===
+                # === 變數準備 ===
                 grade = p.get("entry_grade", "C")
-                # ⭐ v38 精簡輸出（一個信號 ≤ 12 行）
                 tier = p.get("tier", "C")
                 tier_label = p.get("tier_label", "")
                 tier_emoji = p.get("tier_emoji", "")
-                grade = p.get("entry_grade", "C")
 
+                # ═══════════ 第一層：決策重點 ═══════════
                 r += "\n═══════════════\n"
                 r += tier_label + "\n"
 
-                # 一句話核心理由
-                thesis = p.get("one_line_thesis", "")
-                if thesis:
-                    r += "_" + thesis + "_\n"
-
-                # 五維度評分（散戶一眼能看懂）
-                dims = p.get("dimensions", {})
-                if dims:
-                    def bar(v, max_v=20):
-                        filled = int(v / max_v * 5)
-                        return "█" * filled + "░" * (5 - filled)
-                    r += "📊 *" + str(dims.get("total", 50)) + "/100*  趨勢" + bar(dims.get("trend", 10))
-                    r += " 動能" + bar(dims.get("momentum", 10)) + " 結構" + bar(dims.get("structure", 10))
-                    r += " 量能" + bar(dims.get("volume", 10)) + " 風險" + bar(dims.get("risk", 10)) + "\n"
-
-                # 進場時機（最重要的行動指引）
+                # 進場時機
                 timing_state = p.get("timing_state", "NOW")
                 if timing_state == "WAIT_PULLBACK":
                     r += "⏰ *等回踩* " + str(p.get("timing_zone", p["entry"])) + "\n"
@@ -6548,23 +6532,22 @@ class CryptoAnalyzer:
                 else:
                     r += "✅ *現在可進場*\n"
 
-                # 核心價位（一行）
+                # 核心價位
                 r += "🎯 進場 `" + str(p["entry"]) + "` · 止損 `" + str(p["sl"]) + "`\n"
-                # TP（精簡）
+                # TP（含 TP4）
                 tp_parts = []
-                for n in (1, 2, 3):
+                for n in (1, 2, 3, 4):
                     tp_v = p.get("tp" + str(n), 0)
                     if tp_v:
                         tp_parts.append("TP" + str(n) + " `" + str(tp_v) + "`")
                 if tp_parts:
                     r += "🏆 " + " · ".join(tp_parts) + "\n"
 
-                # 風險回報 + 倉位（一行）
+                # 風報比 + 倉位 + 勝率
                 # v53 修正：plan 存的是 rr1，舊代碼找 rr_ratio/rr 找不到 → 顯示 1:0
                 rr = p.get("rr1", p.get("rr_ratio", p.get("rr", 0)))
                 pos = p.get("position", 5)
                 win_rate = p.get("win_rate", 0)
-                # 真實勝率（如果有歷史數據）
                 real_wr = p.get("real_win_rate", None)
                 if real_wr is not None:
                     r += "💰 風報比 *1:" + str(rr) + "* · 倉位 *" + str(pos) + "%* · 實際勝率 *" + str(real_wr) + "%*\n"
@@ -6587,18 +6570,33 @@ class CryptoAnalyzer:
                 if tier in ("B", "C"):
                     continue
 
-                # === 一句話總結 ===
-                r += "_" + direction_zh + " · " + p["timeframe"] + " · 預估勝率 " + str(p["win_rate"]) + "%_\n"
+                # ─────────── 第二層：細節 ───────────
                 r += "─────────────\n"
+                r += "_" + direction_zh + " · " + p["timeframe"] + " · 預估勝率 " + str(p["win_rate"]) + "%_\n"
+
+                # 一句話核心理由
+                thesis = p.get("one_line_thesis", "")
+                if thesis:
+                    r += "_" + thesis + "_\n"
+
+                # 五維度評分
+                dims = p.get("dimensions", {})
+                if dims:
+                    def bar(v, max_v=20):
+                        filled = int(v / max_v * 5)
+                        return "█" * filled + "░" * (5 - filled)
+                    r += "📊 *" + str(dims.get("total", 50)) + "/100*  趨勢" + bar(dims.get("trend", 10))
+                    r += " 動能" + bar(dims.get("momentum", 10)) + " 結構" + bar(dims.get("structure", 10))
+                    r += " 量能" + bar(dims.get("volume", 10)) + " 風險" + bar(dims.get("risk", 10)) + "\n"
+
+                r += "\n"
 
                 # === 為什麼推薦（最重要）===
                 r += "💭 *分析師說明*\n"
-                # 從 pros 挑最強的 4 個理由，用自然語氣串起來
                 if p.get("pros"):
                     top_pros = p["pros"][:4]
                     for pro in top_pros:
                         r += "  " + pro + "\n"
-                # 風險點
                 if p.get("cons"):
                     r += "\n⚠️ *需要留意*\n"
                     for con in p["cons"][:3]:
@@ -6618,7 +6616,6 @@ class CryptoAnalyzer:
                 r += "  • 當前價：`" + str(c["current_price"]) + "`\n"
                 r += "  • 進場價：`" + str(p["entry"]) + "`\n"
                 r += "  • 止損價：`" + str(p["sl"]) + "` (" + p.get("sl_label", "智能") + ")\n"
-                # 計算止損百分比
                 if sig["direction_en"] == "LONG":
                     sl_pct = (p["entry"] - p["sl"]) / p["entry"] * 100
                 else:
@@ -6626,7 +6623,7 @@ class CryptoAnalyzer:
                 r += "  • 止損幅度：`" + str(round(sl_pct, 2)) + "%`\n"
                 r += "\n"
 
-                # === 分批止盈計劃 ===
+                # === 分批止盈計劃（權重 15/35/35/15）===
                 r += "🎯 *分批止盈計劃*\n"
                 if sig["direction_en"] == "LONG":
                     tp1_pct = (p["tp1"] - p["entry"]) / p["entry"] * 100
@@ -6638,9 +6635,9 @@ class CryptoAnalyzer:
                     tp2_pct = (p["entry"] - p["tp2"]) / p["entry"] * 100
                     tp3_pct = (p["entry"] - p["tp3"]) / p["entry"] * 100
                     tp4_pct = (p["entry"] - p["tp4"]) / p["entry"] * 100
-                r += "  ① `" + str(p["tp1"]) + "` (+`" + str(round(tp1_pct, 2)) + "%`) 平 25% _保本出場_\n"
+                r += "  ① `" + str(p["tp1"]) + "` (+`" + str(round(tp1_pct, 2)) + "%`) 平 15% _保本出場_\n"
                 r += "  ② `" + str(p["tp2"]) + "` (+`" + str(round(tp2_pct, 2)) + "%`) 平 35%\n"
-                r += "  ③ `" + str(p["tp3"]) + "` (+`" + str(round(tp3_pct, 2)) + "%`) 平 25%\n"
+                r += "  ③ `" + str(p["tp3"]) + "` (+`" + str(round(tp3_pct, 2)) + "%`) 平 35%\n"
                 r += "  ④ `" + str(p["tp4"]) + "` (+`" + str(round(tp4_pct, 2)) + "%`) 移動止損守剩 15%\n"
                 r += "\n"
 
