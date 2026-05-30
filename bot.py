@@ -4,6 +4,8 @@ import time
 import os
 import json
 import re
+import csv
+import io
 import aiohttp
 from datetime import datetime, timezone, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -548,6 +550,27 @@ async def cmd_testpush(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("⏳ 測試推播中...")
     result = await safe_run(analyzer.golden_hunter(smart_filter=False), timeout=90)
     await msg.edit_text("🧪 *測試推播*\n\n" + result, parse_mode="Markdown")
+
+
+async def cmd_export(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    try:
+        if not SIGNAL_RESULTS:
+            await update.message.reply_text("目前還沒有歷史記錄")
+            return
+        output = io.StringIO()
+        fieldnames = list(SIGNAL_RESULTS[0].keys())
+        writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(SIGNAL_RESULTS)
+        output.seek(0)
+        filename = "signal_results_" + datetime.now(timezone.utc).strftime("%Y-%m-%d") + ".csv"
+        await ctx.bot.send_document(
+            chat_id=update.effective_chat.id,
+            document=output.read().encode("utf-8-sig"),
+            filename=filename,
+        )
+    except Exception as e:
+        await update.message.reply_text("匯出失敗：" + str(e))
 
 
 def show_history(chat_id):
@@ -3016,6 +3039,7 @@ def main():
     app.add_handler(CommandHandler("sentiment", cmd_sentiment))
     app.add_handler(CommandHandler("news", cmd_sentiment))
     app.add_handler(CommandHandler("testpush", cmd_testpush))
+    app.add_handler(CommandHandler("export", cmd_export))
     app.add_handler(CallbackQueryHandler(button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     # ⭐ 每 5 分鐘執行黑潮船長
