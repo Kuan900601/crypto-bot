@@ -1,75 +1,72 @@
 """
-trader_test.py — BingX 模擬盤連線測試（第 1 步）
-這支程式只讀取模擬盤 VST 餘額，完全不下單，零風險。
-目的：驗證 API key 正確、確認連的是模擬盤而不是實盤。
+trader_test.py — BingX 模擬盤連線測試（官方範例寫法）
+只讀餘額，不下單，零風險。
 """
 
 import os
 import time
 import hmac
-import hashlib
 import json
-import urllib.request as _urlreq
+from hashlib import sha256
+import requests
 
-# 模擬盤網址（VST 虛擬資金）。實盤是 open-api.bingx.com，我們不碰。
-BINGX_BASE_URL = "https://open-api-vst.bingx.com"
-
-API_KEY = os.environ.get("BINGX_API_KEY", "")
-API_SECRET = os.environ.get("BINGX_API_SECRET", "")
-
-
-def _sign(params_str):
-    return hmac.new(
-        API_SECRET.encode("utf-8"),
-        params_str.encode("utf-8"),
-        hashlib.sha256
-    ).hexdigest()
+APIURL = "https://open-api-vst.bingx.com"
+APIKEY = os.environ.get("BINGX_API_KEY", "")
+SECRETKEY = os.environ.get("BINGX_API_SECRET", "")
 
 
-def _signed_get(path, params=None):
-    if params is None:
-        params = {}
-    params["timestamp"] = str(int(time.time() * 1000))
-    sorted_keys = sorted(params.keys())
-    params_str = "&".join("%s=%s" % (k, params[k]) for k in sorted_keys)
-    signature = _sign(params_str)
-    url = "%s%s?%s&signature=%s" % (BINGX_BASE_URL, path, params_str, signature)
-    req = _urlreq.Request(url, headers={"X-BX-APIKEY": API_KEY})
-    with _urlreq.urlopen(req, timeout=10) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+def get_sign(api_secret, payload):
+    return hmac.new(api_secret.encode("utf-8"), payload.encode("utf-8"), digestmod=sha256).hexdigest()
+
+
+def parseParam(paramsMap):
+    sortedKeys = sorted(paramsMap)
+    paramsStr = "&".join(["%s=%s" % (x, paramsMap[x]) for x in sortedKeys])
+    if paramsStr != "":
+        return paramsStr + "&timestamp=" + str(int(time.time() * 1000))
+    else:
+        return paramsStr + "timestamp=" + str(int(time.time() * 1000))
+
+
+def send_request(method, path, urlpa, payload):
+    url = "%s%s?%s&signature=%s" % (APIURL, path, urlpa, get_sign(SECRETKEY, urlpa))
+    headers = {"X-BX-APIKEY": APIKEY}
+    response = requests.request(method, url, headers=headers, data=payload)
+    return response.text
 
 
 def main():
-    print("=" * 50)
-    print("BingX 模擬盤連線測試")
-    print("=" * 50)
-
-    if "vst" not in BINGX_BASE_URL:
-        print("🔴 危險！BASE_URL 不是模擬盤！中止。")
+    print("=" * 40)
+    print("BingX 模擬盤測試（官方範例寫法）")
+    print("=" * 40)
+    if not APIKEY or not SECRETKEY:
+        print("🔴 沒讀到 key/secret")
         return
-    print("✅ 確認連線目標：模擬盤（VST）" + BINGX_BASE_URL)
-
-    if not API_KEY or not API_SECRET:
-        print("🔴 沒有讀到 BINGX_API_KEY 或 BINGX_API_SECRET")
+    if APIKEY == SECRETKEY:
+        print("🔴 KEY 和 SECRET 一樣，貼錯了")
         return
-    print("✅ API key 已讀取（長度 %d）" % len(API_KEY))
-
-    print("\n正在讀取模擬盤 VST 餘額...")
+    print("✅ key/secret 是不同兩串")
+    print("   KEY 長度:", len(APIKEY), " SECRET 長度:", len(SECRETKEY))
+    payload = {}
+    path = "/openApi/swap/v2/user/balance"
+    method = "GET"
+    paramsMap = {}
+    paramsStr = parseParam(paramsMap)
+    print("   簽名字串:", repr(paramsStr))
     try:
-        result = _signed_get("/openApi/swap/v2/user/balance")
-        print("\n--- BingX 回應 ---")
-        print(json.dumps(result, indent=2, ensure_ascii=False))
+        result_text = send_request(method, path, paramsStr, payload)
+        print("\n--- 回應 ---")
+        print(result_text)
+        result = json.loads(result_text)
         if result.get("code") == 0:
-            data = result.get("data", {})
-            balance = data.get("balance", {})
-            print("\n✅ 連線成功！")
-            print("   餘額：" + str(balance.get("balance", "?")) + " VST")
-            print("   可用：" + str(balance.get("availableMargin", "?")) + " VST")
+            bal = result.get("data", {}).get("balance", {})
+            print("\n✅✅✅ 成功！餘額:", bal.get("balance", "?"), "VST")
+        elif result.get("code") == 100001:
+            print("\n🔴 還是簽名錯誤，可能 key 剛申請還沒生效，等幾分鐘再試")
         else:
-            print("\n⚠️ API 回應錯誤碼：" + str(result.get("code")))
-            print("   訊息：" + str(result.get("msg", "")))
+            print("\n⚠️ 錯誤碼:", result.get("code"), result.get("msg", ""))
     except Exception as e:
-        print("\n🔴 連線失敗：" + str(e))
+        print("🔴 失敗:", str(e))
 
 
 if __name__ == "__main__":
