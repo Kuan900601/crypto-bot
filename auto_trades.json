@@ -1,0 +1,119 @@
+[
+  {
+    "symbol": "BTC/USDT:USDT",
+    "side": "buy",
+    "tier": "B",
+    "entry_price": 73926.9,
+    "total_amount": 0.06760000000000001,
+    "opened_at": 1780187870.8186724,
+    "tp_orders": [
+      {
+        "level": 1,
+        "price": 76000,
+        "amount": 0.010140000000000001,
+        "ok": true
+      },
+      {
+        "level": 2,
+        "price": 78000,
+        "amount": 0.02366,
+        "ok": true
+      },
+      {
+        "level": 3,
+        "price": 80000,
+        "amount": 0.02366,
+        "ok": true
+      },
+      {
+        "level": 4,
+        "price": 83000,
+        "amount": 0.010140000000000001,
+        "ok": true
+      }
+    ],
+    "sl_ok": true,
+    "ok": true,
+    "msg": "",
+    "order_id": "2060883421497921536",
+    "sig_id": "test-001"
+  },
+  {
+    "symbol": "BTC/USDT:USDT",
+    "side": "buy",
+    "tier": "B",
+    "entry_price": 73882.0,
+    "total_amount": 0.06760000000000001,
+    "opened_at": 1780218778.2922633,
+    "tp_orders": [
+      {
+        "level": 1,
+        "price": 76000,
+        "amount": 0.010140000000000001,
+        "ok": true
+      },
+      {
+        "level": 2,
+        "price": 78000,
+        "amount": 0.02366,
+        "ok": true
+      },
+      {
+        "level": 3,
+        "price": 80000,
+        "amount": 0.02366,
+        "ok": true
+      },
+      {
+        "level": 4,
+        "price": 83000,
+        "amount": 0.010140000000000001,
+        "ok": true
+      }
+    ],
+    "sl_ok": true,
+    "ok": true,
+    "msg": "",
+    "order_id": "2061013056328044544",
+    "sig_id": "redis-test-001"
+  },
+  {
+    "symbol": "ETH/USDT:USDT",
+    "side": "buy",
+    "tier": "B",
+    "entry_price": 2024.86,
+    "total_amount": 2.469,
+    "opened_at": 1780218873.2424824,
+    "tp_orders": [
+      {
+        "level": 1,
+        "price": 2500,
+        "amount": 0.37034999999999996,
+        "ok": true
+      },
+      {
+        "level": 2,
+        "price": 2600,
+        "amount": 0.8641499999999999,
+        "ok": true
+      },
+      {
+        "level": 3,
+        "price": 2700,
+        "amount": 0.8641499999999999,
+        "ok": true
+      },
+      {
+        "level": 4,
+        "price": 2800,
+        "amount": 0.37034999999999996,
+        "ok": true
+      }
+    ],
+    "sl_ok": false,
+    "ok": true,
+    "msg": "🔴🔴🔴 開倉成功但止損沒掛上！ | 止損失敗: bingx {\"code\":110411,\"msg\":\"Stop Loss price should be lower than the current price\",\"data\":{}}",
+    "order_id": "2061013454644318208",
+    "sig_id": "redis-test-002"
+  }
+]

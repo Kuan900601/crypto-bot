@@ -1,12 +1,14 @@
 """
 trader.py — BingX 模擬盤交易模組（整合版）
 """
+import os
 import ccxt
 
 USE_SANDBOX = True  # True=模擬盤假錢。改 False 才碰真錢，現在保持 True。
 
 
 def load_env():
+    # 先讀 .env 檔案（本地用），再用環境變數覆蓋（Railway 用）
     env = {}
     try:
         with open(".env") as f:
@@ -17,6 +19,11 @@ def load_env():
                     env[k.strip()] = v.strip().strip('"').strip("'")
     except FileNotFoundError:
         pass
+    for _k in ("BINGX_API_KEY", "BINGX_API_SECRET",
+               "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"):
+        _v = os.environ.get(_k)
+        if _v:
+            env[_k] = _v
     return env
 
 
