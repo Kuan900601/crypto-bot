@@ -2392,6 +2392,40 @@ def register_signal(sig, watchers):
     }
     save_data()
     logger.info("註冊信號: " + sym + " " + sig["direction"] + " 評分 " + str(sig.get("score")) + " 等級 " + str(sig.get("entry_grade", "C")) + " 訂閱 " + str(len(watchers)))
+    # ⭐ 自動交易橋接：把信號推進 Redis 隊列（給 auto_trader.py 讀）
+    if _USE_REDIS:
+        try:
+            _sig_obj = {
+                "id": sym + "_" + now.isoformat(),
+                "symbol": sym,
+                "direction": sig["direction"],
+                "tier": sig.get("tier", "C"),
+                "entry": sig["entry"],
+                "sl": sig["sl"],
+                "tp1": sig["tp1"], "tp2": sig.get("tp2", 0),
+                "tp3": sig.get("tp3", 0), "tp4": sig.get("tp4", 0),
+                "created": now.isoformat(),
+            }
+            _sig_json = json.dumps(_sig_obj, ensure_ascii=False)
+            _body = json.dumps(["RPUSH", "signal_queue", _sig_json]).encode("utf-8")
+            _req = _urlreq.Request(_REDIS_URL, data=_body, headers={
+                "Authorization": "Bearer " + _REDIS_TOKEN,
+                "Content-Type": "application/json",
+            })
+            with _urlreq.urlopen(_req, timeout=10) as _resp:
+                _r = json.loads(_resp.read().decode("utf-8"))
+                if "error" in _r:
+                    raise Exception(str(_r["error"]))
+            _body2 = json.dumps(["LTRIM", "signal_queue", -100, -1]).encode("utf-8")
+            _req2 = _urlreq.Request(_REDIS_URL, data=_body2, headers={
+                "Authorization": "Bearer " + _REDIS_TOKEN,
+                "Content-Type": "application/json",
+            })
+            with _urlreq.urlopen(_req2, timeout=10) as _resp2:
+                _resp2.read()
+            logger.info("✅ 信號已推入 Redis 隊列 signal_queue: " + sym)
+        except Exception as _e:
+            logger.warning("⚠️ 寫 Redis 隊列失敗（不影響信號廣播）: " + str(_e)[:100])
 
 
 async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None):
