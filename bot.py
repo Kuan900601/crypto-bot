@@ -3467,6 +3467,22 @@ def main():
             except Exception as e:
                 logger.error("啟動通知失敗 " + str(t) + ": " + str(e))
     app.job_queue.run_once(startup_notify, 30)
+    # ⭐ 啟動自動交易背景執行緒（模擬盤）
+    try:
+        import threading as _threading
+
+        def _auto_trade_worker():
+            try:
+                import auto_trader as _at
+                logger.info("✅ 自動交易背景執行緒啟動（模擬盤）")
+                _at.main_loop()
+            except Exception as _e:
+                logger.error("🔴 自動交易背景執行緒掛了（不影響 bot）: " + str(_e)[:200])
+
+        _at_thread = _threading.Thread(target=_auto_trade_worker, daemon=True)
+        _at_thread.start()
+    except Exception as _e:
+        logger.error("🔴 無法啟動自動交易執行緒（不影響 bot）: " + str(_e)[:150])
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
