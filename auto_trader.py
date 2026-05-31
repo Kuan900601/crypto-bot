@@ -12,8 +12,9 @@ import trader
 MAX_POSITIONS = 5
 BASE_AMOUNT_USDT = 1000
 TIER_MULTIPLIER = {"S": 2.0, "A": 1.5, "B": 1.0, "C": 0.5}
-ALLOWED_TIERS = ["S", "A", "B"]
-LEVERAGE = 5
+ALLOWED_TIERS = ["S", "A", "B", "C"]  # C 級也下單
+LEVERAGE = 15  # ⚠️ 15倍：爆倉線約 -6.7%，止損必須離爆倉線夠遠（見 MAX_SL_PCT）
+MAX_SL_PCT = 0.04  # 止損最遠 -4%（離 -6.7% 爆倉線留 2.7% 緩衝）
 TP_SPLIT = {1: 0.15, 2: 0.35, 3: 0.35, 4: 0.15}
 POLL_INTERVAL = 15
 
@@ -145,10 +146,21 @@ def open_batch_tp_position(ex, signal):
         return record
     sl = signal.get("sl")
     if sl:
+        if side == "buy":
+            safe_sl = price * (1 - MAX_SL_PCT)
+            if sl < safe_sl:
+                record["msg"] += " | 止損從 %.4f 收緊到 %.4f（爆倉保護）" % (sl, safe_sl)
+                sl = safe_sl
+        else:
+            safe_sl = price * (1 + MAX_SL_PCT)
+            if sl > safe_sl:
+                record["msg"] += " | 止損從 %.4f 收緊到 %.4f（爆倉保護）" % (sl, safe_sl)
+                sl = safe_sl
         try:
             ex.create_order(symbol, "STOP_MARKET", close_side, total_amount, None,
                             {"positionSide": position_side, "stopPrice": sl})
             record["sl_ok"] = True
+            record["sl_used"] = sl
         except Exception as e:
             record["msg"] += " | 止損失敗: " + str(e)[:120]
     for level in (1, 2, 3, 4):
@@ -205,6 +217,35 @@ def process_once(ex):
         print("  本輪處理", new_count, "個新信號。總紀錄:", len(trades))
 
 
+def check_liquidations(ex):
+    """爆倉計數器：讀 BingX 爆倉紀錄，記錄發生過幾次爆倉"""
+    liq_file = "liquidations.json"
+    data = load_json(liq_file, {"count": 0, "seen_ids": [], "records": []})
+    try:
+        liqs = ex.fetch_my_liquidations()
+    except Exception:
+        return
+    new = 0
+    for lq in liqs:
+        lid = str(lq.get("id") or lq.get("timestamp") or lq.get("info", {}))
+        if lid in data["seen_ids"]:
+            continue
+        data["seen_ids"] = data["seen_ids"][-200:]
+        data["seen_ids"].append(lid)
+        data["count"] += 1
+        data["records"].append({
+            "symbol": lq.get("symbol"),
+            "time": lq.get("datetime"),
+            "amount": lq.get("contracts") or lq.get("amount"),
+        })
+        data["records"] = data["records"][-100:]
+        new += 1
+        print("  🔴🔴🔴 偵測到爆倉！", lq.get("symbol"), "（累計爆倉次數:", data["count"], "）")
+    if new > 0:
+        save_json(liq_file, data)
+        print("  ⚠️ 本輪新增", new, "次爆倉。請留意 liquidations.json")
+
+
 def check_trailing_stop(ex):
     trades = load_json(TRADES_FILE, [])
     positions = trader.get_positions(ex)
@@ -241,6 +282,8 @@ def main_loop():
     print("auto_trader.py 自動交易（模擬盤｜Redis｜輪詢", POLL_INTERVAL, "秒）")
     print("=" * 50)
     print("設定：最多", MAX_POSITIONS, "倉，基礎", BASE_AMOUNT_USDT, "VST，槓桿", LEVERAGE, "，等級", ALLOWED_TIERS)
+    print("⚠️ 15倍槓桿：爆倉線約 -6.7%，止損已強制收緊到最遠 -4%（留爆倉緩衝）")
+    print("⚠️ 但插針仍可能瞬間穿過止損與爆倉線。爆倉次數記錄在 liquidations.json")
     if not _USE_REDIS:
         print("🔴 .env 缺 Upstash Redis 設定，無法讀信號")
         return
@@ -251,6 +294,7 @@ def main_loop():
         try:
             process_once(ex)
             check_trailing_stop(ex)
+            check_liquidations(ex)  # 爆倉計數器
         except KeyboardInterrupt:
             print("\n已停止。")
             break
