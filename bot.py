@@ -104,6 +104,7 @@ ACTIVE_SIGNALS = {}
 SIGNAL_RESULTS = []
 # ⭐ 連虧紀錄：{symbol: [iso_timestamp...]}
 SYMBOL_LOSSES = {}
+ADMIN_ID = 5947529357
 
 # ⭐ v30 推播歷史：避免短時間內重複推播相似信號
 # 格式：{symbol_direction: {"entry": price, "time": iso, "score": score}}
@@ -571,6 +572,21 @@ async def cmd_export(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         await update.message.reply_text("匯出失敗：" + str(e))
+
+
+async def cmd_reset_stats(update, context):
+    uid = update.effective_user.id if update.effective_user else 0
+    if not ADMIN_ID or uid != ADMIN_ID:
+        await update.effective_message.reply_text("此指令僅限管理員。你的 id：" + str(uid))
+        return
+    n = len(SIGNAL_RESULTS)
+    SIGNAL_RESULTS.clear()
+    SYMBOL_LOSSES.clear()
+    save_data()
+    await update.effective_message.reply_text(
+        "✅ 已清空 " + str(n) + " 筆歷史戰績與連虧紀錄。\n"
+        "追蹤中的信號與 BingX 持倉不受影響，從現在重新統計。"
+    )
 
 
 def show_history(chat_id):
@@ -2494,10 +2510,13 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
             msg += "已先達 TP" + str(max(tp_hit)) + "，剩餘倉位觸發止損\n"
             msg += "雖然回吐部分利潤，整體應仍盈利"
         else:
-            msg = "🛑 *" + sym_short + " " + direction_zh + " — 觸發止損*\n"
+            _loss = final_pct < 0
+            _head = "觸發止損" if _loss else "止損出場（仍獲利）"
+            _word = "本次虧損" if _loss else "本次獲利"
+            msg = "🛑 *" + sym_short + " " + direction_zh + " — " + _head + "*\n"
             msg += "━━━━━━━━━━━━━━━\n"
             msg += "請立即出場\n進場 `" + str(entry) + "` → 止損 `" + str(sig.get("sl", "?")) + "`\n"
-            msg += "本次虧損 *" + str(round(final_pct, 2)) + "%*\n\n"
+            msg += _word + " *" + str(abs(round(final_pct, 2))) + "%*\n\n"
             msg += "_該幣 24 小時內若再虧損將暫停推送_"
     elif reason_code == "EXPIRED":
         msg = "⏰ *" + sym_short + " — 信號失效*\n"
@@ -2516,7 +2535,7 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
         msg = "📌 *" + sym_short + " 信號結束*\n" + reason_msg
 
     # 連虧紀錄
-    if reason_code == "SL_HIT" and not sig.get("tp_hit"):
+    if reason_code == "SL_HIT" and not sig.get("tp_hit") and final_pct < 0:
         if symbol not in SYMBOL_LOSSES:
             SYMBOL_LOSSES[symbol] = []
         SYMBOL_LOSSES[symbol].append(datetime.now(timezone.utc).isoformat())
@@ -2541,6 +2560,11 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
 
     # ⭐ v38 擴充記錄（為真實勝率校準）
     is_win = final_pct > 0
+    try:
+        _created = sig.get("created")
+        _dur_min = (datetime.now(timezone.utc) - datetime.fromisoformat(_created)).total_seconds() / 60 if _created else 0
+    except Exception:
+        _dur_min = 0
     SIGNAL_RESULTS.append({
         "symbol": symbol, "direction": direction, "entry": entry,
         "result": reason_code, "final_pct": round(final_pct, 2),
@@ -2550,7 +2574,7 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
         "entry_grade": sig.get("entry_grade", ""),  # v53：為真實勝率校準
         "is_win": is_win,  # v38 新增
         "closed_at": datetime.now(timezone.utc).isoformat(),
-        "duration_min": (datetime.now(timezone.utc) - datetime.fromisoformat(sig.get("created", datetime.now(timezone.utc).isoformat()))).total_seconds() / 60 if sig.get("created") else 0,
+        "duration_min": _dur_min,
         "sl_at_entry": sig.get("sl_at_entry", 0),
         "rr_at_entry": sig.get("rr_at_entry", 0),
         "regime_at_entry": sig.get("regime_at_entry", ""),
@@ -2777,46 +2801,10 @@ async def check_active_signals(ctx):
                                     except Exception:
                                         pass
 
-                        # v36 智能止損調整（ATR 收縮時上移）
-                        new_sl, sl_reason = analyzer.adaptive_sl_adjust(
-                            df15m, direction, entry, sig["sl"], price
-                        )
-                        # ⭐ v50 修：止損變化必須「有意義」才推播（避免微調狂洗版）
-                        old_sl_v = sig["sl"]
-                        if old_sl_v > 0 and sl_reason:
-                            sl_change_pct = abs(new_sl - old_sl_v) / old_sl_v * 100
-                        else:
-                            sl_change_pct = 0
-                        # 條件：(1) 變化 >= 0.3% (2) 距上次通知 >= 30 分鐘 (3) 方向正確（只能往獲利方向移）
-                        last_sl_notify = sig.get("last_sl_notify", 0)
-                        now_ts_sl = datetime.now(timezone.utc).timestamp()
-                        # 只允許「往獲利方向」移動止損（LONG 上移 / SHORT 下移）
-                        valid_direction = (
-                            (direction == "LONG" and new_sl > old_sl_v) or
-                            (direction == "SHORT" and new_sl < old_sl_v)
-                        )
-                        if (sl_reason and valid_direction
-                            and sl_change_pct >= 0.3
-                            and (now_ts_sl - last_sl_notify) >= 1800):
-                            sig["sl"] = round(new_sl, 6)
-                            sig["last_sl_notify"] = now_ts_sl
-                            sym_short = sym.replace("/USDT", "")
-                            msg = "🛡 *" + sym_short + " 止損智能上移*\n"
-                            msg += "━━━━━━━━━━━━━━━\n"
-                            msg += "舊止損 `" + str(round(old_sl_v, 6)) + "` → 新止損 `" + str(round(new_sl, 6)) + "`\n"
-                            msg += "移動 *" + str(round(sl_change_pct, 2)) + "%* · " + sl_reason
-                            notify_t = list(sig.get("watchers", []))
-                            if BLACK_HUNTER_CHANNEL:
-                                notify_t.append(BLACK_HUNTER_CHANNEL)
-                            for u in notify_t:
-                                try:
-                                    await ctx.bot.send_message(chat_id=u, text=msg, parse_mode="Markdown")
-                                except Exception:
-                                    pass
-                            save_data()
-                        elif sl_reason and valid_direction and sl_change_pct < 0.3:
-                            # 小幅變化：靜默更新止損值，不推播
-                            sig["sl"] = round(new_sl, 6)
+                        # v55: EMA20 智能移動止損已停用 —— 它會把贏單在還沒到 TP 前洗出場，
+                        # 且與 auto_trader 的實單不同步、造成數據失真。
+                        # analyzer.adaptive_sl_adjust 函式本體保留但不再採用。
+                        # TP 之後的階梯鎖利仍由 notify_tp_hit 處理，不受影響。
 
                         should_exit, exit_reason = analyzer.early_exit_signal(
                             df15m, direction, entry, sl
@@ -3078,6 +3066,7 @@ def main():
     app.add_handler(CommandHandler("news", cmd_sentiment))
     app.add_handler(CommandHandler("testpush", cmd_testpush))
     app.add_handler(CommandHandler("export", cmd_export))
+    app.add_handler(CommandHandler("reset_stats", cmd_reset_stats))
     app.add_handler(CallbackQueryHandler(button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     # ⭐ 每 5 分鐘執行黑潮船長
