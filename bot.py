@@ -2637,7 +2637,7 @@ async def notify_tp_hit(ctx, symbol, tp_level, current_price):
             sig["sl"] = new_sl
 
     # ⭐ v37 智能 TP 延伸（達 TP1 後若動能強，拉遠目標）
-    if tp_level == 1:
+    if False:  # v55 停用智能 TP 延伸：驗證期間用固定 TP 階梯；它有「只改 TP2/TP3、漏改 TP4」的排序 bug。analyzer.smart_tp_extend 函式保留不刪、不採用。
         try:
             async with aiohttp.ClientSession() as session:
                 df1h = await analyzer.fetch_ohlcv(session, symbol, "1h", 50)
