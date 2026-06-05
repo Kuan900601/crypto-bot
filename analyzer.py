@@ -601,64 +601,56 @@ def _make_empty_chart(title, message):
     return buf
 
 
-def plot_movers_chart(gainers, losers, title="MARKET MOVERS — 24H"):
-    """v35 漲跌榜（含防空資料）"""
+def plot_movers_chart(gainers, losers, title="MARKET MOVERS  |  24H"):
+    """v56 漲跌榜（視覺強化：名次、強度漸層、漲跌過濾）"""
     if not gainers and not losers:
         return _make_empty_chart("MARKET MOVERS", "No mover data")
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 6.6), facecolor=BG)
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 6.5), facecolor=BG)
-
-    if gainers:
-        labels = [g[0] for g in gainers[:8]]
-        values = [g[1] for g in gainers[:8]]
-        y_pos = range(len(labels))
-        ax1.barh(y_pos, values, color=BULL, alpha=0.9, edgecolor='#1a2230', linewidth=0.5)
-        ax1.set_yticks(y_pos)
-        ax1.set_yticklabels(labels, color='white', fontsize=11, weight='bold')
-        max_v = max(values) if values else 1
+    def _panel(ax, rows, color, is_gain):
+        rows = [x for x in (rows or []) if (x[1] > 0 if is_gain else x[1] < 0)][:8]
+        if not rows:
+            ax.text(0.5, 0.5, 'No data', transform=ax.transAxes, ha='center',
+                    va='center', color='#666', fontsize=12)
+            _style_axis(ax)
+            return
+        labels = [f"{i+1}. {r[0]}" for i, r in enumerate(rows)]
+        values = [r[1] for r in rows]
+        y = range(len(labels))
+        n = len(values)
+        alphas = [0.95 - 0.5 * (i / max(n - 1, 1)) for i in range(n)]
+        bars = ax.barh(list(y), values, color=color, edgecolor='#0f1419', linewidth=0.6)
+        for b, al in zip(bars, alphas):
+            b.set_alpha(al)
+        ax.set_yticks(list(y))
+        ax.set_yticklabels(labels, color=WHITE, fontsize=11, weight='bold')
+        peak = max(values) if is_gain else min(values)
+        pad = abs(peak) * 0.02 if peak else 0.1
         for i, v in enumerate(values):
-            ax1.text(v + max_v * 0.02, i, f' +{v:.2f}%',
-                     color=BULL, va='center', fontsize=10.5, weight='bold',
-                     family='monospace')
-        ax1.invert_yaxis()
-        ax1.set_xlim(0, max_v * 1.28)
-        ax1.set_title('TOP GAINERS', color=BULL, fontsize=13, weight='bold', pad=12)
-    else:
-        ax1.text(0.5, 0.5, 'No gainers', transform=ax1.transAxes,
-                 ha='center', va='center', color='#666', fontsize=12)
+            txt = f' +{v:.2f}%' if is_gain else f'{v:.2f}% '
+            ax.text(v + (pad if is_gain else -pad), i, txt, color=color, va='center',
+                    ha='left' if is_gain else 'right', fontsize=10.5, weight='bold',
+                    family='monospace')
+        ax.invert_yaxis()
+        if is_gain:
+            ax.set_xlim(0, peak * 1.30 if peak else 1)
+        else:
+            ax.set_xlim(peak * 1.30 if peak else -1, 0)
+        ax.axvline(0, color='#888', linewidth=0.8, alpha=0.5)
+        ax.set_title('TOP GAINERS' if is_gain else 'TOP LOSERS', color=color,
+                     fontsize=13, weight='bold', pad=12)
+        _style_axis(ax)
+        ax.tick_params(axis='x', colors='#aaa', labelsize=8.5)
+        ax.spines['left'].set_visible(False)
 
-    _style_axis(ax1)
-    ax1.tick_params(axis='x', colors='#aaa', labelsize=8.5)
-    ax1.spines['left'].set_visible(False)
-
-    if losers:
-        labels = [l[0] for l in losers[:8]]
-        values = [l[1] for l in losers[:8]]
-        y_pos = range(len(labels))
-        ax2.barh(y_pos, values, color=BEAR, alpha=0.9, edgecolor='#1a2230', linewidth=0.5)
-        ax2.set_yticks(y_pos)
-        ax2.set_yticklabels(labels, color='white', fontsize=11, weight='bold')
-        min_v = min(values) if values else -1
-        for i, v in enumerate(values):
-            ax2.text(v + abs(min_v) * 0.02, i, f'{v:.2f}% ',
-                     color=BEAR, va='center', fontsize=10.5, weight='bold',
-                     ha='right', family='monospace')
-        ax2.invert_yaxis()
-        ax2.set_xlim(min_v * 1.28, 0)
-        ax2.set_title('TOP LOSERS', color=BEAR, fontsize=13, weight='bold', pad=12)
-    else:
-        ax2.text(0.5, 0.5, 'No losers', transform=ax2.transAxes,
-                 ha='center', va='center', color='#666', fontsize=12)
-
-    _style_axis(ax2)
-    ax2.tick_params(axis='x', colors='#aaa', labelsize=8.5)
-    ax2.spines['left'].set_visible(False)
-
-    fig.suptitle(title, color='white', fontsize=15, weight='bold', y=0.97)
-    plt.subplots_adjust(left=0.06, right=0.98, top=0.88, bottom=0.08, wspace=0.3)
+    _panel(ax1, gainers, BULL, True)
+    _panel(ax2, losers, BEAR, False)
+    fig.suptitle(title, color=WHITE, fontsize=15, weight='bold', y=0.975)
+    fig.text(0.5, 0.02, 'Top 8 by 24H change  ·  Blacktide Signals',
+             color='#667', fontsize=8.5, ha='center')
+    plt.subplots_adjust(left=0.07, right=0.97, top=0.87, bottom=0.09, wspace=0.32)
     buf = BytesIO()
-    plt.savefig(buf, format='png', dpi=120, bbox_inches='tight',
-                facecolor=BG, pad_inches=0.15)
+    plt.savefig(buf, format='png', dpi=120, facecolor=BG, pad_inches=0.15)
     plt.close(fig)
     buf.seek(0)
     return buf
@@ -6693,7 +6685,7 @@ class CryptoAnalyzer:
                     "_請截圖回報給開發者_")
 
     async def detect_movers(self):
-        """市場異動掃描 — 資深分析師版"""
+        """市場異動掃描 — v56 視覺強化 + 描述性判讀"""
         try:
             now = datetime.now(timezone.utc).strftime("%m-%d %H:%M UTC")
             async with aiohttp.ClientSession() as session:
@@ -6714,7 +6706,6 @@ class CryptoAnalyzer:
                     price = float(t.get("lastPrice", 0))
                     if price == 0:
                         continue
-                    # 計算 1H 波動率（量能異常檢測）
                     vol_ratio = 1.0
                     rsi_v = 50
                     if not isinstance(df, Exception):
@@ -6741,61 +6732,73 @@ class CryptoAnalyzer:
             top_vol_surge = sorted([d for d in data if d["vol_ratio"] > 1.5],
                                     key=lambda x: x["vol_ratio"], reverse=True)[:5]
 
-            r = "⚡ *市場異動掃描* | " + now + "\n"
-            r += "━━━━━━━━━━━━━━━\n"
-            r += "📡 掃描 " + str(len(data)) + "/" + str(len(self.SCAN_POOL)) + "\n\n"
-
-            r += "*🚀 漲幅榜 TOP 5*\n"
-            for c in top_gainers:
-                vr = " 量爆`" + str(round(c["vol_ratio"], 1)) + "x`" if c["vol_ratio"] > 1.5 else ""
-                rsi_warn = " ⚠️過熱" if c["rsi"] > 75 else ""
-                r += "• *" + c["symbol"] + "* `" + str(round(c["price"], 4)) + "` 📈`+" + str(round(c["chg"], 2)) + "%`" + vr + rsi_warn + "\n"
-
-            r += "\n*📉 跌幅榜 TOP 5*\n"
-            for c in top_losers:
-                vr = " 量爆`" + str(round(c["vol_ratio"], 1)) + "x`" if c["vol_ratio"] > 1.5 else ""
-                rsi_warn = " ⚠️過冷" if c["rsi"] < 25 else ""
-                r += "• *" + c["symbol"] + "* `" + str(round(c["price"], 4)) + "` 📉`" + str(round(c["chg"], 2)) + "%`" + vr + rsi_warn + "\n"
-
-            if top_vol_surge:
-                r += "\n*🔥 量能爆發 TOP 5*\n"
-                for c in top_vol_surge:
-                    icon = "📈" if c["chg"] >= 0 else "📉"
-                    r += "• *" + c["symbol"] + "* " + icon + "`" + str(round(c["chg"], 1)) + "%`"
-                    r += " 量`" + str(round(c["vol_ratio"], 1)) + "x` 24H`$" + str(round(c["vol"], 0)) + "M`\n"
-
-            r += "\n*💵 成交量 TOP 5*\n"
-            for c in top_volume:
-                icon = "📈" if c["chg"] >= 0 else "📉"
-                r += "• *" + c["symbol"] + "* `$" + str(round(c["vol"], 0)) + "M` " + icon + "`" + str(round(c["chg"], 1)) + "%`\n"
-
-            # 專業分析
             avg_chg = sum(d["chg"] for d in data) / len(data)
             gainers_count = sum(1 for d in data if d["chg"] > 0)
             losers_count = sum(1 for d in data if d["chg"] < 0)
             vol_surge_count = sum(1 for d in data if d["vol_ratio"] > 1.5)
+            total = len(data)
 
-            r += "━━━━━━━━━━━━━━━\n"
-            r += "📊 *市場概況*\n"
-            r += "• 平均漲跌 `" + str(round(avg_chg, 2)) + "%`\n"
-            r += "• 上漲/下跌 `" + str(gainers_count) + "/" + str(losers_count) + "`\n"
-            r += "• 異常爆量幣種 `" + str(vol_surge_count) + "` 個\n\n"
+            def _fp(p):
+                if p >= 100:
+                    return f"{p:,.2f}"
+                if p >= 1:
+                    return f"{p:.3f}"
+                return f"{p:.5f}"
 
-            r += "💡 *分析師判讀*\n"
+            mood = "🟢" if avg_chg > 0.3 else ("🔴" if avg_chg < -0.3 else "⚪")
+            r = "📊 *24H 市場異動掃描*\n`" + now + "`\n━━━━━━━━━━━━━━━\n"
+            r += mood + " 平均 " + ("%+.2f" % avg_chg) + "%　掃描 `" + str(total) + "/" + str(len(self.SCAN_POOL)) + "`\n\n"
+
+            r += "*🚀 漲幅榜*\n"
+            for i, c in enumerate(top_gainers, 1):
+                a = "▲" if c["chg"] >= 0 else "▼"
+                vr = " 🔥`" + str(round(c["vol_ratio"], 1)) + "x`" if c["vol_ratio"] > 1.5 else ""
+                rw = " ⚠️過熱" if c["rsi"] > 75 else ""
+                r += "`" + str(i) + ".` " + c["symbol"] + " " + _fp(c["price"]) + " " + a + "`" + ("%+.2f" % c["chg"]) + "%`" + vr + rw + "\n"
+
+            r += "\n*📉 跌幅榜*\n"
+            for i, c in enumerate(top_losers, 1):
+                a = "▲" if c["chg"] >= 0 else "▼"
+                vr = " 🔥`" + str(round(c["vol_ratio"], 1)) + "x`" if c["vol_ratio"] > 1.5 else ""
+                rw = " ⚠️超賣" if c["rsi"] < 25 else ""
+                r += "`" + str(i) + ".` " + c["symbol"] + " " + _fp(c["price"]) + " " + a + "`" + ("%+.2f" % c["chg"]) + "%`" + vr + rw + "\n"
+
+            if top_vol_surge:
+                r += "\n*🔥 量能爆發*\n"
+                for c in top_vol_surge:
+                    a = "▲" if c["chg"] >= 0 else "▼"
+                    r += "• " + c["symbol"] + " " + a + "`" + ("%+.1f" % c["chg"]) + "%` 量`" + str(round(c["vol_ratio"], 1)) + "x` `$" + str(round(c["vol"], 0)) + "M`\n"
+
+            r += "\n*💵 成交量*\n"
+            for c in top_volume:
+                a = "▲" if c["chg"] >= 0 else "▼"
+                r += "• " + c["symbol"] + " $" + str(round(c["vol"], 0)) + "M " + a + "`" + ("%+.1f" % c["chg"]) + "%`\n"
+
+            up_ratio = gainers_count / total if total else 0
+            blocks = round(up_ratio * 10)
+            breadth = "🟩" * blocks + "🟥" * (10 - blocks)
+            r += "\n━━━━━━━━━━━━━━━\n📊 *市場概況*\n"
+            r += "• 漲跌寬度 " + breadth + "\n"
+            r += "• 上漲/下跌 `" + str(gainers_count) + " / " + str(losers_count) + "`（漲占 " + str(round(up_ratio * 100)) + "%）\n"
+            r += "• 平均漲跌 `" + ("%+.2f" % avg_chg) + "%`\n"
+            r += "• 異常爆量 " + str(vol_surge_count) + " 檔\n\n"
+
+            r += "💡 *市場狀態判讀*\n"
             if avg_chg > 3 and vol_surge_count >= 5:
-                r += "🚀 強勁多頭擴散，山寨輪動\n• 策略：追蹤量爆且未過熱的領漲幣"
+                r += "🚀 強勢擴散：多數幣種上漲且量能放大，資金活躍。"
             elif avg_chg > 1.5 and gainers_count > losers_count * 2:
-                r += "📈 多頭氣氛濃厚\n• 策略：選擇漲幅+量能榜重疊幣種"
+                r += "📈 偏多：上漲家數明顯多於下跌。"
             elif avg_chg < -3 and vol_surge_count >= 5:
-                r += "💥 恐慌性下跌\n• 策略：避免抄底，等止跌訊號"
+                r += "💥 急跌：多數幣種重挫且量能放大，情緒偏恐慌。"
             elif avg_chg < -1.5 and losers_count > gainers_count * 2:
-                r += "📉 整體偏弱\n• 策略：減倉觀望，反彈做空"
+                r += "📉 偏弱：下跌家數明顯多於上漲，技術面轉弱。"
             elif vol_surge_count >= 8:
-                r += "⚡ 多幣種異動，可能有大事件\n• 注意關注新聞動向"
+                r += "⚡ 異動：多幣種量能異常，可能有事件驅動，留意新聞。"
             elif abs(avg_chg) < 0.5:
-                r += "↔️ 市場膠著，方向未明\n• 策略：減少交易，等突破"
+                r += "↔️ 盤整：漲跌幅度小，方向未明。"
             else:
-                r += "⚪ 漲跌互現，輪動為主\n• 策略：個股操作，避免重倉"
+                r += "⚪ 分歧：漲跌互現，以個別輪動為主。"
+            r += "\n\n_※ 以上為公開市場數據摘要，僅供參考，非投資建議。_"
             return r
         except Exception as e:
             return "❌ 失敗：" + str(e)
