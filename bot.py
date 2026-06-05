@@ -3287,31 +3287,66 @@ def main():
     async def auto_news_channel(ctx):
         if not TG_CHANNEL_ID:
             return
+
+        def _md_safe(s):
+            for ch in ("*", "_", "`", "[", "]"):
+                s = s.replace(ch, "")
+            return s
+
         try:
             async with aiohttp.ClientSession() as session:
                 news = await analyzer.fetch_news(session)
                 events = await analyzer.fetch_crypto_events(session)
-            r = "📰 *加密快訊整點報*\n━━━━━━━━━━━━━━━\n\n"
+            try:
+                econ = analyzer.upcoming_econ_events()
+            except Exception:
+                econ = []
+            now_str = datetime.now(timezone.utc).strftime("%m-%d %H:%M UTC")
+
+            r = "📰 *加密快訊整點報*\n`" + now_str + "`\n━━━━━━━━━━━━━━━\n"
+
+            items = []
             if news:
                 score, label, items = analyzer.sentiment(news)
-                r += "*📰 即時新聞*\n"
-                for i, item in enumerate(items[:6], 1):
-                    time_ago = analyzer.format_published(item.get("published", ""))
-                    r += str(i) + ". " + item["emoji"] + " " + item["title"][:70]
-                    if time_ago:
-                        r += " _(" + time_ago + ")_"
+                r += "🧭 新聞情緒　" + label + "\n"
+
+            if econ:
+                r += "\n*🔥 重要事件倒數*\n"
+                for ev in econ[:4]:
+                    name = _md_safe(ev.get("name", ""))
+                    date = ev.get("date", "")
+                    days = ev.get("days", "")
+                    impact = ev.get("impact", "")
+                    r += "• " + impact + "｜" + name + " `" + str(date) + "`"
+                    if days != "":
+                        r += "（" + ("今天" if days == 0 else str(days) + "天") + "）"
                     r += "\n"
+
             if events:
-                r += "\n*🗓 事件預告*\n"
+                r += "\n*🗓 加密幣事件*\n"
                 for ev in events[:5]:
-                    title = ev.get("title", "")[:55]
+                    title = _md_safe(ev.get("title", "")[:50])
                     date = ev.get("date", "")
                     typ = ev.get("type", "")
-                    type_emoji = "🔓" if typ == "Unlock" else ("🚀" if typ == "Listing" else ("⚙️" if typ == "Upgrade" else "📌"))
-                    r += "• " + type_emoji + " " + title
+                    te = "🔓" if typ == "Unlock" else ("🚀" if typ == "Listing" else ("⚙️" if typ == "Upgrade" else "📌"))
+                    r += "• " + te + " " + title
                     if date:
-                        r += " `" + date + "`"
+                        r += " `" + str(date) + "`"
                     r += "\n"
+
+            if items:
+                r += "\n*📰 即時新聞*\n"
+                for i, item in enumerate(items[:6], 1):
+                    emo = item.get("emoji", "")
+                    title = _md_safe(item.get("title", "")[:70])
+                    src = _md_safe(item.get("source", ""))
+                    time_ago = analyzer.format_published(item.get("published", ""))
+                    r += "`" + str(i) + ".` " + emo + " " + title + "\n"
+                    meta = [m for m in [src, time_ago] if m]
+                    if meta:
+                        r += "　　_" + " · ".join(meta) + "_\n"
+
+            r += "\n_📗 看多　📕 看空　📒 中性　·　資訊整理，非投資建議_"
             await ctx.bot.send_message(chat_id=TG_CHANNEL_ID, text=r, parse_mode="Markdown")
             logger.info("加密快訊整點報已推播")
         except Exception as e:

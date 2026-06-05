@@ -7047,43 +7047,22 @@ class CryptoAnalyzer:
 
             # ─── 今日交易建議（核心）───
             r += "━━━━━━━━━━━━━━━\n"
-            r += "💡 *今日交易建議*\n"
-
+            r += "💡 *市場狀態總結*\n"
             if bull_score >= 4 and bear_score <= 1:
-                r += "🟢 強烈偏多訊號\n"
-                r += "• 策略：順勢做多，加碼領漲幣\n"
-                r += "• 重點：強多頭幣種突破回踩進場\n"
-                r += "• 風險：避免追高過熱幣（RSI>75）"
+                r += "🟢 多方主導：多項指標偏多，市場情緒積極、資金活躍。"
             elif bull_score >= 3 and bull_score > bear_score:
-                r += "📗 偏多但謹慎\n"
-                r += "• 策略：選擇性做多，分批進場\n"
-                r += "• 重點：等回調支撐再進場\n"
-                r += "• 警示：留意 BTC 走勢是否轉弱"
+                r += "📗 偏多：多數指標偏多，惟需留意 BTC 走勢是否轉弱。"
             elif bear_score >= 4 and bull_score <= 1:
-                r += "🔴 強烈偏空訊號\n"
-                r += "• 策略：做空反彈位，避免抄底\n"
-                r += "• 重點：強空頭幣種反彈進場做空\n"
-                r += "• 風險：避免在恐慌底部追空"
+                r += "🔴 空方主導：多項指標偏空，市場情緒疲弱。"
             elif bear_score >= 3 and bear_score > bull_score:
-                r += "📕 偏空謹慎\n"
-                r += "• 策略：減倉觀望，反彈做空\n"
-                r += "• 重點：嚴守止損，控制倉位\n"
-                r += "• 警示：跌破關鍵支撐加速下跌"
+                r += "📕 偏空：指標偏空，技術面轉弱、關鍵支撐承壓。"
             elif fgv <= 25:
-                r += "🔵 極度恐懼區（潛在機會）\n"
-                r += "• 策略：分批佈局價值幣\n"
-                r += "• 重點：BTC/ETH 定投策略\n"
-                r += "• 警示：底部可能延後"
+                r += "🔵 極度恐懼：情緒處於恐慌區間（歷史上常見於階段性低點附近，但不保證）。"
             elif fgv >= 75:
-                r += "🟠 極度貪婪區（危險訊號）\n"
-                r += "• 策略：減倉至 30%，鎖利為主\n"
-                r += "• 重點：嚴格止盈，不追高\n"
-                r += "• 警示：隨時可能回調"
+                r += "🟠 極度貪婪：情緒過熱（歷史上常見於階段性高點附近，回調風險偏高）。"
             else:
-                r += "⚪ 中性盤整\n"
-                r += "• 策略：等突破訊號，減少交易\n"
-                r += "• 重點：嚴選黑潮船長高分機會\n"
-                r += "• 警示：盤整易雙巴，注意止損"
+                r += "⚪ 中性盤整：多空分歧，方向尚未明確。"
+            r += "\n\n_※ 以上為市場數據摘要，僅供參考，非投資建議。_"
 
             # 時段警示
             avoid_warnings = self.should_avoid_trading()
@@ -7191,8 +7170,7 @@ class CryptoAnalyzer:
 
             r += "━━━━━━━━━━━━━━━\n"
             r += "✅ 1H+4H 一致 (高勝率) | ⚠️ 週期分歧\n\n"
-            r += "💡 *操作建議*\n"
-            # 找出最強和最弱
+            r += "💡 *趨勢總結*\n"
             best_long = None
             best_short = None
             if strong_bull:
@@ -7205,24 +7183,22 @@ class CryptoAnalyzer:
                 best_short = sorted(bear, key=lambda x: (-int(x["aligned"]), x["chg"]))[0]
 
             if bull_pct > 60:
-                r += "🟢 市場偏多，優先做多\n"
+                r += "🟢 趨勢偏多：多頭家數明顯佔優。\n"
                 if best_long:
-                    r += "🎯 首選做多：*" + best_long["symbol"] + "* (ADX " + str(best_long["adx"]) + ")\n"
-                r += "   進場：回調至支撐位"
+                    r += "　趨勢最強：*" + best_long["symbol"] + "*（ADX " + str(best_long["adx"]) + "）"
             elif bear_pct > 60:
-                r += "🔴 市場偏空，優先做空\n"
+                r += "🔴 趨勢偏空：空頭家數明顯佔優。\n"
                 if best_short:
-                    r += "🎯 首選做空：*" + best_short["symbol"] + "* (ADX " + str(best_short["adx"]) + ")\n"
-                r += "   進場：反彈至阻力位"
+                    r += "　跌勢最強：*" + best_short["symbol"] + "*（ADX " + str(best_short["adx"]) + "）"
             elif len(ranging) > (len(strong_bull) + len(strong_bear) + len(bull) + len(bear)):
-                r += "↔️ 市場盤整，減少交易\n"
-                r += "   策略：等待方向明確再進場"
+                r += "↔️ 多數標的處於盤整，方向未明。"
             else:
-                r += "⚪ 多空分歧，嚴選 ✅ 標的\n"
+                r += "⚪ 多空分歧，趨勢不明確。"
                 if best_long:
-                    r += "   做多備選：*" + best_long["symbol"] + "*\n"
+                    r += "\n　最強多方：*" + best_long["symbol"] + "*"
                 if best_short:
-                    r += "   做空備選：*" + best_short["symbol"] + "*"
+                    r += "　最強空方：*" + best_short["symbol"] + "*"
+            r += "\n\n_※ 以上為趨勢數據摘要，僅供參考，非投資建議。_"
             return r
         except Exception as e:
             return "❌ 失敗：" + str(e)
