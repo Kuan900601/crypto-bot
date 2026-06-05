@@ -1,0 +1,17 @@
+# 工具設定檔。只放 ruff 與 pytest 的設定。
+# 刻意不含 [build-system] 或 [project]，所以不會影響 pip 安裝 requirements.txt，也不影響 Railway 部署。
+# 若你的 repo 已經有 pyproject.toml，把下面這幾個 [tool.*] 區塊合併進去即可。
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"   # 如果你的 Python 是別的版本（如 3.12），改這裡
+
+[tool.ruff.lint]
+# 既有約 1 萬行程式碼，先用寬鬆規則集，避免一次噴出上百個警告
+select = ["E", "F", "W", "I"]   # 基本錯誤、未使用的變數/匯入、import 排序
+ignore = ["E501"]               # 先不檢查「行太長」
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"

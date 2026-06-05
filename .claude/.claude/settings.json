@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in *.py) python -m py_compile \"$f\" || { echo \"py_compile 失敗：$f 有語法錯誤，請修正後再繼續\" >&2; exit 2; };; esac"
+          }
+        ]
+      }
+    ]
+  }
+}
