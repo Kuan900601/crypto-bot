@@ -2456,6 +2456,32 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
     sig = ACTIVE_SIGNALS.pop(symbol)
     direction = sig["direction"]
     entry = sig["entry"]
+    if _USE_REDIS:
+        try:
+            _close_obj = {
+                "id": symbol + "_close_" + datetime.now(timezone.utc).isoformat(),
+                "symbol": symbol,
+                "direction": direction,
+                "reason": reason_code,
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }
+            _cbody = json.dumps(["RPUSH", "close_queue", json.dumps(_close_obj, ensure_ascii=False)]).encode("utf-8")
+            _creq = _urlreq.Request(_REDIS_URL, data=_cbody, headers={
+                "Authorization": "Bearer " + _REDIS_TOKEN,
+                "Content-Type": "application/json",
+            })
+            with _urlreq.urlopen(_creq, timeout=10) as _cresp:
+                _cresp.read()
+            _ctrim = json.dumps(["LTRIM", "close_queue", -100, -1]).encode("utf-8")
+            _creq2 = _urlreq.Request(_REDIS_URL, data=_ctrim, headers={
+                "Authorization": "Bearer " + _REDIS_TOKEN,
+                "Content-Type": "application/json",
+            })
+            with _urlreq.urlopen(_creq2, timeout=10) as _cresp2:
+                _cresp2.read()
+            logger.info("✅ 已推平倉通知到 close_queue: " + symbol + " (" + str(reason_code) + ")")
+        except Exception as _ce:
+            logger.warning("⚠️ 推 close_queue 失敗（不影響結算）: " + str(_ce)[:100])
     # 計算結果百分比
     cp = current_price or entry
     # ⭐ v53 正確結算：計入分批止盈已實現的利潤

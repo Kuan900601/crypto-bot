@@ -105,6 +105,26 @@ def close_position(ex, symbol):
     return ok
 
 
+def cancel_symbol_orders(ex, symbol):
+    """取消該 symbol 全部掛單（含止盈/止損條件單）。盡力而為，回傳逐筆取消成功數。"""
+    n = 0
+    try:
+        ex.cancel_all_orders(symbol)
+    except Exception:
+        pass
+    try:
+        orders = ex.fetch_open_orders(symbol)
+        for o in orders:
+            try:
+                ex.cancel_order(o.get("id"), symbol)
+                n += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return n
+
+
 if __name__ == "__main__":
     print("=" * 45)
     print("trader.py 自我測試（模擬盤）")
