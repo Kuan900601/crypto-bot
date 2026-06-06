@@ -4,7 +4,7 @@ trader.py — BingX 模擬盤交易模組（整合版）
 import os
 import ccxt
 
-USE_SANDBOX = True  # True=模擬盤假錢。改 False 才碰真錢，現在保持 True。
+USE_SANDBOX = False  # 🔴 真錢模式
 
 
 def load_env():
