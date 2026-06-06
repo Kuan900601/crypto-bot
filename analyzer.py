@@ -5589,6 +5589,8 @@ class CryptoAnalyzer:
             "sl": sl,
             "rr1": rr1, "rr2": rr2, "rr3": rr3, "rr4": rr4,
             "news_vote": news_vote,  # v55：這單有沒有吃到新聞情緒票（供事後驗證新聞準不準）
+            "regime": sig1h.get("regime", ""),
+            "adx": sig1h.get("adx", 0),
             "position": adjusted_position,
             "original_position": position,
             "factors": factors, "risks": risks,
@@ -6215,6 +6217,10 @@ class CryptoAnalyzer:
                                 "tier": "C",
                                 "tier_label": "⚠️ 觀察單（市場盤整，僅供參考）",
                                 "entry_grade": "D",
+                                "regime": sig1h_emg.get("regime", ""),
+                                "adx": sig1h_emg.get("adx", 0),
+                                "consensus_count": 0,
+                                "news_vote": False,
                                 "entry": round(entry, 6),
                                 "sl": round(sl, 6),
                                 "tp1": round(tp1, 6),
@@ -6390,6 +6396,10 @@ class CryptoAnalyzer:
                         "timing_state": _p.get("timing_state", "NOW"),
                         "timeframe": _p.get("timeframe", "短線"),
                         "order_type": _p.get("order_type", "MARKET"),
+                        "regime": _p.get("regime", ""),
+                        "adx": _p.get("adx", 0),
+                        "consensus_count": _p.get("consensus_count", 0),
+                        "news_vote": _p.get("news_vote", False),
                     }
                 self._last_plans_ready = True  # 掛載正常完成（即使 candidates 空，也是正常的「無機會」）
             except Exception as _e:
