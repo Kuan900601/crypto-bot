@@ -1,5 +1,6 @@
 """
-auto_trader.py — 自動交易橋接器（模擬盤｜Redis 隊列版｜15秒輪詢）
+auto_trader.py — 自動交易橋接器（Redis 隊列｜15秒輪詢）
+單筆本金 = 當前淨值 ÷ 4｜最多 4 倉｜15 倍｜同幣不疊倉｜平倉同步｜殘單清理
 """
 import json
 import os
@@ -9,22 +10,21 @@ import urllib.request
 
 import trader
 
-MAX_POSITIONS = 5
-BASE_AMOUNT_USDT = 1000
-TIER_MULTIPLIER = {"S": 2.0, "A": 1.5, "B": 1.0, "C": 0.5}
-ALLOWED_TIERS = ["S", "A", "B", "C"]  # C 級也下單
-LEVERAGE = 15  # ⚠️ 15倍：爆倉線約 -6.7%，止損必須離爆倉線夠遠（見 MAX_SL_PCT）
-MAX_SL_PCT = 0.04  # 止損最遠 -4%（離 -6.7% 爆倉線留 2.7% 緩衝）
+MAX_POSITIONS = 4
+LEVERAGE = 15
+MAX_SL_PCT = 0.04
+ALLOWED_TIERS = ["S", "A", "B", "C"]
 TP_SPLIT = {1: 0.15, 2: 0.35, 3: 0.35, 4: 0.15}
 POLL_INTERVAL = 15
 
 PROCESSED_FILE = "processed_signals.json"
+PROCESSED_CLOSES_FILE = "processed_closes.json"
 TRADES_FILE = "auto_trades.json"
 REDIS_QUEUE_KEY = "signal_queue"
+REDIS_CLOSE_KEY = "close_queue"
 
 
 def load_env():
-    # 先讀 .env 檔案（本地用），再用環境變數覆蓋（Railway 用）
     env = {}
     try:
         with open(".env") as f:
@@ -64,13 +64,11 @@ def save_json(path, data):
     os.replace(tmp, path)
 
 
-def read_redis_queue():
-    """從 Redis 讀整個 signal_queue。用 POST + JSON 數組格式（跟寫入端一致，最可靠）"""
+def read_redis_list(key):
     if not _USE_REDIS:
-        print("🔴 沒設定 Upstash Redis（.env 缺 URL/TOKEN）")
         return []
     try:
-        body = json.dumps(["LRANGE", REDIS_QUEUE_KEY, "0", "-1"]).encode("utf-8")
+        body = json.dumps(["LRANGE", key, "0", "-1"]).encode("utf-8")
         req = urllib.request.Request(_REDIS_URL, data=body, headers={
             "Authorization": "Bearer " + _REDIS_TOKEN,
             "Content-Type": "application/json",
@@ -78,21 +76,29 @@ def read_redis_queue():
         with urllib.request.urlopen(req, timeout=10) as resp:
             result = json.loads(resp.read().decode("utf-8"))
         items = result.get("result", []) or []
-        signals = []
+        out = []
         for it in items:
             try:
-                signals.append(json.loads(it))
+                out.append(json.loads(it))
             except Exception:
                 continue
-        return signals
+        return out
     except Exception as e:
-        print("🔴 讀 Redis 隊列失敗:", str(e)[:150])
+        print("🔴 讀 Redis", key, "失敗:", str(e)[:150])
         return []
 
 
-def calc_amount(ex, symbol, tier, price):
-    usdt = BASE_AMOUNT_USDT * TIER_MULTIPLIER.get(tier, 1.0)
-    raw_amount = (usdt * LEVERAGE) / price
+def to_ccxt_symbol(sym):
+    if ":" in sym:
+        return sym
+    if sym.endswith("/USDT"):
+        return sym + ":USDT"
+    return sym
+
+
+def calc_amount(ex, symbol, margin_usdt, price):
+    notional = margin_usdt * LEVERAGE
+    raw_amount = notional / price
     try:
         market = ex.market(symbol)
         precision = market.get("precision", {}).get("amount")
@@ -108,29 +114,21 @@ def calc_amount(ex, symbol, tier, price):
         return max(raw_amount, 0.0001)
 
 
-def to_ccxt_symbol(sym):
-    if ":" in sym:
-        return sym
-    if sym.endswith("/USDT"):
-        return sym + ":USDT"
-    return sym
-
-
-def open_batch_tp_position(ex, signal):
+def open_batch_tp_position(ex, signal, margin_usdt):
     symbol = to_ccxt_symbol(signal["symbol"])
     direction = signal.get("direction", "").upper()
     side = "buy" if direction in ("LONG", "BUY", "做多") else "sell"
-    tier = signal.get("tier", "B")
     ticker = ex.fetch_ticker(symbol)
     price = ticker["last"]
-    total_amount = calc_amount(ex, symbol, tier, price)
+    total_amount = calc_amount(ex, symbol, margin_usdt, price)
     position_side = "LONG" if side == "buy" else "SHORT"
     close_side = "sell" if side == "buy" else "buy"
     record = {
-        "symbol": symbol, "side": side, "tier": tier,
+        "symbol": symbol, "side": side,
+        "margin_usdt": round(margin_usdt, 2),
         "entry_price": price, "total_amount": total_amount,
         "opened_at": time.time(), "tp_orders": [], "sl_ok": False,
-        "ok": False, "msg": "",
+        "sl_order_id": None, "ok": False, "msg": "",
     }
     try:
         ex.set_leverage(LEVERAGE, symbol, {"side": position_side})
@@ -149,18 +147,19 @@ def open_batch_tp_position(ex, signal):
         if side == "buy":
             safe_sl = price * (1 - MAX_SL_PCT)
             if sl < safe_sl:
-                record["msg"] += " | 止損從 %.4f 收緊到 %.4f（爆倉保護）" % (sl, safe_sl)
+                record["msg"] += " | 止損從 %.6f 收緊到 %.6f（爆倉保護）" % (sl, safe_sl)
                 sl = safe_sl
         else:
             safe_sl = price * (1 + MAX_SL_PCT)
             if sl > safe_sl:
-                record["msg"] += " | 止損從 %.4f 收緊到 %.4f（爆倉保護）" % (sl, safe_sl)
+                record["msg"] += " | 止損從 %.6f 收緊到 %.6f（爆倉保護）" % (sl, safe_sl)
                 sl = safe_sl
         try:
-            ex.create_order(symbol, "STOP_MARKET", close_side, total_amount, None,
-                            {"positionSide": position_side, "stopPrice": sl})
+            slo = ex.create_order(symbol, "STOP_MARKET", close_side, total_amount, None,
+                                  {"positionSide": position_side, "stopPrice": sl})
             record["sl_ok"] = True
             record["sl_used"] = sl
+            record["sl_order_id"] = slo.get("id")
         except Exception as e:
             record["msg"] += " | 止損失敗: " + str(e)[:120]
     for level in (1, 2, 3, 4):
@@ -169,9 +168,9 @@ def open_batch_tp_position(ex, signal):
             continue
         tp_amount = total_amount * TP_SPLIT[level]
         try:
-            ex.create_order(symbol, "TAKE_PROFIT_MARKET", close_side, tp_amount, None,
-                            {"positionSide": position_side, "stopPrice": tp_price})
-            record["tp_orders"].append({"level": level, "price": tp_price, "amount": tp_amount, "ok": True})
+            tpo = ex.create_order(symbol, "TAKE_PROFIT_MARKET", close_side, tp_amount, None,
+                                  {"positionSide": position_side, "stopPrice": tp_price})
+            record["tp_orders"].append({"level": level, "price": tp_price, "amount": tp_amount, "ok": True, "id": tpo.get("id")})
         except Exception as e:
             record["tp_orders"].append({"level": level, "price": tp_price, "ok": False, "err": str(e)[:80]})
     if record["ok"] and sl and not record["sl_ok"]:
@@ -179,13 +178,55 @@ def open_batch_tp_position(ex, signal):
     return record
 
 
+def process_closes(ex):
+    closes = read_redis_list(REDIS_CLOSE_KEY)
+    if not closes:
+        return
+    done = load_json(PROCESSED_CLOSES_FILE, [])
+    changed = False
+    for c in closes:
+        cid = c.get("id") or (c.get("symbol", "") + str(c.get("ts", "")))
+        if cid in done:
+            continue
+        sym_raw = c.get("symbol", "")
+        if not sym_raw:
+            done.append(cid); changed = True; continue
+        csym = to_ccxt_symbol(sym_raw)
+        print("  ⏹ 收到平倉通知:", sym_raw, "｜", c.get("reason", ""))
+        try:
+            cancelled = trader.cancel_symbol_orders(ex, csym)
+        except Exception as e:
+            cancelled = 0
+            print("    ⚠️ 取消掛單出錯:", str(e)[:100])
+        try:
+            ok = trader.close_position(ex, csym)
+            print("    平倉:", "✅" if ok else "🔴", "｜取消掛單", cancelled, "張")
+        except Exception as e:
+            print("    🔴 平倉出錯:", str(e)[:120])
+        done.append(cid)
+        changed = True
+    if changed:
+        save_json(PROCESSED_CLOSES_FILE, done[-1000:])
+
+
 def process_once(ex):
-    queue = read_redis_queue()
+    queue = read_redis_list(REDIS_QUEUE_KEY)
     processed = load_json(PROCESSED_FILE, [])
     trades = load_json(TRADES_FILE, [])
     if not queue:
         return
+    try:
+        equity = float(trader.get_balance(ex)) or 0.0
+    except Exception as e:
+        print("🔴 讀餘額失敗，本輪不開倉:", str(e)[:120])
+        return
+    if equity <= 0:
+        print("🔴 餘額為 0，跳過開倉")
+        return
+    per_position_margin = equity / 4.0
+
     current_positions = trader.get_positions(ex)
+    open_symbols = {to_ccxt_symbol(p["symbol"]) for p in current_positions}
     pos_count = len(current_positions)
     new_count = 0
     for signal in queue:
@@ -195,55 +236,34 @@ def process_once(ex):
         if signal.get("tier", "B") not in ALLOWED_TIERS:
             processed.append(sig_id)
             continue
+        csym = to_ccxt_symbol(signal.get("symbol", ""))
+        if csym in open_symbols:
+            print("  ⏭ 跳過", signal.get("symbol"), "：同幣已有持倉（不疊倉）")
+            processed.append(sig_id)
+            continue
         if pos_count >= MAX_POSITIONS:
             print("  已達最大持倉數", MAX_POSITIONS, "，跳過剩餘")
             break
-        print("  處理新信號:", sig_id)
-        record = open_batch_tp_position(ex, signal)
+        print("  處理新信號:", sig_id, "｜本金", round(per_position_margin, 2), "×", LEVERAGE, "倍")
+        record = open_batch_tp_position(ex, signal, per_position_margin)
         record["sig_id"] = sig_id
         trades.append(record)
         processed.append(sig_id)
         new_count += 1
         if record["ok"]:
+            open_symbols.add(csym)
             pos_count += 1
-            print("    ✅ 下單成功:", record["symbol"], "TP單:", len(record["tp_orders"]), "止損:", record["sl_ok"])
+            print("    ✅ 下單成功:", record["symbol"],
+                  "TP單:", len([t for t in record["tp_orders"] if t.get("ok")]),
+                  "止損:", record["sl_ok"])
             if record["msg"]:
                 print("    ⚠️", record["msg"])
         else:
             print("    🔴 下單失敗:", record["msg"])
     if new_count > 0:
-        save_json(PROCESSED_FILE, processed)
-        save_json(TRADES_FILE, trades)
+        save_json(PROCESSED_FILE, processed[-2000:])
+        save_json(TRADES_FILE, trades[-1000:])
         print("  本輪處理", new_count, "個新信號。總紀錄:", len(trades))
-
-
-def check_liquidations(ex):
-    """爆倉計數器：讀 BingX 爆倉紀錄，記錄發生過幾次爆倉"""
-    liq_file = "liquidations.json"
-    data = load_json(liq_file, {"count": 0, "seen_ids": [], "records": []})
-    try:
-        liqs = ex.fetch_my_liquidations()
-    except Exception:
-        return
-    new = 0
-    for lq in liqs:
-        lid = str(lq.get("id") or lq.get("timestamp") or lq.get("info", {}))
-        if lid in data["seen_ids"]:
-            continue
-        data["seen_ids"] = data["seen_ids"][-200:]
-        data["seen_ids"].append(lid)
-        data["count"] += 1
-        data["records"].append({
-            "symbol": lq.get("symbol"),
-            "time": lq.get("datetime"),
-            "amount": lq.get("contracts") or lq.get("amount"),
-        })
-        data["records"] = data["records"][-100:]
-        new += 1
-        print("  🔴🔴🔴 偵測到爆倉！", lq.get("symbol"), "（累計爆倉次數:", data["count"], "）")
-    if new > 0:
-        save_json(liq_file, data)
-        print("  ⚠️ 本輪新增", new, "次爆倉。請留意 liquidations.json")
 
 
 def check_trailing_stop(ex):
