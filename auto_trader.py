@@ -134,6 +134,7 @@ def open_batch_tp_position(ex, signal, margin_usdt):
         ex.set_leverage(LEVERAGE, symbol, {"side": position_side})
     except Exception:
         pass
+    # 1) 市價開倉
     try:
         order = ex.create_order(symbol, "market", side, total_amount, None,
                                 {"positionSide": position_side})
@@ -142,18 +143,22 @@ def open_batch_tp_position(ex, signal, margin_usdt):
     except Exception as e:
         record["msg"] = "開倉失敗: " + str(e)[:200]
         return record
+
+    # 2) 掛止損（必須成功，否則立刻平倉，絕不留裸倉）
     sl = signal.get("sl")
     if sl:
         if side == "buy":
             safe_sl = price * (1 - MAX_SL_PCT)
             if sl < safe_sl:
-                record["msg"] += " | 止損從 %.6f 收緊到 %.6f（爆倉保護）" % (sl, safe_sl)
                 sl = safe_sl
         else:
             safe_sl = price * (1 + MAX_SL_PCT)
             if sl > safe_sl:
-                record["msg"] += " | 止損從 %.6f 收緊到 %.6f（爆倉保護）" % (sl, safe_sl)
                 sl = safe_sl
+        try:
+            sl = float(ex.price_to_precision(symbol, sl))  # 對齊價格精度，否則 BingX 會打回止損單
+        except Exception:
+            pass
         try:
             slo = ex.create_order(symbol, "STOP_MARKET", close_side, total_amount, None,
                                   {"positionSide": position_side, "stopPrice": sl})
@@ -161,11 +166,28 @@ def open_batch_tp_position(ex, signal, margin_usdt):
             record["sl_used"] = sl
             record["sl_order_id"] = slo.get("id")
         except Exception as e:
-            record["msg"] += " | 止損失敗: " + str(e)[:120]
+            record["msg"] += " | 止損掛單失敗: " + str(e)[:150]
+
+    # 止損沒掛上（價格缺失或被交易所打回）→ 立刻平倉，絕不持有沒止損的倉
+    if not record["sl_ok"]:
+        record["ok"] = False
+        record["closed_naked"] = True
+        record["msg"] = "🔴 止損沒掛上，已立刻平倉（不留裸倉）。" + record["msg"]
+        try:
+            trader.close_position(ex, symbol)
+        except Exception as e:
+            record["msg"] += " | ⚠️⚠️⚠️ 平倉也失敗，請立刻手動平倉！: " + str(e)[:120]
+        return record
+
+    # 3) 止損成功才掛止盈
     for level in (1, 2, 3, 4):
         tp_price = signal.get("tp%d" % level)
         if not tp_price:
             continue
+        try:
+            tp_price = float(ex.price_to_precision(symbol, tp_price))
+        except Exception:
+            pass
         tp_amount = total_amount * TP_SPLIT[level]
         try:
             tpo = ex.create_order(symbol, "TAKE_PROFIT_MARKET", close_side, tp_amount, None,
@@ -173,8 +195,6 @@ def open_batch_tp_position(ex, signal, margin_usdt):
             record["tp_orders"].append({"level": level, "price": tp_price, "amount": tp_amount, "ok": True, "id": tpo.get("id")})
         except Exception as e:
             record["tp_orders"].append({"level": level, "price": tp_price, "ok": False, "err": str(e)[:80]})
-    if record["ok"] and sl and not record["sl_ok"]:
-        record["msg"] = "🔴🔴🔴 開倉成功但止損沒掛上！" + record["msg"]
     return record
 
 

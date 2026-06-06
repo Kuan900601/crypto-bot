@@ -2409,7 +2409,8 @@ def register_signal(sig, watchers):
     save_data()
     logger.info("註冊信號: " + sym + " " + sig["direction"] + " 評分 " + str(sig.get("score")) + " 等級 " + str(sig.get("entry_grade", "C")) + " 訂閱 " + str(len(watchers)))
     # ⭐ 自動交易橋接：把信號推進 Redis 隊列（給 auto_trader.py 讀）
-    if _USE_REDIS:
+    _is_observation = ("觀察單" in str(sig.get("tier_label", ""))) or (sig.get("entry_grade", "C") == "D") or (sig.get("score", 100) <= 26)
+    if _USE_REDIS and not _is_observation:
         try:
             _sig_obj = {
                 "id": sym + "_" + now.isoformat(),
