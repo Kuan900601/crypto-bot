@@ -49,7 +49,56 @@ _REDIS_TOKEN = _ENV.get("UPSTASH_REDIS_REST_TOKEN", "")
 _USE_REDIS = bool(_REDIS_URL and _REDIS_TOKEN)
 
 
+# ⭐ 狀態改存 Redis(部署換容器不會丟)——根治「重啟重放 backlog」
+_REDIS_STATE_KEYS = {
+    PROCESSED_FILE: "at:processed_signals",
+    PROCESSED_CLOSES_FILE: "at:processed_closes",
+    TRADES_FILE: "at:trades",
+    "liquidations.json": "at:liquidations",
+}
+
+
+def redis_cmd(args):
+    """執行單一 Redis 命令(命令數組格式)。成功回應 dict,失敗回 None。"""
+    if not _USE_REDIS:
+        return None
+    try:
+        body = json.dumps(args).encode("utf-8")
+        req = urllib.request.Request(_REDIS_URL, data=body, headers={
+            "Authorization": "Bearer " + _REDIS_TOKEN,
+            "Content-Type": "application/json",
+        })
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print("🔴 Redis 命令失敗:", (args[0] if args else "?"), str(e)[:120])
+        return None
+
+
+def redis_get_json(key, default):
+    """鍵不存在→回 default;讀取出錯→拋例外(讓本輪中止,絕不用空狀態去開/平倉)。"""
+    r = redis_cmd(["GET", key])
+    if r is None:
+        raise RuntimeError("Redis GET 失敗,本輪中止: " + key)
+    val = r.get("result")
+    if val is None:
+        return default
+    try:
+        return json.loads(val)
+    except Exception:
+        return default
+
+
+def redis_set_json(key, data):
+    r = redis_cmd(["SET", key, json.dumps(data, ensure_ascii=False)])
+    if r is None:
+        print("⚠️ Redis SET 失敗(狀態本輪未存,下輪會重存):", key)
+
+
 def load_json(path, default):
+    rkey = _REDIS_STATE_KEYS.get(path)
+    if rkey and _USE_REDIS:
+        return redis_get_json(rkey, default)
     try:
         with open(path) as f:
             return json.load(f)
@@ -58,6 +107,10 @@ def load_json(path, default):
 
 
 def save_json(path, data):
+    rkey = _REDIS_STATE_KEYS.get(path)
+    if rkey and _USE_REDIS:
+        redis_set_json(rkey, data)
+        return
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -380,6 +433,23 @@ def check_liquidations(ex):
         print("  ⚠️ 本輪新增", new, "次爆倉。請留意 liquidations.json")
 
 
+def mark_backlog_processed():
+    """啟動時把佇列裡現有的舊信號/舊平倉標記為已處理。
+    主要保護:第一次部署這版、或 Redis 狀態被清空時,不要把殘留 backlog 重開重平。"""
+    try:
+        sigs = read_redis_list(REDIS_QUEUE_KEY)
+        closes = read_redis_list(REDIS_CLOSE_KEY)
+        sig_ids = [s.get("id") or (s.get("symbol", "") + str(s.get("created", ""))) for s in sigs]
+        close_ids = [c.get("id") or (c.get("symbol", "") + str(c.get("ts", ""))) for c in closes]
+        processed = load_json(PROCESSED_FILE, [])
+        save_json(PROCESSED_FILE, list(dict.fromkeys(processed + sig_ids))[-2000:])
+        done = load_json(PROCESSED_CLOSES_FILE, [])
+        save_json(PROCESSED_CLOSES_FILE, list(dict.fromkeys(done + close_ids))[-1000:])
+        print("  🚦 啟動標記:既有", len(sig_ids), "信號 +", len(close_ids), "平倉 → 已處理,只交易啟動後的新信號")
+    except Exception as e:
+        print("⚠️ 啟動標記 backlog 失敗(略過,改靠 Redis 既有狀態保護):", str(e)[:120])
+
+
 def main_loop():
     print("=" * 50)
     print("auto_trader.py 自動交易（Redis｜輪詢", POLL_INTERVAL, "秒）")
@@ -394,6 +464,7 @@ def main_loop():
     ex = trader.get_exchange()
     print("✅ 連線成功，餘額:", trader.get_balance(ex))
     print("開始輪詢...（Ctrl+C 停止）\n")
+    mark_backlog_processed()
     while True:
         try:
             process_closes(ex)
