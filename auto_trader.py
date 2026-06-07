@@ -1,6 +1,6 @@
 """
 auto_trader.py — 自動交易橋接器（Redis 隊列｜15秒輪詢）
-單筆本金 = 當前淨值 ÷ 4｜最多 4 倉｜15 倍｜同幣不疊倉｜平倉同步｜殘單清理
+單筆本金 = 當前淨值 ÷ 4｜最多 4 倉｜20 倍｜同幣不疊倉｜平倉同步｜殘單清理
 """
 import json
 import os
@@ -11,8 +11,8 @@ import urllib.request
 import trader
 
 MAX_POSITIONS = 4
-LEVERAGE = 15
-MAX_SL_PCT = 0.04
+LEVERAGE = 20
+MAX_SL_PCT = 0.035
 ALLOWED_TIERS = ["S", "A", "B", "C"]
 TP_SPLIT = {1: 0.15, 2: 0.35, 3: 0.35, 4: 0.15}
 POLL_INTERVAL = 15
@@ -386,8 +386,8 @@ def main_loop():
     print("=" * 50)
     print("模式：", "模擬盤(VST假錢)" if trader.USE_SANDBOX else "🔴🔴🔴 真錢 🔴🔴🔴")
     print("設定：最多", MAX_POSITIONS, "倉｜單筆本金 = 淨值 ÷ 4｜槓桿", LEVERAGE, "｜等級", ALLOWED_TIERS)
-    print("⚠️ 15倍：爆倉線約 -6.7%，止損強制收緊到最遠 -4%（留爆倉緩衝）")
-    print("⚠️ 4 倉同向同時觸損，單日約 -60% 淨值；插針穿損可能更多。未設熔斷。")
+    print("⚠️ 20倍：爆倉線約 -5%，止損強制收緊到最遠 -3.5%（留爆倉緩衝）")
+    print("⚠️ 4 倉同向同時觸損，單日約 -70% 淨值；插針穿損可能更多。未設熔斷。")
     if not _USE_REDIS:
         print("🔴 .env 缺 Upstash Redis 設定，無法讀信號")
         return
