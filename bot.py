@@ -1989,8 +1989,8 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
 
         now_ts = time.time()
         if high_tier_signals:
-            # 有 B 級以上 → 優先推這些，並更新 LAST_NON_C
-            filtered_signals = high_tier_signals
+            # 有 B 級以上 → 連同 C 級一起推（C 級正常單也要自動下單；觀察單已在推佇列時擋掉）
+            filtered_signals = high_tier_signals + c_tier_signals
             _C_TIER_GATE["last_high_tier_push"] = now_ts
             logger.info("📊 推播 " + str(len(high_tier_signals)) + " 個 S/A/B 級信號，重置 C 級冷卻")
         else:
