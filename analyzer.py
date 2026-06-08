@@ -3204,7 +3204,8 @@ class CryptoAnalyzer:
                     if pnl_pct > 1:
                         return "reduce", "結構轉弱，建議減倉鎖利"
                     elif pnl_pct > -0.5:
-                        return "close_now", "結構破壞，立刻平倉"
+                        # v56：接近平手不再硬平,交給原本的止損/止盈,避免回檔一點就砍掉會贏的單
+                        return "hold", ""
                     else:
                         return "close_now", "深度浮虧 + 結構破壞，停損"
                 # 強勢續航
@@ -3215,7 +3216,8 @@ class CryptoAnalyzer:
                     if pnl_pct > 1:
                         return "reduce", "結構轉強，建議減倉鎖利"
                     elif pnl_pct > -0.5:
-                        return "close_now", "結構破壞，立刻平倉"
+                        # v56：接近平手不再硬平
+                        return "hold", ""
                     else:
                         return "close_now", "深度浮虧 + 結構破壞，停損"
                 if rsi_now < 40 and current_price < current_ema20 * 0.99 and pnl_pct > 0:
