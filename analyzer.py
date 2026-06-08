@@ -2257,64 +2257,54 @@ class CryptoAnalyzer:
 
     # ⭐ 動態止盈（v24 - 基於 Fibonacci 擴展 + 阻力強度）
     def dynamic_take_profits(self, direction, entry, sl, df, ref_res, ref_sup, atr_v):
-        """根據實際價格結構動態計算止盈位"""
+        """根據實際價格結構動態計算止盈位（保證 TP 嚴格單調）"""
         risk = abs(entry - sl)
         try:
             if direction == "LONG":
-                # 找最近 30 根 K 線的高點作為 swing high
                 recent_high = float(df.tail(30)["high"].max())
-                # 計算 Fibonacci 擴展
-                fib_1618 = entry + risk * 2.0  # 黃金比例擴展
-                fib_2618 = entry + risk * 3.2  # 瘋狂擴展
-                # v53 重設 Fib 擴展，配合 TP1=1.5R 的新階梯
-                fib_1618 = entry + risk * 3.5  # TP3 目標
-                fib_2618 = entry + risk * 5.0  # TP4 目標
-                # TP1: 1.5R（v53：低勝率策略不用 1:1，避免浪費盈虧比）
+                fib_1618 = entry + risk * 3.5
+                fib_2618 = entry + risk * 5.0
                 tp1 = round(entry + risk * 1.5, 4)
-                # TP2: 最近阻力或 2.5R（取近者，但須 > TP1）
                 if ref_res and ref_res[0] > entry:
                     tp2_candidates = [ref_res[0], entry + risk * 2.5]
                     valid_tp2 = [t for t in tp2_candidates if t > tp1]
                     tp2 = min(valid_tp2) if valid_tp2 else round(entry + risk * 2.5, 4)
                 else:
                     tp2 = round(entry + risk * 2.5, 4)
-                # TP3: Fib 3.5R 或第二阻力（取遠者）
-                if ref_res and len(ref_res) >= 2:
-                    tp3 = max(ref_res[1], fib_1618)
-                else:
-                    tp3 = round(fib_1618, 4)
-                # TP4: Fib 5R 或近期高點 + ATR
-                tp4_candidates = [fib_2618, recent_high + atr_v]
-                tp4 = round(max(tp4_candidates), 4)
+                tp4 = round(max(fib_2618, recent_high + atr_v), 4)
+                tp3 = round(fib_1618, 4)
+                if ref_res and len(ref_res) >= 2 and tp2 < ref_res[1] < tp4:
+                    tp3 = round(ref_res[1], 4)
             else:
                 recent_low = float(df.tail(30)["low"].min())
-                fib_1618 = entry - risk * 3.5  # v53 TP3 目標
-                fib_2618 = entry - risk * 5.0  # v53 TP4 目標
-                tp1 = round(entry - risk * 1.5, 4)  # v53：1.5R
+                fib_1618 = entry - risk * 3.5
+                fib_2618 = entry - risk * 5.0
+                tp1 = round(entry - risk * 1.5, 4)
                 if ref_sup and ref_sup[0] < entry:
                     tp2_candidates = [ref_sup[0], entry - risk * 2.5]
                     valid_tp2 = [t for t in tp2_candidates if t < tp1]
                     tp2 = max(valid_tp2) if valid_tp2 else round(entry - risk * 2.5, 4)
                 else:
                     tp2 = round(entry - risk * 2.5, 4)
-                if ref_sup and len(ref_sup) >= 2:
-                    tp3 = min(ref_sup[1], fib_1618)
-                else:
-                    tp3 = round(fib_1618, 4)
-                tp4_candidates = [fib_2618, recent_low - atr_v]
-                tp4 = round(min(tp4_candidates), 4)
+                tp4 = round(min(fib_2618, recent_low - atr_v), 4)
+                tp3 = round(fib_1618, 4)
+                if ref_sup and len(ref_sup) >= 2 and tp4 < ref_sup[1] < tp2:
+                    tp3 = round(ref_sup[1], 4)
+            tps = [tp1, tp2, tp3, tp4]
+            for i in range(1, 4):
+                if direction == "LONG" and tps[i] <= tps[i - 1]:
+                    tps[i] = round(tps[i - 1] + risk * 0.5, 4)
+                elif direction != "LONG" and tps[i] >= tps[i - 1]:
+                    tps[i] = round(tps[i - 1] - risk * 0.5, 4)
+            tp1, tp2, tp3, tp4 = tps
             return round(tp1, 4), round(tp2, 4), round(tp3, 4), round(tp4, 4)
         except Exception:
             if direction == "LONG":
-                return (round(entry + risk * 1.0, 4),
-                        round(entry + risk * 2.0, 4),
-                        round(entry + risk * 3.0, 4),
-                        round(entry + risk * 5.0, 4))
+                return (round(entry + risk * 1.5, 4), round(entry + risk * 2.5, 4),
+                        round(entry + risk * 3.5, 4), round(entry + risk * 5.0, 4))
             else:
-                return (round(entry - risk * 1.0, 4),
-                        round(entry - risk * 2.0, 4),
-                        round(entry - risk * 3.0, 4),
-                        round(entry - risk * 5.0, 4))
+                return (round(entry - risk * 1.5, 4), round(entry - risk * 2.5, 4),
+                        round(entry - risk * 3.5, 4), round(entry - risk * 5.0, 4))
 
 
 
@@ -6538,14 +6528,23 @@ class CryptoAnalyzer:
 
                 # 核心價位
                 r += "🎯 進場 `" + str(p["entry"]) + "` · 止損 `" + str(p["sl"]) + "`\n"
-                # TP（含 TP4）
+                # TP（含 TP4：價格 ｜漲幅% ｜分批平倉%，一行一個）
                 tp_parts = []
+                _entry_v = p.get("entry", 0) or 0
+                _dir = 1 if p.get("direction", "LONG") == "LONG" else -1
+                _tp_close = {1: 15, 2: 35, 3: 35, 4: 15}
                 for n in (1, 2, 3, 4):
                     tp_v = p.get("tp" + str(n), 0)
-                    if tp_v:
-                        tp_parts.append("TP" + str(n) + " `" + str(tp_v) + "`")
+                    if not tp_v:
+                        continue
+                    line = "TP" + str(n) + "：" + str(tp_v)
+                    if _entry_v:
+                        _pct = (tp_v - _entry_v) / _entry_v * 100 * _dir
+                        line += " ｜+" + str(round(_pct, 1)) + "%"
+                    line += " ｜平" + str(_tp_close[n]) + "%"
+                    tp_parts.append(line)
                 if tp_parts:
-                    r += "🏆 " + " · ".join(tp_parts) + "\n"
+                    r += "🏆 *分批止盈*\n" + "\n".join(tp_parts) + "\n"
 
                 # 風報比 + 倉位 + 勝率
                 # v53 修正：plan 存的是 rr1，舊代碼找 rr_ratio/rr 找不到 → 顯示 1:0
