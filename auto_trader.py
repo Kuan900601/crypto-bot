@@ -14,7 +14,7 @@ MAX_POSITIONS = 4
 LEVERAGE = 20
 MAX_SL_PCT = 0.035
 ALLOWED_TIERS = ["S", "A", "B", "C"]
-TP_SPLIT = {1: 0.15, 2: 0.35, 3: 0.35, 4: 0.15}
+TP_SPLIT = {1: 0.4, 2: 0.35, 3: 0.25}  # 三段止盈（TP1/TP2/TP3，丟棄 TP4）
 POLL_INTERVAL = 15
 
 PROCESSED_FILE = "processed_signals.json"
@@ -35,7 +35,7 @@ def load_env():
                     env[k.strip()] = v.strip().strip('"').strip("'")
     except FileNotFoundError:
         pass
-    for _k in ("BINGX_API_KEY", "BINGX_API_SECRET",
+    for _k in ("BYBIT_API_KEY", "BYBIT_API_SECRET",
                "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"):
         _v = os.environ.get(_k)
         if _v:
@@ -174,7 +174,6 @@ def open_batch_tp_position(ex, signal, margin_usdt):
     ticker = ex.fetch_ticker(symbol)
     price = ticker["last"]
     total_amount = calc_amount(ex, symbol, margin_usdt, price)
-    position_side = "LONG" if side == "buy" else "SHORT"
     close_side = "sell" if side == "buy" else "buy"
     record = {
         "symbol": symbol, "side": side,
@@ -184,20 +183,19 @@ def open_batch_tp_position(ex, signal, margin_usdt):
         "sl_order_id": None, "ok": False, "msg": "",
     }
     try:
-        ex.set_leverage(LEVERAGE, symbol, {"side": position_side})
+        ex.set_leverage(LEVERAGE, symbol)
     except Exception:
         pass
     # 1) 市價開倉
     try:
-        order = ex.create_order(symbol, "market", side, total_amount, None,
-                                {"positionSide": position_side})
+        order = ex.create_order(symbol, "market", side, total_amount)
         record["order_id"] = order.get("id")
         record["ok"] = True
     except Exception as e:
         record["msg"] = "開倉失敗: " + str(e)[:200]
         return record
 
-    # 2) 掛止損（必須成功，否則立刻平倉，絕不留裸倉）
+    # 2) 掛止損（必須成功，否則立刻平倉，絕不留裸倉；單向模式 + reduceOnly）
     sl = signal.get("sl")
     if sl:
         if side == "buy":
@@ -209,12 +207,12 @@ def open_batch_tp_position(ex, signal, margin_usdt):
             if sl > safe_sl:
                 sl = safe_sl
         try:
-            sl = float(ex.price_to_precision(symbol, sl))  # 對齊價格精度，否則 BingX 會打回止損單
+            sl = float(ex.price_to_precision(symbol, sl))  # 對齊價格精度，避免被交易所打回
         except Exception:
             pass
         try:
-            slo = ex.create_order(symbol, "STOP_MARKET", close_side, total_amount, None,
-                                  {"positionSide": position_side, "stopPrice": sl})
+            slo = ex.create_order(symbol, "market", close_side, total_amount, None,
+                                  {"stopLossPrice": sl, "reduceOnly": True})
             record["sl_ok"] = True
             record["sl_used"] = sl
             record["sl_order_id"] = slo.get("id")
@@ -232,8 +230,8 @@ def open_batch_tp_position(ex, signal, margin_usdt):
             record["msg"] += " | ⚠️⚠️⚠️ 平倉也失敗，請立刻手動平倉！: " + str(e)[:120]
         return record
 
-    # 3) 止損成功才掛止盈
-    for level in (1, 2, 3, 4):
+    # 3) 止損成功才掛止盈（分批 reduceOnly）
+    for level in (1, 2, 3):
         tp_price = signal.get("tp%d" % level)
         if not tp_price:
             continue
@@ -243,8 +241,8 @@ def open_batch_tp_position(ex, signal, margin_usdt):
             pass
         tp_amount = total_amount * TP_SPLIT[level]
         try:
-            tpo = ex.create_order(symbol, "TAKE_PROFIT_MARKET", close_side, tp_amount, None,
-                                  {"positionSide": position_side, "stopPrice": tp_price})
+            tpo = ex.create_order(symbol, "market", close_side, tp_amount, None,
+                                  {"takeProfitPrice": tp_price, "reduceOnly": True})
             record["tp_orders"].append({"level": level, "price": tp_price, "amount": tp_amount, "ok": True, "id": tpo.get("id")})
         except Exception as e:
             record["tp_orders"].append({"level": level, "price": tp_price, "ok": False, "err": str(e)[:80]})
@@ -357,7 +355,6 @@ def check_trailing_stop(ex):
         if current_amount < rec["total_amount"] * 0.95:
             entry = rec["entry_price"]
             side = rec["side"]
-            position_side = "LONG" if side == "buy" else "SHORT"
             close_side = "sell" if side == "buy" else "buy"
             old_id = rec.get("sl_order_id")
             if old_id:
@@ -366,8 +363,12 @@ def check_trailing_stop(ex):
                 except Exception:
                     pass
             try:
-                slo = ex.create_order(sym, "STOP_MARKET", close_side, current_amount, None,
-                                      {"positionSide": position_side, "stopPrice": entry})
+                entry = float(ex.price_to_precision(sym, entry))
+            except Exception:
+                pass
+            try:
+                slo = ex.create_order(sym, "market", close_side, current_amount, None,
+                                      {"stopLossPrice": entry, "reduceOnly": True})
                 rec["sl_order_id"] = slo.get("id")
                 rec["trailing_done"] = True
                 changed = True
@@ -454,7 +455,7 @@ def main_loop():
     print("=" * 50)
     print("auto_trader.py 自動交易（Redis｜輪詢", POLL_INTERVAL, "秒）")
     print("=" * 50)
-    print("模式：", "模擬盤(VST假錢)" if trader.USE_SANDBOX else "🔴🔴🔴 真錢 🔴🔴🔴")
+    print("模式：", "Bybit 測試網(假錢)" if trader.USE_SANDBOX else "🔴🔴🔴 真錢 🔴🔴🔴")
     print("設定：最多", MAX_POSITIONS, "倉｜單筆本金 = 淨值 ÷ 4｜槓桿", LEVERAGE, "｜等級", ALLOWED_TIERS)
     print("⚠️ 20倍：爆倉線約 -5%，止損強制收緊到最遠 -3.5%（留爆倉緩衝）")
     print("⚠️ 4 倉同向同時觸損，單日約 -70% 淨值；插針穿損可能更多。未設熔斷。")

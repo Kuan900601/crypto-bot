@@ -1,14 +1,16 @@
 """
-trader.py — BingX 模擬盤交易模組（整合版）
+trader.py — Bybit 永續合約交易模組（單向 One-Way 模式）
+⚠️ 止損/止盈用 stopLossPrice / takeProfitPrice + reduceOnly（與 BingX 不同）。
+⚠️ 請先把 Bybit 帳號設成「單向持倉 One-Way」模式，否則 reduceOnly 平倉會出錯。
 """
 import os
 import ccxt
 
-USE_SANDBOX = False  # 🔴 真錢模式
+# 🔴 真錢模式
+USE_SANDBOX = False
 
 
 def load_env():
-    # 先讀 .env 檔案（本地用），再用環境變數覆蓋（Railway 用）
     env = {}
     try:
         with open(".env") as f:
@@ -19,7 +21,7 @@ def load_env():
                     env[k.strip()] = v.strip().strip('"').strip("'")
     except FileNotFoundError:
         pass
-    for _k in ("BINGX_API_KEY", "BINGX_API_SECRET",
+    for _k in ("BYBIT_API_KEY", "BYBIT_API_SECRET",
                "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"):
         _v = os.environ.get(_k)
         if _v:
@@ -29,9 +31,9 @@ def load_env():
 
 def get_exchange():
     env = load_env()
-    ex = ccxt.bingx({
-        "apiKey": env.get("BINGX_API_KEY", ""),
-        "secret": env.get("BINGX_API_SECRET", ""),
+    ex = ccxt.bybit({
+        "apiKey": env.get("BYBIT_API_KEY", ""),
+        "secret": env.get("BYBIT_API_SECRET", ""),
         "options": {"defaultType": "swap"},
     })
     if USE_SANDBOX:
@@ -43,7 +45,7 @@ def get_exchange():
 def get_balance(ex):
     bal = ex.fetch_balance()
     total = bal.get("total", {})
-    return total.get("USDT", 0) or total.get("VST", 0)
+    return total.get("USDT", 0)
 
 
 def get_positions(ex, symbol=None):
@@ -53,15 +55,14 @@ def get_positions(ex, symbol=None):
 
 
 def open_position(ex, symbol, side, amount, leverage, tp_price=None, sl_price=None):
+    """單筆開倉 + 可選止損/止盈（單向模式 + reduceOnly）。"""
     result = {"ok": False, "order_id": None, "tp_ok": False, "sl_ok": False, "msg": ""}
-    position_side = "LONG" if side == "buy" else "SHORT"
     try:
-        ex.set_leverage(leverage, symbol, {"side": position_side})
+        ex.set_leverage(leverage, symbol)
     except Exception:
         pass
     try:
-        order = ex.create_order(symbol, "market", side, amount, None,
-                                {"positionSide": position_side})
+        order = ex.create_order(symbol, "market", side, amount)
         result["order_id"] = order.get("id")
         result["ok"] = True
     except Exception as e:
@@ -70,20 +71,20 @@ def open_position(ex, symbol, side, amount, leverage, tp_price=None, sl_price=No
     close_side = "sell" if side == "buy" else "buy"
     if sl_price is not None:
         try:
-            ex.create_order(symbol, "STOP_MARKET", close_side, amount, None,
-                            {"positionSide": position_side, "stopPrice": sl_price})
+            ex.create_order(symbol, "market", close_side, amount, None,
+                            {"stopLossPrice": sl_price, "reduceOnly": True})
             result["sl_ok"] = True
         except Exception as e:
             result["msg"] += " | 止損掛單失敗: " + str(e)[:150]
     if tp_price is not None:
         try:
-            ex.create_order(symbol, "TAKE_PROFIT_MARKET", close_side, amount, None,
-                            {"positionSide": position_side, "stopPrice": tp_price})
+            ex.create_order(symbol, "market", close_side, amount, None,
+                            {"takeProfitPrice": tp_price, "reduceOnly": True})
             result["tp_ok"] = True
         except Exception as e:
             result["msg"] += " | 止盈掛單失敗: " + str(e)[:150]
     if result["ok"] and sl_price is not None and not result["sl_ok"]:
-        result["msg"] = "🔴🔴🔴 警告：開倉成功但止損沒掛上！倉位無保護，請立即手動補止損！" + result["msg"]
+        result["msg"] = "🔴🔴🔴 警告：開倉成功但止損沒掛上！請立即手動補止損！" + result["msg"]
     return result
 
 
@@ -96,38 +97,38 @@ def close_position(ex, symbol):
         contracts = abs(p.get("contracts", 0))
         side = p.get("side")
         close_side = "sell" if side == "long" else "buy"
-        position_side = "LONG" if side == "long" else "SHORT"
         try:
             ex.create_order(symbol, "market", close_side, contracts, None,
-                            {"positionSide": position_side})
+                            {"reduceOnly": True})
         except Exception:
             ok = False
     return ok
 
 
 def cancel_symbol_orders(ex, symbol):
-    """取消該 symbol 全部掛單（含止盈/止損條件單）。盡力而為，回傳逐筆取消成功數。"""
+    """取消該 symbol 全部掛單（含止盈/止損條件單）。Bybit 條件單可能要額外用 StopOrder filter。"""
     n = 0
     try:
         ex.cancel_all_orders(symbol)
     except Exception:
         pass
-    try:
-        orders = ex.fetch_open_orders(symbol)
-        for o in orders:
-            try:
-                ex.cancel_order(o.get("id"), symbol)
-                n += 1
-            except Exception:
-                pass
-    except Exception:
-        pass
+    for _params in ({}, {"orderFilter": "StopOrder"}):
+        try:
+            orders = ex.fetch_open_orders(symbol, None, None, _params)
+            for o in orders:
+                try:
+                    ex.cancel_order(o.get("id"), symbol, _params)
+                    n += 1
+                except Exception:
+                    pass
+        except Exception:
+            pass
     return n
 
 
 if __name__ == "__main__":
     print("=" * 45)
-    print("trader.py 自我測試（模擬盤）")
+    print("trader.py 自我測試（Bybit", "測試網" if USE_SANDBOX else "🔴真錢", "）")
     print("=" * 45)
     ex = get_exchange()
     print("✅ 連線成功，餘額:", get_balance(ex))
