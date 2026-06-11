@@ -66,6 +66,8 @@
 - `UPSTASH_REDIS_REST_URL`、`UPSTASH_REDIS_REST_TOKEN`：Redis（沒設退回 /tmp 本地檔）。
 - `ANTHROPIC_API_KEY`、`CRYPTOPANIC_TOKEN`：新聞分析用（可選，沒設則新聞功能靜默關閉）。
 - `AUTO_TRADE_ENABLED`：自動下單開關（未設或非 “true” 不啟動，預設關）。
+- `EMERGENCY_SIGNALS`：緊急保底單開關（v57，未設或非 "true" 不啟動，預設關；該訊號結構上偏負期望）。
+- `STRICT_CONTEXT_GATE`：v57 情境閘門（`entry_context_gate`）開關，未設或非 "false" 視為開（預設開）。
 
 -----
 
@@ -163,7 +165,7 @@ hooks 已設定：Claude Code 每次 Write/Edit `.py` 檔後會自動 `py_compil
 
 - TP 階梯：1.5 / 2.5 / 3.5 / 5.0 R。
 - 約 52 個幣的掃描池。系統偏多（LONG-biased）。
-- **緊急保底單**：盤整期硬擠的低質觀察單（score 26、進場品質 D），已加嚴觸發條件（ADX>15 + RSI>60/<40）。結構上偏負期望，未來可能作為「過濾掉」的候選。
+- **緊急保底單**：盤整期硬擠的低質觀察單（score 26、進場品質 D），已加嚴觸發條件（ADX>15 + RSI>60/<40）。結構上偏負期望，**v57 起預設停用**（`EMERGENCY_SIGNALS=true` 才會啟用）。
 - 已抓但**尚未用進決策**的資料：funding rate、多空比。（屬未來強化，現在別接。）
 
 -----
@@ -187,6 +189,14 @@ hooks 已設定：Claude Code 每次 Write/Edit `.py` 檔後會自動 `py_compil
 - 改動 5：新增 `/reset_stats` 指令（限 ADMIN_ID）。
 - 改動 6：停用 `smart_tp_extend`（`if tp_level == 1:` → `if False:`）。
 - 改動 7：`auto_trader` 啟動改由 `AUTO_TRADE_ENABLED` 控制（預設關）。
+- **v57**：
+  - 修 `funding_extreme` 單位二次轉換 bug（輸入已是百分比，原本又乘 100，導致正常費率被誤判 EXTREME_LONG_CROWDED）。
+  - 新增 `px_round` 低價幣分級精度，套用到下單價格路徑（entry/sl/tp1-4），避免低價幣被 `round(x,4)` 砍成 0 而被靜默過濾。
+  - `check_active_signals` 改額外抓 1h K 線餵給 `stale_signal_recheck`（避免 15m 雜訊提前誤判 close_now），`early_exit_signal` 仍用原本的 15m。
+  - `strategy_consensus` 量價票方向化：量增需搭配近 3 根淨變動同向才算「量價齊升/齊跌」。
+  - 新增情境閘門 `entry_context_gate`（高位不追多/低位不追空、4H 強反不逆勢、盤整只做邊緣反轉），由 `STRICT_CONTEXT_GATE` 控制（預設開），擋下記錄存於 `analyzer._gate_blocked`。
+  - 新增 `/edge`（期望值驗證儀表：勝率、Wilson 95% 下界、平均盈虧、毛/淨期望值、最大連續虧損、分組統計）與 `/gate_stats`（情境閘門擋下統計）兩個管理員指令。
+  - 緊急保底單改由 `EMERGENCY_SIGNALS` 控制，預設停用。
 
 -----
 
