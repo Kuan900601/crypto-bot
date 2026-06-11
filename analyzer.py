@@ -1838,7 +1838,23 @@ class CryptoAnalyzer:
             if abs(val - sl) / sl < 0.001:
                 chosen_label = lbl
                 break
-        return round(sl, 4), chosen_label
+        return self.px_round(sl), chosen_label
+
+    # ⭐ v57 下單價格精度（低價幣避免被 round(x,4) 砍成 0）
+    def px_round(self, value):
+        try:
+            v = float(value)
+            if v <= 0:
+                return v
+            if v >= 100:
+                return round(v, 2)
+            if v >= 1:
+                return round(v, 4)
+            if v >= 0.01:
+                return round(v, 6)
+            return float(("%.8f") % v)
+        except Exception:
+            return value
 
     # ⭐ 進場理由深度分析（為什麼選這裡）
     def entry_reasoning(self, direction, sig1h, sig4h, sw_res, sw_sup,
@@ -2264,47 +2280,47 @@ class CryptoAnalyzer:
                 recent_high = float(df.tail(30)["high"].max())
                 fib_1618 = entry + risk * 3.5
                 fib_2618 = entry + risk * 5.0
-                tp1 = round(entry + risk * 1.5, 4)
+                tp1 = self.px_round(entry + risk * 1.5)
                 if ref_res and ref_res[0] > entry:
                     tp2_candidates = [ref_res[0], entry + risk * 2.5]
                     valid_tp2 = [t for t in tp2_candidates if t > tp1]
-                    tp2 = min(valid_tp2) if valid_tp2 else round(entry + risk * 2.5, 4)
+                    tp2 = min(valid_tp2) if valid_tp2 else self.px_round(entry + risk * 2.5)
                 else:
-                    tp2 = round(entry + risk * 2.5, 4)
-                tp4 = round(max(fib_2618, recent_high + atr_v), 4)
-                tp3 = round(fib_1618, 4)
+                    tp2 = self.px_round(entry + risk * 2.5)
+                tp4 = self.px_round(max(fib_2618, recent_high + atr_v))
+                tp3 = self.px_round(fib_1618)
                 if ref_res and len(ref_res) >= 2 and tp2 < ref_res[1] < tp4:
-                    tp3 = round(ref_res[1], 4)
+                    tp3 = self.px_round(ref_res[1])
             else:
                 recent_low = float(df.tail(30)["low"].min())
                 fib_1618 = entry - risk * 3.5
                 fib_2618 = entry - risk * 5.0
-                tp1 = round(entry - risk * 1.5, 4)
+                tp1 = self.px_round(entry - risk * 1.5)
                 if ref_sup and ref_sup[0] < entry:
                     tp2_candidates = [ref_sup[0], entry - risk * 2.5]
                     valid_tp2 = [t for t in tp2_candidates if t < tp1]
-                    tp2 = max(valid_tp2) if valid_tp2 else round(entry - risk * 2.5, 4)
+                    tp2 = max(valid_tp2) if valid_tp2 else self.px_round(entry - risk * 2.5)
                 else:
-                    tp2 = round(entry - risk * 2.5, 4)
-                tp4 = round(min(fib_2618, recent_low - atr_v), 4)
-                tp3 = round(fib_1618, 4)
+                    tp2 = self.px_round(entry - risk * 2.5)
+                tp4 = self.px_round(min(fib_2618, recent_low - atr_v))
+                tp3 = self.px_round(fib_1618)
                 if ref_sup and len(ref_sup) >= 2 and tp4 < ref_sup[1] < tp2:
-                    tp3 = round(ref_sup[1], 4)
+                    tp3 = self.px_round(ref_sup[1])
             tps = [tp1, tp2, tp3, tp4]
             for i in range(1, 4):
                 if direction == "LONG" and tps[i] <= tps[i - 1]:
-                    tps[i] = round(tps[i - 1] + risk * 0.5, 4)
+                    tps[i] = self.px_round(tps[i - 1] + risk * 0.5)
                 elif direction != "LONG" and tps[i] >= tps[i - 1]:
-                    tps[i] = round(tps[i - 1] - risk * 0.5, 4)
+                    tps[i] = self.px_round(tps[i - 1] - risk * 0.5)
             tp1, tp2, tp3, tp4 = tps
-            return round(tp1, 4), round(tp2, 4), round(tp3, 4), round(tp4, 4)
+            return self.px_round(tp1), self.px_round(tp2), self.px_round(tp3), self.px_round(tp4)
         except Exception:
             if direction == "LONG":
-                return (round(entry + risk * 1.5, 4), round(entry + risk * 2.5, 4),
-                        round(entry + risk * 3.5, 4), round(entry + risk * 5.0, 4))
+                return (self.px_round(entry + risk * 1.5), self.px_round(entry + risk * 2.5),
+                        self.px_round(entry + risk * 3.5), self.px_round(entry + risk * 5.0))
             else:
-                return (round(entry - risk * 1.5, 4), round(entry - risk * 2.5, 4),
-                        round(entry - risk * 3.5, 4), round(entry - risk * 5.0, 4))
+                return (self.px_round(entry - risk * 1.5), self.px_round(entry - risk * 2.5),
+                        self.px_round(entry - risk * 3.5), self.px_round(entry - risk * 5.0))
 
 
 
@@ -3139,6 +3155,7 @@ class CryptoAnalyzer:
     def funding_extreme(self, funding_rate):
         """
         Funding Rate 極端值反向訊號
+        輸入單位＝百分比（fetch_funding_rate / fetch_funding_cached 回傳的就是百分比，例 0.01 = 0.01%）
         > 0.08% (8 bps) = 多頭過熱（反轉做空訊號）
         < -0.08% = 空頭過熱（反轉做多訊號）
         """
@@ -3146,7 +3163,7 @@ class CryptoAnalyzer:
             if funding_rate is None:
                 return None, "", 0
             fr = float(funding_rate)
-            fr_pct = fr * 100  # 轉為百分比
+            fr_pct = fr  # 輸入已是百分比，不再二次換算
             if fr_pct > 0.08:
                 return "EXTREME_LONG_CROWDED", "多單過於擁擠（反向訊號）", 12
             elif fr_pct > 0.04:
@@ -3535,8 +3552,9 @@ class CryptoAnalyzer:
             # 2. 策略 + 共識
             strat = plan.get("strategy_label", "")
             consensus = plan.get("consensus_count", 0)
+            _total_votes = 8 if plan.get("news_vote") else 7
             if consensus >= 4 and strat:
-                top_reasons.append(strat + " · " + str(consensus) + "/6 共識")
+                top_reasons.append(strat + " · " + str(consensus) + "/" + str(_total_votes) + " 共識")
 
             # 3. 流動性掃蕩/Wyckoff（最高勝率訊號）
             if plan.get("sweep_msg"):
@@ -5348,13 +5366,13 @@ class CryptoAnalyzer:
         if direction == "LONG":
             # 進場：優先看支撐位
             if ref_sup and (p - ref_sup[0]) / p < 0.005:
-                entry = round(p * 0.999, 4)
+                entry = self.px_round(p * 0.999)
                 entry_note = "立即進場（已測支撐）"
             elif ref_sup and (p - ref_sup[0]) / p < 0.015:
-                entry = round(ref_sup[0] * 1.002, 4)
+                entry = self.px_round(ref_sup[0] * 1.002)
                 entry_note = "限價單等回測支撐"
             else:
-                entry = round(p * 0.997, 4)
+                entry = self.px_round(p * 0.997)
                 entry_note = "等回調 0.3% 進場"
 
             # ⭐ Smart Stop Loss（多重保護）
@@ -5369,13 +5387,13 @@ class CryptoAnalyzer:
             )
         else:
             if ref_res and (ref_res[0] - p) / p < 0.005:
-                entry = round(p * 1.001, 4)
+                entry = self.px_round(p * 1.001)
                 entry_note = "立即進場（已測阻力）"
             elif ref_res and (ref_res[0] - p) / p < 0.015:
-                entry = round(ref_res[0] * 0.998, 4)
+                entry = self.px_round(ref_res[0] * 0.998)
                 entry_note = "限價單等反彈阻力"
             else:
-                entry = round(p * 1.003, 4)
+                entry = self.px_round(p * 1.003)
                 entry_note = "等反彈 0.3% 進場"
 
             # ⭐ Smart Stop Loss
@@ -5388,6 +5406,10 @@ class CryptoAnalyzer:
             tp1, tp2, tp3, tp4 = self.dynamic_take_profits(
                 "SHORT", entry, sl, df1h, ref_res, ref_sup, ref_atr
             )
+
+        # ⭐ v57 防呆：低價幣精度異常（entry/sl 被砍成 0 或重合）直接放棄
+        if entry <= 0 or sl <= 0 or abs(entry - sl) <= 0:
+            return None, "價格精度異常"
 
         risk = abs(entry - sl)
         rr1 = round(abs(tp1 - entry) / risk, 2) if risk > 0 else 0
@@ -5493,6 +5515,9 @@ class CryptoAnalyzer:
         win_rate = round(min(75, max(20, win_rate)))   # 下限放寬到 20（誠實反映可能很低）
 
         # ⭐ v49 用更新後的 win_rate 重算 Kelly 倉位
+        # v57 防呆：avg_rr <= 0 會讓除式爆炸/方向錯誤，異常時退回中性值 1.0
+        if avg_rr <= 0:
+            avg_rr = 1.0
         kelly = max(0, (win_rate/100 - (1 - win_rate/100) / avg_rr)) * 100
         position = round(min(kelly * 0.5, 6), 1)  # 單筆上限 6%
 
@@ -6104,7 +6129,9 @@ class CryptoAnalyzer:
             # 不過 candidates 在 v46 還沒被 score 過濾，所以這裡是「全部都因為其他原因 reject」的情況
             
             # ⭐ v43+v46 緊急保底：candidates 為 0 時，從 NEUTRAL 信號中挑「最有方向」的 3 個
-            if not candidates and ok_count > 0:
+            # v57：結構上偏負期望，預設停用，需設 EMERGENCY_SIGNALS=true 才開啟
+            if (not candidates and ok_count > 0
+                    and os.getenv("EMERGENCY_SIGNALS", "false").lower() == "true"):
                 logger.warning("🆘 緊急保底：candidates 為 0，從 NEUTRAL 信號挑選")
                 emergency_candidates = []
                 stride = 6
@@ -6213,12 +6240,12 @@ class CryptoAnalyzer:
                                 "adx": sig1h_emg.get("adx", 0),
                                 "consensus_count": 0,
                                 "news_vote": False,
-                                "entry": round(entry, 6),
-                                "sl": round(sl, 6),
-                                "tp1": round(tp1, 6),
-                                "tp2": round(tp2, 6),
-                                "tp3": round(tp3, 6),
-                                "tp4": round(tp4, 6),
+                                "entry": self.px_round(entry),
+                                "sl": self.px_round(sl),
+                                "tp1": self.px_round(tp1),
+                                "tp2": self.px_round(tp2),
+                                "tp3": self.px_round(tp3),
+                                "tp4": self.px_round(tp4),
                                 "rr": 1.0,
                                 "rr_ratio": 1.0,
                                 "position": 2,

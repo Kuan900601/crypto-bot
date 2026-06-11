@@ -2743,13 +2743,15 @@ async def check_active_signals(ctx):
             for sym in symbols_to_check:
                 tasks.append(analyzer.fetch_ticker(session, sym))
                 tasks.append(analyzer.fetch_ohlcv(session, sym, "15m", 50))
+                tasks.append(analyzer.fetch_ohlcv(session, sym, "1h", 60))
             results = await asyncio.gather(*tasks, return_exceptions=True)
         for i, sym in enumerate(symbols_to_check):
             if sym not in ACTIVE_SIGNALS:
                 continue
             sig = ACTIVE_SIGNALS[sym]
-            ticker = results[i * 2]
-            df15m = results[i * 2 + 1]
+            ticker = results[i * 3]
+            df15m = results[i * 3 + 1]
+            df1h_track = results[i * 3 + 2]
             if isinstance(ticker, Exception):
                 continue
             try:
@@ -2799,10 +2801,13 @@ async def check_active_signals(ctx):
                     age_min = (datetime.now(timezone.utc) - created).total_seconds() / 60
                     # 只在 30 分鐘 ~ 6 小時內檢查
                     if 30 < age_min < 360 and not isinstance(df15m, Exception):
-                        # v36 信號重評估
-                        recheck_action, recheck_reason = analyzer.stale_signal_recheck(
-                            sig, price, df15m
-                        )
+                        # v36 信號重評估（v57：改餵 1h K 線，避免 15m 雜訊提前誤判 close_now）
+                        if not isinstance(df1h_track, Exception):
+                            recheck_action, recheck_reason = analyzer.stale_signal_recheck(
+                                sig, price, df1h_track
+                            )
+                        else:
+                            recheck_action, recheck_reason = "hold", ""
                         if recheck_action == "close_now":
                             # 強制平倉
                             await close_signal(ctx, sym, "RECHECK_EXIT",
