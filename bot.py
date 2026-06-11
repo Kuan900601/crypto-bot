@@ -589,6 +589,131 @@ async def cmd_reset_stats(update, context):
     )
 
 
+def _wilson_lb(wins, n):
+    """Wilson 95% 信賴區間下界（z=1.96）"""
+    if n == 0:
+        return 0.0
+    z = 1.96
+    ph = wins / n
+    center = ph + z * z / (2 * n)
+    margin = z * ((ph * (1 - ph) / n + z * z / (4 * n * n)) ** 0.5)
+    return (center - margin) / (1 + z * z / n)
+
+
+def _edge_bucket_stats(results):
+    """v57：給 /edge 用的單一分組統計"""
+    n = len(results)
+    if n == 0:
+        return None
+    wins_list = [r for r in results if r.get("final_pct", 0) > 0]
+    losses_list = [r for r in results if r.get("final_pct", 0) <= 0]
+    wins = len(wins_list)
+    win_rate = wins / n * 100
+    lb = _wilson_lb(wins, n) * 100
+    avg_win = sum(r.get("final_pct", 0) for r in wins_list) / len(wins_list) if wins_list else 0.0
+    avg_loss = sum(r.get("final_pct", 0) for r in losses_list) / len(losses_list) if losses_list else 0.0
+    gross_ev = sum(r.get("final_pct", 0) for r in results) / n
+    net_ev = gross_ev - 0.18
+    max_consec_loss = 0
+    cur = 0
+    for r in results:
+        if r.get("final_pct", 0) <= 0:
+            cur += 1
+            max_consec_loss = max(max_consec_loss, cur)
+        else:
+            cur = 0
+    return {
+        "n": n, "win_rate": win_rate, "wilson_lb": lb,
+        "avg_win": avg_win, "avg_loss": avg_loss,
+        "gross_ev": gross_ev, "net_ev": net_ev,
+        "max_consec_loss": max_consec_loss,
+    }
+
+
+async def cmd_edge(update, context):
+    """v57：策略期望值驗證儀表（管理員專用，依 SIGNAL_RESULTS 統計）"""
+    uid = update.effective_user.id if update.effective_user else 0
+    if not ADMIN_ID or uid != ADMIN_ID:
+        await update.effective_message.reply_text("此指令僅限管理員。你的 id：" + str(uid))
+        return
+
+    if not SIGNAL_RESULTS:
+        await update.effective_message.reply_text("尚無歷史記錄。")
+        return
+
+    overall = _edge_bucket_stats(SIGNAL_RESULTS)
+    text = "📊 *策略期望值驗證（v57）*\n"
+    text += "━━━━━━━━━━━━━━━━━━━━\n\n"
+    text += "*整體（n=" + str(overall["n"]) + "）*\n"
+    text += "勝率: " + "{:.2f}%".format(overall["win_rate"]) + "\n"
+    text += "Wilson 95% 下界: " + "{:.2f}%".format(overall["wilson_lb"]) + "\n"
+    text += "平均盈: " + "{:.2f}%".format(overall["avg_win"]) + "\n"
+    text += "平均虧: " + "{:.2f}%".format(overall["avg_loss"]) + "\n"
+    text += "毛期望值: " + "{:.2f}%".format(overall["gross_ev"]) + "/筆\n"
+    text += "估計淨期望值（估計成本 0.18%）: " + "{:.2f}%".format(overall["net_ev"]) + "/筆\n"
+    text += "最大連續虧損: " + str(overall["max_consec_loss"]) + " 筆\n"
+
+    bucket_defs = [
+        ("Tier", "tier"),
+        ("進場品質", "entry_grade"),
+        ("方向", "direction"),
+        ("大盤狀態", "regime_at_entry"),
+    ]
+    for label, key in bucket_defs:
+        groups = {}
+        for r in SIGNAL_RESULTS:
+            v = r.get(key)
+            if v is None or v == "":
+                v = "NA"
+            groups.setdefault(v, []).append(r)
+        sub_lines = []
+        for k in sorted(groups.keys(), key=str):
+            sub_results = groups[k]
+            if len(sub_results) < 5:
+                continue
+            st = _edge_bucket_stats(sub_results)
+            sub_lines.append(
+                "  `" + str(k) + "`：n=" + str(st["n"])
+                + " 勝率=" + "{:.2f}%".format(st["win_rate"])
+                + " 毛EV=" + "{:.2f}%".format(st["gross_ev"])
+            )
+        if sub_lines:
+            text += "\n*" + label + "分組（n≥5）*\n" + "\n".join(sub_lines) + "\n"
+
+    await update.effective_message.reply_text(text, parse_mode="Markdown")
+
+
+async def cmd_gate_stats(update, context):
+    """v57：列出 entry_context_gate 擋下記錄（管理員專用，存在記憶體、重啟會清空）"""
+    uid = update.effective_user.id if update.effective_user else 0
+    if not ADMIN_ID or uid != ADMIN_ID:
+        await update.effective_message.reply_text("此指令僅限管理員。你的 id：" + str(uid))
+        return
+
+    blocked = getattr(analyzer, "_gate_blocked", [])
+    if not blocked:
+        await update.effective_message.reply_text("目前無情境閘門擋下記錄（存在記憶體、重啟會清空）。")
+        return
+
+    reason_counts = {}
+    for b in blocked:
+        r = b.get("reason", "")
+        reason_counts[r] = reason_counts.get(r, 0) + 1
+
+    text = "🚧 *情境閘門擋下統計（v57）*\n"
+    text += "━━━━━━━━━━━━━━━━━━━━\n"
+    text += "存在記憶體、重啟會清空。共 " + str(len(blocked)) + " 筆\n\n"
+    text += "*原因統計*\n"
+    for r, c in sorted(reason_counts.items(), key=lambda x: -x[1]):
+        text += "• " + r + "：" + str(c) + "\n"
+
+    text += "\n*最近 10 筆*\n"
+    for b in blocked[-10:][::-1]:
+        text += "• " + b.get("sym", "") + " " + b.get("dir", "") + " — " + b.get("reason", "") + "\n"
+
+    await update.effective_message.reply_text(text, parse_mode="Markdown")
+
+
 def show_history(chat_id):
     history = PUSH_HISTORY.get(chat_id, [])
     if not history:
@@ -2405,6 +2530,11 @@ def register_signal(sig, watchers):
         "created_hour_utc": now.hour,
         "funding_at_entry": sig.get("funding", 0),
         "ls_ratio_at_entry": sig.get("ls_ratio", 1.0),
+        # v57 驗證儀表用欄位
+        "range_pos_at_entry": sig.get("range_pos"),
+        "vol_pct_at_entry": sig.get("vol_pct"),
+        "strategy_type_at_entry": sig.get("strategy_type"),
+        "mtf_at_entry": sig.get("mtf_grade"),
     }
     save_data()
     logger.info("註冊信號: " + sym + " " + sig["direction"] + " 評分 " + str(sig.get("score")) + " 等級 " + str(sig.get("entry_grade", "C")) + " 訂閱 " + str(len(watchers)))
@@ -2611,6 +2741,11 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
         "created_hour_utc": sig.get("created_hour_utc", 0),
         "funding_at_entry": sig.get("funding_at_entry", 0),
         "ls_ratio_at_entry": sig.get("ls_ratio_at_entry", 1.0),
+        # v57 驗證儀表用欄位（舊紀錄缺欄位 → None）
+        "range_pos_at_entry": sig.get("range_pos_at_entry", None),
+        "vol_pct_at_entry": sig.get("vol_pct_at_entry", None),
+        "strategy_type_at_entry": sig.get("strategy_type_at_entry", None),
+        "mtf_at_entry": sig.get("mtf_at_entry", None),
     })
     # 只保留最近 1000 筆
     if len(SIGNAL_RESULTS) > 1000:
@@ -3099,6 +3234,8 @@ def main():
     app.add_handler(CommandHandler("testpush", cmd_testpush))
     app.add_handler(CommandHandler("export", cmd_export))
     app.add_handler(CommandHandler("reset_stats", cmd_reset_stats))
+    app.add_handler(CommandHandler("edge", cmd_edge))
+    app.add_handler(CommandHandler("gate_stats", cmd_gate_stats))
     app.add_handler(CallbackQueryHandler(button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     # ⭐ 每 5 分鐘執行黑潮船長
