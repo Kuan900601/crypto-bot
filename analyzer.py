@@ -906,6 +906,7 @@ class CryptoAnalyzer:
         self._last_plans = {}  # v54：結構化 plan，golden_hunter 每輪填充
         self._last_plans_ready = False  # v54：本輪掛載是否正常完成
         self._news_sentiment = None  # v55：新聞情緒，每輪掃描開始時更新
+        self._gate_blocked = []  # v57：entry_context_gate 擋下的信號記錄（記憶體，重啟清空）
 
     async def fetch_funding_cached(self, session, symbol):
         """v38 帶快取的 funding rate 取得"""
@@ -1855,6 +1856,55 @@ class CryptoAnalyzer:
             return float(("%.8f") % v)
         except Exception:
             return value
+
+    # ⭐ v57 情境閘門
+    def entry_context_gate(self, direction, sig1h, sig4h, df1h, df4h,
+                           sw_res, sw_sup, current_price):
+        """v57 情境閘門：高位不追多/低位不追空、4H強反不逆勢、盤整只做邊緣反轉。
+        回傳 (allow, reason, info)；info 含 range_pos 與 tags。閘門自身出錯時放行。"""
+        info = {"range_pos": None, "tags": []}
+        try:
+            p = float(current_price)
+            look = df1h.tail(120)
+            lo = float(look["low"].min()); hi = float(look["high"].max())
+            rng = hi - lo
+            range_pos = (p - lo) / rng if rng > 0 else 0.5
+            range_pos = max(0.0, min(1.0, range_pos))
+            info["range_pos"] = round(range_pos, 3)
+
+            bos4, _ = self.detect_bos(df4h)
+            cont_ok, _ = self.strong_continuation(df1h, direction)
+            has_div = bool(sig1h.get("div"))
+            r4 = sig4h.get("regime", "") if isinstance(sig4h, dict) else ""
+            adx = sig1h.get("adx", 0); rsi = sig1h.get("rsi", 50)
+
+            # 1) 區間位階：高位追多/低位追空，除非 4H BOS 同向或強勢續航
+            if direction == "LONG" and range_pos > 0.90 and bos4 != "BULL_BOS" and not cont_ok:
+                return False, "高位追多 pos=%.2f 無4H突破/續航" % range_pos, info
+            if direction == "SHORT" and range_pos < 0.10 and bos4 != "BEAR_BOS" and not cont_ok:
+                return False, "低位追空 pos=%.2f 無4H跌破/續航" % range_pos, info
+
+            # 2) 4H 強烈反向且 1H 無背離 → 硬擋
+            if direction == "LONG" and r4 == "STRONG_BEAR" and not has_div:
+                return False, "4H強空逆勢做多(無背離)", info
+            if direction == "SHORT" and r4 == "STRONG_BULL" and not has_div:
+                return False, "4H強多逆勢做空(無背離)", info
+
+            # 3) 盤整（ADX<20 且 squeeze）：只允許支撐/阻力邊緣的反轉型進場
+            if adx < 20 and sig1h.get("squeeze_on", False):
+                sweep, _ = self.liquidity_sweep(df1h)
+                if direction == "LONG":
+                    near_sup = bool(sw_sup) and 0 <= (p - sw_sup[0]) / p < 0.02
+                    if not (near_sup and (rsi < 40 or sweep == "BULL_SWEEP" or has_div)):
+                        return False, "盤整中段追多", info
+                else:
+                    near_res = bool(sw_res) and 0 <= (sw_res[0] - p) / p < 0.02
+                    if not (near_res and (rsi > 60 or sweep == "BEAR_SWEEP" or has_div)):
+                        return False, "盤整中段追空", info
+                info["tags"].append("RANGE_EDGE")
+            return True, "", info
+        except Exception:
+            return True, "", info
 
     # ⭐ 進場理由深度分析（為什麼選這裡）
     def entry_reasoning(self, direction, sig1h, sig4h, sw_res, sw_sup,
@@ -2991,6 +3041,11 @@ class CryptoAnalyzer:
 
         e20 = sig1h.get("e20", 0)
         e50 = sig1h.get("e50", 0)
+        # v57：量價票方向化 — 量增需搭配近 3 根淨變動同向，避免「量增但價格反向」也算共識
+        try:
+            _c3 = float(df1h["close"].iloc[-1]) - float(df1h["close"].iloc[-4])
+        except Exception:
+            _c3 = 0
         if direction == "LONG":
             # 1. 趨勢追隨（v51：ADX 門檻 22→18，與 setup 一致）
             if regime in ("STRONG_BULL", "BULL") and adx > 18:
@@ -2999,7 +3054,7 @@ class CryptoAnalyzer:
             if macd_hist > 0 and 45 < rsi < 70:
                 votes.append("動量配合")
             # 3. 量價
-            if vol_ratio > 1.2:  # v51: 1.3→1.2
+            if vol_ratio > 1.2 and _c3 > 0:  # v51: 1.3→1.2；v57：須同向
                 votes.append("量價齊升")
             # 7. v51 新增：EMA 多頭排列（短均上穿長均，常見且有效）
             if e20 > 0 and e50 > 0 and e20 > e50:
@@ -3022,7 +3077,7 @@ class CryptoAnalyzer:
                 votes.append("趨勢追隨")
             if macd_hist < 0 and 30 < rsi < 55:
                 votes.append("動量配合")
-            if vol_ratio > 1.2:  # v51: 1.3→1.2
+            if vol_ratio > 1.2 and _c3 < 0:  # v51: 1.3→1.2；v57：須同向
                 votes.append("量價齊跌")
             # 7. v51 新增：EMA 空頭排列
             if e20 > 0 and e50 > 0 and e20 < e50:
@@ -4828,6 +4883,21 @@ class CryptoAnalyzer:
         if sig1h["adx"] < 15:  # v46 平衡：15+ 是趨勢萌芽
             return None, "ADX過低 (<15，無趨勢)"
 
+        # ⭐ v57 情境閘門：高位不追多/低位不追空、4H強反不逆勢、盤整只做邊緣反轉
+        _gate_info = {"range_pos": None, "tags": []}
+        if os.getenv("STRICT_CONTEXT_GATE", "true").lower() == "true":
+            _ok_gate, _gate_reason, _gate_info = self.entry_context_gate(
+                direction, sig1h, sig4h, df1h, df4h, sw_res_1h, sw_sup_1h, p)
+            if not _ok_gate:
+                try:
+                    self._gate_blocked.append({
+                        "sym": symbol, "dir": direction, "reason": _gate_reason,
+                        "ts": datetime.now(timezone.utc).isoformat()})
+                    self._gate_blocked = self._gate_blocked[-300:]
+                except Exception:
+                    pass
+                return None, "情境閘門: " + _gate_reason
+
         # ⭐ Squeeze 過濾：BB 在 KC 內 = 盤整，不交易
         # v42 不再拒絕 Squeeze（盤整後常有突破，不應錯過）
         if sig1h.get("squeeze_on", False):
@@ -5343,6 +5413,20 @@ class CryptoAnalyzer:
             score -= 6
             risks.append("⚠️ RSI過冷(<22)")
 
+        # ⭐ v57 區間位階輕量加減分
+        _rp = _gate_info.get("range_pos")
+        if _rp is not None:
+            if direction == "LONG":
+                if _rp <= 0.35:
+                    score += 5; factors.append("✅ 低位階進多")
+                elif _rp >= 0.75:
+                    score -= 5; risks.append("⚠️ 高位階追多")
+            else:
+                if _rp >= 0.65:
+                    score += 5; factors.append("✅ 高位階進空")
+                elif _rp <= 0.25:
+                    score -= 5; risks.append("⚠️ 低位階追空")
+
         score = max(0, min(100, score))
 
         # ===== ⭐ 專業下單規劃 =====
@@ -5635,6 +5719,9 @@ class CryptoAnalyzer:
             "mtf_grade_label": mtf_grade_label,
             "vol_pct": round(vol_pct, 1),
             "vol_state": vol_state,
+            # v57 情境閘門資訊（驗證儀表用）
+            "range_pos": _gate_info.get("range_pos"),
+            "gate_tags": _gate_info.get("tags", []),
             "scale_in": self.scale_in_plan(direction, entry, sl, p, entry_grade["grade"]),
             # v32 頂尖量化分析
             "ofi_state": ofi_state,
