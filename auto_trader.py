@@ -7,13 +7,14 @@ import os
 import time
 import math
 import urllib.request
+from datetime import datetime, timezone
 
 import trader
 
-MAX_POSITIONS = 4
-LEVERAGE = 20
-MAX_SL_PCT = 0.035
-ALLOWED_TIERS = ["S", "A", "B", "C"]
+MAX_POSITIONS = int(os.getenv("AT_MAX_POSITIONS", "4"))
+LEVERAGE = int(os.getenv("AT_LEVERAGE", "20"))
+MAX_SL_PCT = float(os.getenv("AT_MAX_SL_PCT", "0.035"))
+ALLOWED_TIERS = [t.strip() for t in os.getenv("AUTO_TRADE_TIERS", "S,A,B").split(",") if t.strip()]
 TP_SPLIT = {1: 0.4, 2: 0.35, 3: 0.25}  # 三段止盈（TP1/TP2/TP3，丟棄 TP4）
 POLL_INTERVAL = 15
 
@@ -55,6 +56,8 @@ _REDIS_STATE_KEYS = {
     PROCESSED_CLOSES_FILE: "at:processed_closes",
     TRADES_FILE: "at:trades",
     "liquidations.json": "at:liquidations",
+    "day_equity.json": "at:day_equity",
+    "breaker_tripped.json": "at:breaker_tripped",
 }
 
 
@@ -169,6 +172,11 @@ def calc_amount(ex, symbol, margin_usdt, price):
 
 def open_batch_tp_position(ex, signal, margin_usdt):
     symbol = to_ccxt_symbol(signal["symbol"])
+    # S5：開倉前先清掉同幣殘留的舊 TP/SL 掛單，避免干擾新倉
+    try:
+        trader.cancel_symbol_orders(ex, symbol)
+    except Exception:
+        pass
     direction = signal.get("direction", "").upper()
     side = "buy" if direction in ("LONG", "BUY", "做多") else "sell"
     ticker = ex.fetch_ticker(symbol)
@@ -182,6 +190,18 @@ def open_batch_tp_position(ex, signal, margin_usdt):
         "opened_at": time.time(), "tp_orders": [], "sl_ok": False,
         "sl_order_id": None, "ok": False, "msg": "",
     }
+
+    # S2c：現價偏離信號進場價過多就放棄（市價單路徑；限價單路徑見 E2）
+    sig_entry = signal.get("entry")
+    if sig_entry:
+        try:
+            drift_pct = abs(price - float(sig_entry)) / float(sig_entry) * 100
+            if drift_pct > float(os.getenv("MAX_ENTRY_DRIFT_PCT", "1.5")):
+                record["msg"] = "現價偏離信號進場價過多，放棄"
+                return record
+        except Exception:
+            pass
+
     try:
         ex.set_leverage(LEVERAGE, symbol)
     except Exception:
@@ -249,6 +269,37 @@ def open_batch_tp_position(ex, signal, margin_usdt):
     return record
 
 
+def push_event(text):
+    """推一則即時事件到 Redis 'at:events'(供 bot.py 轉發 ADMIN)。失敗不影響主流程。"""
+    try:
+        redis_cmd(["RPUSH", "at:events", text])
+        redis_cmd(["LTRIM", "at:events", "-200", "-1"])
+    except Exception:
+        pass
+
+
+def check_circuit_breaker(equity):
+    """日內熔斷：淨值跌破當日起始 ×(1-MAX_DAILY_DD) 就熔斷，當日不再開新倉。回傳 True=已熔斷。"""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    state = load_json("day_equity.json", None)
+    if not state or state.get("date") != today:
+        state = {"date": today, "start_equity": equity}
+        save_json("day_equity.json", state)
+        save_json("breaker_tripped.json", None)
+        return False
+    if load_json("breaker_tripped.json", None):
+        return True
+    start_equity = state.get("start_equity") or equity
+    max_dd = float(os.getenv("MAX_DAILY_DD", "0.10"))
+    if start_equity > 0 and equity < start_equity * (1 - max_dd):
+        save_json("breaker_tripped.json", datetime.now(timezone.utc).isoformat())
+        push_event("🛑 日內熔斷觸發｜淨值 " + str(round(equity, 2)) + " < 門檻 " +
+                   str(round(start_equity * (1 - max_dd), 2)) + "（當日不再開新倉）")
+        print("  🛑 日內熔斷觸發！當日不再開新倉。")
+        return True
+    return False
+
+
 def process_closes(ex):
     closes = read_redis_list(REDIS_CLOSE_KEY)
     if not closes:
@@ -294,23 +345,44 @@ def process_once(ex):
     if equity <= 0:
         print("🔴 餘額為 0，跳過開倉")
         return
+    if check_circuit_breaker(equity):
+        print("  🛑 日內熔斷中，本輪不開新倉")
+        return
     per_position_margin = equity / 4.0
 
     current_positions = trader.get_positions(ex)
     open_symbols = {to_ccxt_symbol(p["symbol"]) for p in current_positions}
     pos_count = len(current_positions)
     new_count = 0
+    _changed = False
     for signal in queue:
         sig_id = signal.get("id") or (signal.get("symbol", "") + str(signal.get("created", "")))
         if sig_id in processed:
             continue
+        # S2b：信號太舊就不追了
+        created_str = signal.get("created")
+        if created_str:
+            try:
+                created_dt = datetime.fromisoformat(created_str)
+                if created_dt.tzinfo is None:
+                    created_dt = created_dt.replace(tzinfo=timezone.utc)
+                age_min = (datetime.now(timezone.utc) - created_dt).total_seconds() / 60.0
+                if age_min > float(os.getenv("SIGNAL_MAX_AGE_MIN", "10")):
+                    print("  ⏭ 跳過", signal.get("symbol"), "：信號過舊（", round(age_min, 1), "分鐘）")
+                    processed.append(sig_id)
+                    _changed = True
+                    continue
+            except Exception:
+                pass
         if signal.get("tier", "B") not in ALLOWED_TIERS:
             processed.append(sig_id)
+            _changed = True
             continue
         csym = to_ccxt_symbol(signal.get("symbol", ""))
         if csym in open_symbols:
             print("  ⏭ 跳過", signal.get("symbol"), "：同幣已有持倉（不疊倉）")
             processed.append(sig_id)
+            _changed = True
             continue
         if pos_count >= MAX_POSITIONS:
             print("  已達最大持倉數", MAX_POSITIONS, "，跳過剩餘")
@@ -320,6 +392,7 @@ def process_once(ex):
         record["sig_id"] = sig_id
         trades.append(record)
         processed.append(sig_id)
+        _changed = True
         new_count += 1
         if record["ok"]:
             open_symbols.add(csym)
@@ -331,8 +404,9 @@ def process_once(ex):
                 print("    ⚠️", record["msg"])
         else:
             print("    🔴 下單失敗:", record["msg"])
-    if new_count > 0:
+    if _changed:
         save_json(PROCESSED_FILE, processed[-2000:])
+    if new_count > 0:
         save_json(TRADES_FILE, trades[-1000:])
         print("  本輪處理", new_count, "個新信號。總紀錄:", len(trades))
 
@@ -357,24 +431,26 @@ def check_trailing_stop(ex):
             side = rec["side"]
             close_side = "sell" if side == "buy" else "buy"
             old_id = rec.get("sl_order_id")
-            if old_id:
-                try:
-                    ex.cancel_order(old_id, sym)
-                except Exception:
-                    pass
             try:
                 entry = float(ex.price_to_precision(sym, entry))
             except Exception:
                 pass
+            # S3：先掛新止損單成功拿到 id，才撤舊單；新掛失敗保留舊單
             try:
                 slo = ex.create_order(sym, "market", close_side, current_amount, None,
                                       {"stopLossPrice": entry, "reduceOnly": True})
-                rec["sl_order_id"] = slo.get("id")
-                rec["trailing_done"] = True
-                changed = True
-                print("  ✅ 移動止損到保本:", sym)
             except Exception as e:
-                print("  ⚠️ 移動止損失敗:", str(e)[:100])
+                print("  ⚠️ 移動止損失敗（保留舊止損單）:", str(e)[:100])
+                continue
+            if old_id:
+                try:
+                    ex.cancel_order(old_id, sym)
+                except Exception as e:
+                    print("  ⚠️ 撤舊止損單失敗（新舊單可能短暫並存）:", str(e)[:100])
+            rec["sl_order_id"] = slo.get("id")
+            rec["trailing_done"] = True
+            changed = True
+            print("  ✅ 移動止損到保本:", sym)
     if changed:
         save_json(TRADES_FILE, trades)
 
@@ -458,11 +534,16 @@ def main_loop():
     print("模式：", "Bybit 測試網(假錢)" if trader.USE_SANDBOX else "🔴🔴🔴 真錢 🔴🔴🔴")
     print("設定：最多", MAX_POSITIONS, "倉｜單筆本金 = 淨值 ÷ 4｜槓桿", LEVERAGE, "｜等級", ALLOWED_TIERS)
     print("⚠️ 20倍：爆倉線約 -5%，止損強制收緊到最遠 -3.5%（留爆倉緩衝）")
-    print("⚠️ 4 倉同向同時觸損，單日約 -70% 淨值；插針穿損可能更多。未設熔斷。")
+    print("⚠️ 日內熔斷：淨值跌破當日起始 ×(1-" + os.getenv("MAX_DAILY_DD", "0.10") + ")，當日不再開新倉")
     if not _USE_REDIS:
         print("🔴 .env 缺 Upstash Redis 設定，無法讀信號")
         return
     ex = trader.get_exchange()
+    # S6：啟動時確認帳戶為單向持倉模式（失敗只警告，不中斷）
+    try:
+        ex.set_position_mode(False)
+    except Exception as e:
+        print("⚠️ 設定單向持倉模式失敗，請確認 Bybit 帳戶為 One-Way 模式:", str(e)[:120])
     print("✅ 連線成功，餘額:", trader.get_balance(ex))
     print("開始輪詢...（Ctrl+C 停止）\n")
     mark_backlog_processed()

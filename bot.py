@@ -3660,22 +3660,38 @@ def main():
             except Exception as e:
                 logger.error("啟動通知失敗 " + str(t) + ": " + str(e))
     app.job_queue.run_once(startup_notify, 30)
-    # ⭐ 啟動自動交易背景執行緒（模擬盤）
-    try:
-        import threading as _threading
+    # ⭐ 啟動自動交易背景執行緒（由 AUTO_TRADE_ENABLED 控制，未設或非 true 不啟動）
+    if os.getenv("AUTO_TRADE_ENABLED", "false").lower() == "true":
+        try:
+            import threading as _threading
+            import trader as _tr
+            import auto_trader as _at
 
-        def _auto_trade_worker():
-            try:
-                import auto_trader as _at
-                logger.info("✅ 自動交易背景執行緒啟動（模擬盤）")
-                _at.main_loop()
-            except Exception as _e:
-                logger.error("🔴 自動交易背景執行緒掛了（不影響 bot）: " + str(_e)[:200])
+            def _auto_trade_worker():
+                try:
+                    logger.info("自動交易執行緒啟動｜模式: " + ("Bybit 測試網" if _tr.USE_SANDBOX else "🔴 真錢"))
+                    _at.main_loop()
+                except Exception as _e:
+                    logger.error("🔴 自動交易背景執行緒掛了（不影響 bot）: " + str(_e)[:200])
 
-        _at_thread = _threading.Thread(target=_auto_trade_worker, daemon=True)
-        _at_thread.start()
-    except Exception as _e:
-        logger.error("🔴 無法啟動自動交易執行緒（不影響 bot）: " + str(_e)[:150])
+            _at_thread = _threading.Thread(target=_auto_trade_worker, daemon=True)
+            _at_thread.start()
+
+            # ⭐ 真錢模式啟動警告（推給 ADMIN）
+            if not _tr.USE_SANDBOX:
+                async def _at_realmoney_warning(ctx):
+                    try:
+                        await ctx.bot.send_message(
+                            chat_id=ADMIN_ID,
+                            text="⚠️ 自動交易正以真錢模式運行｜槓桿 " + str(_at.LEVERAGE) + "｜最大倉數 " + str(_at.MAX_POSITIONS),
+                        )
+                    except Exception as e:
+                        logger.error("真錢警告推播失敗: " + str(e))
+                app.job_queue.run_once(_at_realmoney_warning, 35)
+        except Exception as _e:
+            logger.error("🔴 無法啟動自動交易執行緒（不影響 bot）: " + str(_e)[:150])
+    else:
+        logger.info("自動交易執行緒未啟動（AUTO_TRADE_ENABLED 未設為 true）")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
