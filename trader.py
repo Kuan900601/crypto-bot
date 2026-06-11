@@ -48,6 +48,16 @@ def get_balance(ex):
     return total.get("USDT", 0)
 
 
+def get_free_balance(ex):
+    """可用餘額（USDT）。讀取失敗回 None，呼叫端應略過該上限。"""
+    try:
+        bal = ex.fetch_balance()
+        free = bal.get("free", {})
+        return float(free.get("USDT", 0))
+    except Exception:
+        return None
+
+
 def get_positions(ex, symbol=None):
     symbols = [symbol] if symbol else None
     positions = ex.fetch_positions(symbols)

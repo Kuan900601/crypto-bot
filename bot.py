@@ -270,6 +270,45 @@ def _redis_health_check():
         logger.error("🔴🔴🔴 Redis 健康檢查失敗：" + str(e))
 
 
+def _redis_cmd_raw(args):
+    """v59：執行任意 Redis 命令（陣列格式），供讀取 auto_trader 寫入的 at:* keys 用。失敗回 None。"""
+    if not _USE_REDIS:
+        return None
+    try:
+        body = json.dumps(args).encode("utf-8")
+        req = _urlreq.Request(_REDIS_URL, data=body, headers={
+            "Authorization": "Bearer " + _REDIS_TOKEN,
+            "Content-Type": "application/json",
+        })
+        with _urlreq.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        logger.error("Redis 命令失敗 " + str(args[0] if args else "?") + ": " + str(e)[:120])
+        return None
+
+
+def _redis_get_json_key(key, default):
+    """v59：讀取任意 key 並 JSON 解析；不存在或失敗回 default。"""
+    r = _redis_cmd_raw(["GET", key])
+    if r is None:
+        return default
+    val = r.get("result")
+    if val is None:
+        return default
+    try:
+        return json.loads(val)
+    except Exception:
+        return default
+
+
+def _redis_lrange_raw(key):
+    """v59：讀取 list（不做 JSON 解析，逐筆回傳原始字串），失敗回空 list。"""
+    r = _redis_cmd_raw(["LRANGE", key, "0", "-1"])
+    if r is None:
+        return []
+    return r.get("result", []) or []
+
+
 def save_data():
     payload = json.dumps(_pack_data())
     # 優先寫 Redis
@@ -710,6 +749,144 @@ async def cmd_gate_stats(update, context):
     text += "\n*最近 10 筆*\n"
     for b in blocked[-10:][::-1]:
         text += "• " + b.get("sym", "") + " " + b.get("dir", "") + " — " + b.get("reason", "") + "\n"
+
+    await update.effective_message.reply_text(text, parse_mode="Markdown")
+
+
+def _real_pnl_bucket_stats(entries):
+    """v59：給 /real_pnl 用的單一分組統計（依 closed_pnl，USDT 絕對值）"""
+    n = len(entries)
+    if n == 0:
+        return None
+    wins = [e for e in entries if e.get("closed_pnl", 0) > 0]
+    losses = [e for e in entries if e.get("closed_pnl", 0) <= 0]
+    total = sum(e.get("closed_pnl", 0) for e in entries)
+    win_rate = len(wins) / n * 100
+    avg_win = sum(e.get("closed_pnl", 0) for e in wins) / len(wins) if wins else 0.0
+    avg_loss = sum(e.get("closed_pnl", 0) for e in losses) / len(losses) if losses else 0.0
+    return {"n": n, "win_rate": win_rate, "total": total, "avg_win": avg_win, "avg_loss": avg_loss}
+
+
+async def cmd_real_pnl(update, context):
+    """v59：真實已實現損益帳本（管理員專用，讀 at:pnl_ledger）"""
+    uid = update.effective_user.id if update.effective_user else 0
+    if not ADMIN_ID or uid != ADMIN_ID:
+        await update.effective_message.reply_text("此指令僅限管理員。你的 id：" + str(uid))
+        return
+
+    if not _USE_REDIS:
+        await update.effective_message.reply_text("⚠️ 未設定 Redis，無法讀取真實損益帳本。")
+        return
+
+    ledger = _redis_get_json_key("at:pnl_ledger", [])
+    if not ledger:
+        await update.effective_message.reply_text("尚無真實損益紀錄（at:pnl_ledger 為空｜可能尚未開過真倉或 auto_trader 未啟動）。")
+        return
+
+    now = datetime.now(timezone.utc)
+    today_entries = []
+    week_entries = []
+    for e in ledger:
+        ts = e.get("ts")
+        if ts is None:
+            continue
+        try:
+            dt = datetime.fromtimestamp(float(ts), tz=timezone.utc)
+        except Exception:
+            continue
+        age_days = (now - dt).total_seconds() / 86400
+        if age_days <= 1:
+            today_entries.append(e)
+        if age_days <= 7:
+            week_entries.append(e)
+
+    text = "💰 *真實損益帳本（v59）*\n"
+    text += "━━━━━━━━━━━━━━━━━━━━\n"
+    for label, entries in (("今日（近24h）", today_entries), ("近7日", week_entries), ("累計", ledger)):
+        st = _real_pnl_bucket_stats(entries)
+        text += "\n*" + label + "*（n=" + str(st["n"] if st else 0) + "）\n"
+        if not st:
+            text += "無資料\n"
+            continue
+        text += "勝率: " + "{:.1f}%".format(st["win_rate"]) + "\n"
+        text += "總已實現 PnL: " + "{:.2f}".format(st["total"]) + " USDT\n"
+        text += "平均盈: " + "{:.2f}".format(st["avg_win"]) + "｜平均虧: " + "{:.2f}".format(st["avg_loss"]) + " USDT\n"
+
+    text += "\n此為含手續費的真實數據；與 /edge 的 SIM 數據差異大時，先查滑點與部分成交。"
+    await update.effective_message.reply_text(text, parse_mode="Markdown")
+
+
+async def cmd_at_status(update, context):
+    """v59：自動交易執行層狀態（管理員專用，全部只讀 Redis，不直連交易所）"""
+    uid = update.effective_user.id if update.effective_user else 0
+    if not ADMIN_ID or uid != ADMIN_ID:
+        await update.effective_message.reply_text("此指令僅限管理員。你的 id：" + str(uid))
+        return
+
+    enabled = os.getenv("AUTO_TRADE_ENABLED", "false").lower() == "true"
+    try:
+        import trader as _tr
+        mode = "Bybit 測試網" if _tr.USE_SANDBOX else "🔴 真錢"
+    except Exception:
+        mode = "未知（trader 模組載入失敗）"
+
+    sizing_mode = os.getenv("SIZING_MODE", "fixed")
+    text = "🤖 *自動交易狀態（v59）*\n"
+    text += "━━━━━━━━━━━━━━━━━━━━\n"
+    text += "AUTO_TRADE_ENABLED: " + ("✅ 開啟" if enabled else "❌ 關閉（不會下單）") + "\n"
+    text += "模式: " + mode + "\n\n"
+
+    text += "*倉位設定*\n"
+    text += "SIZING_MODE: " + sizing_mode + "\n"
+    if sizing_mode == "risk":
+        text += "RISK_PER_TRADE_PCT: " + os.getenv("RISK_PER_TRADE_PCT", "0.03") + "\n"
+    text += "槓桿: " + os.getenv("AT_LEVERAGE", "20") + "x\n"
+    text += "最大倉數: " + os.getenv("AT_MAX_POSITIONS", "4") + "\n"
+    text += "止損上限: " + os.getenv("AT_MAX_SL_PCT", "0.035") + "\n"
+    text += "允許等級: " + os.getenv("AUTO_TRADE_TIERS", "S,A,B") + "\n"
+
+    if not _USE_REDIS:
+        text += "\n⚠️ 未設定 Redis，以下執行狀態無法讀取。"
+        await update.effective_message.reply_text(text, parse_mode="Markdown")
+        return
+
+    day_eq = _redis_get_json_key("at:day_equity", None)
+    breaker = _redis_get_json_key("at:breaker_tripped", None)
+    text += "\n*日內熔斷*\n"
+    if day_eq:
+        text += "今日(" + str(day_eq.get("date", "")) + ")起始淨值: " + str(day_eq.get("start_equity")) + "\n"
+    else:
+        text += "今日起始淨值: 無資料\n"
+    text += "熔斷狀態: " + ("🛑 已觸發 @ " + str(breaker) if breaker else "✅ 未觸發") + "\n"
+
+    pending = _redis_get_json_key("at:pending", [])
+    text += "\n*限價單佇列（" + str(len(pending)) + "）*\n"
+    if pending:
+        for p in pending[-10:]:
+            text += "• " + str(p.get("symbol", "")) + " " + str(p.get("side", "")) + " @ " + str(p.get("entry")) + "\n"
+    else:
+        text += "無\n"
+
+    trades = _redis_get_json_key("at:trades", [])
+    open_trades = [t for t in trades if t.get("ok") and not t.get("cleaned")]
+    text += "\n*持倉中（" + str(len(open_trades)) + "）*\n"
+    if open_trades:
+        for t in open_trades[-10:]:
+            text += ("• " + str(t.get("symbol", "")) + " " + str(t.get("side", ""))
+                     + " sl_stage=" + str(t.get("sl_stage", 0)) + "\n")
+    else:
+        text += "無\n"
+
+    text += "\n*最近 5 筆交易紀錄*\n"
+    if trades:
+        for t in trades[-5:][::-1]:
+            ok = "✅" if t.get("ok") else "🔴"
+            line = ok + " " + str(t.get("symbol", "")) + " " + str(t.get("side", "")) + "｜本金 " + str(t.get("margin_usdt", "-"))
+            if t.get("msg"):
+                line += "｜" + str(t.get("msg"))
+            text += line + "\n"
+    else:
+        text += "無紀錄\n"
 
     await update.effective_message.reply_text(text, parse_mode="Markdown")
 
@@ -3236,8 +3413,31 @@ def main():
     app.add_handler(CommandHandler("reset_stats", cmd_reset_stats))
     app.add_handler(CommandHandler("edge", cmd_edge))
     app.add_handler(CommandHandler("gate_stats", cmd_gate_stats))
+    app.add_handler(CommandHandler("real_pnl", cmd_real_pnl))
+    app.add_handler(CommandHandler("at_status", cmd_at_status))
     app.add_handler(CallbackQueryHandler(button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
+    # ⭐ v59 E4：每 60 秒把 auto_trader 的 at:events 轉發給 ADMIN（單輪最多 10 條防洪水）
+    async def at_events_relay(ctx):
+        if not _USE_REDIS or not ADMIN_ID:
+            return
+        try:
+            events = _redis_lrange_raw("at:events")
+            if events:
+                _redis_cmd_raw(["DEL", "at:events"])
+        except Exception as e:
+            logger.error("讀取 at:events 失敗: " + str(e)[:120])
+            return
+        for ev in events[:10]:
+            try:
+                await ctx.bot.send_message(chat_id=ADMIN_ID, text=str(ev))
+            except Exception as e:
+                logger.error("at:events 推播失敗: " + str(e)[:120])
+    app.job_queue.run_repeating(
+        at_events_relay,
+        interval=60,
+        first=45
+    )
     # ⭐ 每 5 分鐘執行黑潮船長
     app.job_queue.run_repeating(
         auto_broadcast,
