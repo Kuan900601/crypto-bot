@@ -4,7 +4,12 @@ trader.py — Bybit 永續合約交易模組（單向 One-Way 模式）
 ⚠️ 請先把 Bybit 帳號設成「單向持倉 One-Way」模式，否則 reduceOnly 平倉會出錯。
 """
 import os
-import ccxt
+try:
+    import ccxt
+except ImportError as e:
+    raise ImportError(
+        "缺少 ccxt 依賴，請先執行 `pip install ccxt`"
+    ) from e
 
 # 🔴 真錢模式
 USE_SANDBOX = False
@@ -38,6 +43,7 @@ def get_exchange():
     })
     if USE_SANDBOX:
         ex.set_sandbox_mode(True)
+    ex.has["fetchCurrencies"] = False  # /v5/asset/coin/query-info 回 403，load_markets 跳過該呼叫
     ex.load_markets()
     return ex
 
