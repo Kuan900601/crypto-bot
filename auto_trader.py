@@ -847,18 +847,40 @@ def update_pnl_ledger(ex):
 
 
 def mark_backlog_processed():
-    """啟動時把佇列裡現有的舊信號/舊平倉標記為已處理。
-    主要保護:第一次部署這版、或 Redis 狀態被清空時,不要把殘留 backlog 重開重平。"""
+    """啟動時把佇列裡「過舊」的信號標記為已處理；新鮮信號保留給正常流程處理。
+    主要保護:第一次部署這版、或 Redis 狀態被清空時,不要把殘留 backlog 重開重平；
+    同時修掉「每次部署都吃掉剛推播的新信號」的問題（年齡檢查在 process_once 也有，雙重防呆）。"""
     try:
+        max_age = float(os.getenv("SIGNAL_MAX_AGE_MIN", "10"))
+        now = datetime.now(timezone.utc)
         sigs = read_redis_list(REDIS_QUEUE_KEY)
         closes = read_redis_list(REDIS_CLOSE_KEY)
-        sig_ids = [s.get("id") or (s.get("symbol", "") + str(s.get("created", ""))) for s in sigs]
+        old_sig_ids = []
+        fresh_count = 0
+        for s in sigs:
+            sig_id = s.get("id") or (s.get("symbol", "") + str(s.get("created", "")))
+            created_str = s.get("created")
+            is_old = True
+            if created_str:
+                try:
+                    created_dt = datetime.fromisoformat(created_str)
+                    if created_dt.tzinfo is None:
+                        created_dt = created_dt.replace(tzinfo=timezone.utc)
+                    age_min = (now - created_dt).total_seconds() / 60.0
+                    is_old = age_min > max_age
+                except Exception:
+                    is_old = True  # created 格式無法解析 → 視為過舊，不冒險下單
+            if is_old:
+                old_sig_ids.append(sig_id)
+            else:
+                fresh_count += 1
         close_ids = [c.get("id") or (c.get("symbol", "") + str(c.get("ts", ""))) for c in closes]
         processed = load_json(PROCESSED_FILE, [])
-        save_json(PROCESSED_FILE, list(dict.fromkeys(processed + sig_ids))[-2000:])
+        save_json(PROCESSED_FILE, list(dict.fromkeys(processed + old_sig_ids))[-2000:])
         done = load_json(PROCESSED_CLOSES_FILE, [])
         save_json(PROCESSED_CLOSES_FILE, list(dict.fromkeys(done + close_ids))[-1000:])
-        log("  🚦 啟動標記:既有", len(sig_ids), "信號 +", len(close_ids), "平倉 → 已處理,只交易啟動後的新信號")
+        log("  🚦 啟動標記:", len(old_sig_ids), "個過舊信號 +", len(close_ids), "個平倉 → 已處理,",
+            fresh_count, "個新鮮信號保留給正常流程")
     except Exception as e:
         log("⚠️ 啟動標記 backlog 失敗(略過,改靠 Redis 既有狀態保護):", str(e)[:120])
 
@@ -874,7 +896,20 @@ def main_loop():
     if not _USE_REDIS:
         log("🔴 .env 缺 Upstash Redis 設定，無法讀信號")
         return
-    ex = trader.get_exchange()
+    # 2a：連線/憑證失敗不讓執行緒永久死亡——每 60 秒重試，連續失敗每 10 次推一則 at:events
+    ex = None
+    fail_count = 0
+    while ex is None:
+        try:
+            ex = trader.get_exchange()
+            trader.get_balance(ex)
+        except Exception as e:
+            fail_count += 1
+            log("🔴 連線/讀餘額失敗（第", fail_count, "次），60 秒後重試:", str(e)[:150])
+            if fail_count % 10 == 0:
+                push_event("🔴 auto_trader 連線失敗已 " + str(fail_count) + " 次，請檢查 BYBIT_API_KEY/SECRET 與網路: " + str(e)[:150])
+            ex = None
+            time.sleep(60)
     # S6：啟動時確認帳戶為單向持倉模式（失敗只警告，不中斷）
     try:
         ex.set_position_mode(False)
