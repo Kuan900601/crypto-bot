@@ -914,7 +914,7 @@ async def cmd_at_debug(update, context):
 
     if not _USE_REDIS:
         text += "\n⚠️ 未設定 Redis，以下執行狀態無法讀取。"
-        await update.effective_message.reply_text(text, parse_mode="Markdown")
+        await update.effective_message.reply_text(text)
         return
 
     # ② 心跳
@@ -1007,7 +1007,7 @@ async def cmd_at_debug(update, context):
     else:
         text += "ℹ️ signal_queue 是空的：bot 端沒推進佇列，查註冊與觀察單條件\n"
 
-    await update.effective_message.reply_text(text, parse_mode="Markdown")
+    await update.effective_message.reply_text(text)
 
 
 def show_history(chat_id):
