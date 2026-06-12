@@ -4012,6 +4012,21 @@ def main():
             logger.error("🔴 無法啟動自動交易執行緒（不影響 bot）: " + str(_e)[:150])
     else:
         logger.info("ℹ️ AUTO_TRADE_ENABLED 未設，自動交易不啟動")
+
+    # ⭐ 個人儀表板（唯讀 PWA，由 DASH_TOKEN 控制，未設不啟動；不影響 bot 主流程）
+    def _dash_state():
+        return {
+            "active": ACTIVE_SIGNALS,
+            "results": SIGNAL_RESULTS,
+            "scan": _HUNTER_SCANNING,   # 內含 last_push（epoch 秒）
+            "use_redis": _USE_REDIS,
+        }
+    try:
+        import webapp as _webapp
+        _webapp.start_dashboard(_dash_state)
+    except Exception as _e:
+        logger.error("儀表板啟動失敗（不影響 bot）: " + str(_e)[:150])
+
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
