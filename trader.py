@@ -39,7 +39,8 @@ def get_exchange():
     ex = ccxt.bybit({
         "apiKey": env.get("BYBIT_API_KEY", ""),
         "secret": env.get("BYBIT_API_SECRET", ""),
-        "options": {"defaultType": "swap", "hostname": "bytick.com"},
+        "hostname": "bytick.com",
+        "options": {"defaultType": "swap"},
     })
     if USE_SANDBOX:
         ex.set_sandbox_mode(True)
