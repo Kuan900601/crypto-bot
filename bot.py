@@ -891,6 +891,125 @@ async def cmd_at_status(update, context):
     await update.effective_message.reply_text(text, parse_mode="Markdown")
 
 
+async def cmd_at_debug(update, context):
+    """v60：自動交易斷鏈診斷（管理員專用，只讀 Redis 與 env，不連交易所）"""
+    uid = update.effective_user.id if update.effective_user else 0
+    if not ADMIN_ID or uid != ADMIN_ID:
+        await update.effective_message.reply_text("此指令僅限管理員。你的 id：" + str(uid))
+        return
+
+    text = "🔧 *自動交易斷鏈診斷（v60）*\n"
+    text += "━━━━━━━━━━━━━━━━━━━━\n"
+
+    # ① 環境變數體檢
+    at_enabled = os.getenv("AUTO_TRADE_ENABLED", "")
+    bybit_key = os.getenv("BYBIT_API_KEY", "")
+    bybit_secret = os.getenv("BYBIT_API_SECRET", "")
+    pyunbuf = os.getenv("PYTHONUNBUFFERED", "")
+    text += "\n*① 環境變數*\n"
+    text += "AUTO_TRADE_ENABLED: " + (at_enabled if at_enabled else "（未設）") + "\n"
+    text += "BYBIT_API_KEY: " + ("有（" + bybit_key[:4] + "...）" if bybit_key else "❌ 無") + "\n"
+    text += "BYBIT_API_SECRET: " + ("有（" + bybit_secret[:4] + "...）" if bybit_secret else "❌ 無") + "\n"
+    text += "PYTHONUNBUFFERED: " + (pyunbuf if pyunbuf else "（未設）") + ("" if pyunbuf == "1" else " ⚠️建議設為 1") + "\n"
+
+    if not _USE_REDIS:
+        text += "\n⚠️ 未設定 Redis，以下執行狀態無法讀取。"
+        await update.effective_message.reply_text(text, parse_mode="Markdown")
+        return
+
+    # ② 心跳
+    hb_resp = _redis_cmd_raw(["GET", "at:heartbeat"])
+    hb_val = (hb_resp or {}).get("result")
+    hb_age = None
+    if hb_val:
+        try:
+            hb_dt = datetime.fromisoformat(hb_val)
+            if hb_dt.tzinfo is None:
+                hb_dt = hb_dt.replace(tzinfo=timezone.utc)
+            hb_age = (datetime.now(timezone.utc) - hb_dt).total_seconds()
+        except Exception:
+            hb_age = None
+    text += "\n*② 心跳*\n"
+    if hb_age is None:
+        text += "at:heartbeat: 無資料 🔴\n"
+    else:
+        flag = " 🔴 標紅：執行緒未在運行" if hb_age > 60 else " ✅"
+        text += "距今 " + str(round(hb_age, 1)) + " 秒" + flag + "\n"
+
+    # ③ signal_queue
+    queue_raw = _redis_lrange_raw("signal_queue")
+    queue = []
+    for it in queue_raw:
+        try:
+            queue.append(json.loads(it))
+        except Exception:
+            continue
+    text += "\n*③ signal_queue*（長度 " + str(len(queue_raw)) + "）\n"
+    now = datetime.now(timezone.utc)
+    for s in queue[-3:]:
+        sym = s.get("symbol", "?")
+        tier = s.get("tier", "?")
+        order_type = s.get("order_type", "")
+        created = s.get("created")
+        age_str = "?"
+        if created:
+            try:
+                dt = datetime.fromisoformat(created)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                age_str = str(round((now - dt).total_seconds() / 60.0, 1))
+            except Exception:
+                age_str = "解析失敗(" + str(created)[:20] + ")"
+        text += "• " + sym + " tier=" + str(tier) + " age=" + age_str + "分 order_type=" + (order_type or "（無）") + "\n"
+
+    # ④ processed_signals 交叉比對
+    processed = _redis_get_json_key("at:processed_signals", [])
+    text += "\n*④ at:processed_signals*（長度 " + str(len(processed)) + "）\n"
+    for s in queue[-3:]:
+        sig_id = s.get("id") or (s.get("symbol", "") + str(s.get("created", "")))
+        text += "• " + sig_id + " → " + ("已處理" if sig_id in processed else "未處理") + "\n"
+
+    # ⑤ at:last_cycle
+    last_cycle = _redis_get_json_key("at:last_cycle", None)
+    text += "\n*⑤ at:last_cycle*\n"
+    if last_cycle:
+        text += "ts: " + str(last_cycle.get("ts")) + "\n"
+        text += ("queue_len: " + str(last_cycle.get("queue_len"))
+                 + "｜pending_len: " + str(last_cycle.get("pending_len"))
+                 + "｜open_positions: " + str(last_cycle.get("open_positions")) + "\n")
+        skipped = last_cycle.get("skipped", {})
+        text += "skipped: " + json.dumps(skipped, ensure_ascii=False) + "\n"
+        text += "last_error: " + str(last_cycle.get("last_error")) + "\n"
+    else:
+        text += "無資料\n"
+
+    # ⑥ 限價單 / 熔斷
+    pending = _redis_get_json_key("at:pending", [])
+    breaker = _redis_get_json_key("at:breaker_tripped", None)
+    text += "\n*⑥ 限價單 / 熔斷*\n"
+    text += "at:pending（" + str(len(pending)) + "）: "
+    if pending:
+        text += ", ".join(str(p.get("symbol", "")) for p in pending[-5:]) + "\n"
+    else:
+        text += "無\n"
+    text += "at:breaker_tripped: " + (str(breaker) if breaker else "未觸發") + "\n"
+
+    # ⑦ 結論（自動推斷）
+    text += "\n*⑦ 結論*\n"
+    if hb_age is None or hb_age > 60:
+        text += "🔴 執行緒沒在跑：查 AUTO_TRADE_ENABLED / 啟動是否掛掉\n"
+    elif queue:
+        recent_ids = [(s.get("id") or (s.get("symbol", "") + str(s.get("created", "")))) for s in queue[-3:]]
+        if all(rid in processed for rid in recent_ids):
+            text += "⚠️ 信號已被過濾，看上面 skipped 計數與 last_error\n"
+        else:
+            text += "ℹ️ 有未處理信號，下一輪應會嘗試下單，請稍後再查\n"
+    else:
+        text += "ℹ️ signal_queue 是空的：bot 端沒推進佇列，查註冊與觀察單條件\n"
+
+    await update.effective_message.reply_text(text, parse_mode="Markdown")
+
+
 def show_history(chat_id):
     history = PUSH_HISTORY.get(chat_id, [])
     if not history:
@@ -3415,6 +3534,7 @@ def main():
     app.add_handler(CommandHandler("gate_stats", cmd_gate_stats))
     app.add_handler(CommandHandler("real_pnl", cmd_real_pnl))
     app.add_handler(CommandHandler("at_status", cmd_at_status))
+    app.add_handler(CommandHandler("at_debug", cmd_at_debug))
     app.add_handler(CallbackQueryHandler(button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     # ⭐ v59 E4：每 60 秒把 auto_trader 的 at:events 轉發給 ADMIN（單輪最多 10 條防洪水）
@@ -3891,7 +4011,7 @@ def main():
         except Exception as _e:
             logger.error("🔴 無法啟動自動交易執行緒（不影響 bot）: " + str(_e)[:150])
     else:
-        logger.info("自動交易執行緒未啟動（AUTO_TRADE_ENABLED 未設為 true）")
+        logger.info("ℹ️ AUTO_TRADE_ENABLED 未設，自動交易不啟動")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 

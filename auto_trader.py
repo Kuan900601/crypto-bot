@@ -26,6 +26,11 @@ REDIS_QUEUE_KEY = "signal_queue"
 REDIS_CLOSE_KEY = "close_queue"
 
 
+def log(*a):
+    """v60：強制 flush，確保 Railway 日誌即時可見。"""
+    print(*a, flush=True)
+
+
 def load_env():
     env = {}
     try:
@@ -77,7 +82,7 @@ def redis_cmd(args):
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except Exception as e:
-        print("🔴 Redis 命令失敗:", (args[0] if args else "?"), str(e)[:120])
+        log("🔴 Redis 命令失敗:", (args[0] if args else "?"), str(e)[:120])
         return None
 
 
@@ -98,7 +103,7 @@ def redis_get_json(key, default):
 def redis_set_json(key, data):
     r = redis_cmd(["SET", key, json.dumps(data, ensure_ascii=False)])
     if r is None:
-        print("⚠️ Redis SET 失敗(狀態本輪未存,下輪會重存):", key)
+        log("⚠️ Redis SET 失敗(狀態本輪未存,下輪會重存):", key)
 
 
 def load_json(path, default):
@@ -143,7 +148,7 @@ def read_redis_list(key):
                 continue
         return out
     except Exception as e:
-        print("🔴 讀 Redis", key, "失敗:", str(e)[:150])
+        log("🔴 讀 Redis", key, "失敗:", str(e)[:150])
         return []
 
 
@@ -249,7 +254,7 @@ def _place_sl_and_tp(ex, symbol, side, close_side, total_amount, price, signal, 
         last = placed_levels[-1]
         prev = placed_levels[-2]
         final_amounts[prev] += final_amounts.pop(last)
-        print("  ℹ️ TP段合併:", symbol, "TP" + str(last), "併入 TP" + str(prev))
+        log("  ℹ️ TP段合併:", symbol, "TP" + str(last), "併入 TP" + str(prev))
 
     for lv in levels:
         if lv not in final_amounts:
@@ -403,7 +408,7 @@ def check_circuit_breaker(equity):
         save_json("breaker_tripped.json", datetime.now(timezone.utc).isoformat())
         push_event("🛑 日內熔斷觸發｜淨值 " + str(round(equity, 2)) + " < 門檻 " +
                    str(round(start_equity * (1 - max_dd), 2)) + "（當日不再開新倉）")
-        print("  🛑 日內熔斷觸發！當日不再開新倉。")
+        log("  🛑 日內熔斷觸發！當日不再開新倉。")
         return True
     return False
 
@@ -422,18 +427,18 @@ def process_closes(ex):
         if not sym_raw:
             done.append(cid); changed = True; continue
         csym = to_ccxt_symbol(sym_raw)
-        print("  ⏹ 收到平倉通知:", sym_raw, "｜", c.get("reason", ""))
+        log("  ⏹ 收到平倉通知:", sym_raw, "｜", c.get("reason", ""))
         try:
             cancelled = trader.cancel_symbol_orders(ex, csym)
         except Exception as e:
             cancelled = 0
-            print("    ⚠️ 取消掛單出錯:", str(e)[:100])
+            log("    ⚠️ 取消掛單出錯:", str(e)[:100])
         try:
             ok = trader.close_position(ex, csym)
-            print("    平倉:", "✅" if ok else "🔴", "｜取消掛單", cancelled, "張")
+            log("    平倉:", "✅" if ok else "🔴", "｜取消掛單", cancelled, "張")
             push_event(("✅" if ok else "🔴") + " 平倉同步｜" + sym_raw + "｜" + c.get("reason", ""))
         except Exception as e:
-            print("    🔴 平倉出錯:", str(e)[:120])
+            log("    🔴 平倉出錯:", str(e)[:120])
             push_event("🔴 平倉同步出錯｜" + sym_raw + "｜" + str(e)[:100])
         done.append(cid)
         changed = True
@@ -441,23 +446,42 @@ def process_closes(ex):
         save_json(PROCESSED_CLOSES_FILE, done[-1000:])
 
 
+def _save_last_cycle(queue, pending, open_positions, skipped, last_error):
+    """v60：每輪結束寫 at:last_cycle，供 /at_debug 判斷自動交易卡在哪一環。"""
+    redis_cmd(["SET", "at:last_cycle", json.dumps({
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "queue_len": len(queue),
+        "pending_len": len(pending),
+        "open_positions": open_positions,
+        "skipped": skipped,
+        "last_error": last_error,
+    }, ensure_ascii=False)])
+
+
 def process_once(ex):
     queue = read_redis_list(REDIS_QUEUE_KEY)
     processed = load_json(PROCESSED_FILE, [])
     trades = load_json(TRADES_FILE, [])
     pending = load_json(PENDING_FILE, [])
+    skipped = {"tier": 0, "same_symbol": 0, "max_pos": 0, "expired": 0, "drift": 0, "breaker": 0}
     if not queue:
+        _save_last_cycle(queue, pending, None, skipped, None)
         return
     try:
         equity = float(trader.get_balance(ex)) or 0.0
     except Exception as e:
-        print("🔴 讀餘額失敗，本輪不開倉:", str(e)[:120])
+        last_error = "讀餘額失敗: " + str(e)[:120]
+        log("🔴 讀餘額失敗，本輪不開倉:", str(e)[:120])
+        _save_last_cycle(queue, pending, None, skipped, last_error)
         return
     if equity <= 0:
-        print("🔴 餘額為 0，跳過開倉")
+        log("🔴 餘額為 0，跳過開倉")
+        _save_last_cycle(queue, pending, None, skipped, "餘額為 0")
         return
     if check_circuit_breaker(equity):
-        print("  🛑 日內熔斷中，本輪不開新倉")
+        skipped["breaker"] = 1
+        log("  🛑 日內熔斷中，本輪不開新倉")
+        _save_last_cycle(queue, pending, None, skipped, None)
         return
     free_usdt = trader.get_free_balance(ex)
 
@@ -468,6 +492,7 @@ def process_once(ex):
     pos_count = len(current_positions) + len(pending)
     new_count = 0
     new_pending = 0
+    last_error = None
     _changed = False
     for signal in queue:
         sig_id = signal.get("id") or (signal.get("symbol", "") + str(signal.get("created", "")))
@@ -482,30 +507,36 @@ def process_once(ex):
                     created_dt = created_dt.replace(tzinfo=timezone.utc)
                 age_min = (datetime.now(timezone.utc) - created_dt).total_seconds() / 60.0
                 if age_min > float(os.getenv("SIGNAL_MAX_AGE_MIN", "10")):
-                    print("  ⏭ 跳過", signal.get("symbol"), "：信號過舊（", round(age_min, 1), "分鐘）")
+                    log("  ⏭ 跳過", signal.get("symbol"), "：信號過舊（", round(age_min, 1), "分鐘）")
                     processed.append(sig_id)
                     _changed = True
+                    skipped["expired"] += 1
                     continue
             except Exception:
                 pass
         if signal.get("tier", "B") not in ALLOWED_TIERS:
             processed.append(sig_id)
             _changed = True
+            skipped["tier"] += 1
             continue
         csym = to_ccxt_symbol(signal.get("symbol", ""))
         if csym in open_symbols:
-            print("  ⏭ 跳過", signal.get("symbol"), "：同幣已有持倉（不疊倉）")
+            log("  ⏭ 跳過", signal.get("symbol"), "：同幣已有持倉（不疊倉）")
             processed.append(sig_id)
             _changed = True
+            skipped["same_symbol"] += 1
             continue
         if pos_count >= MAX_POSITIONS:
-            print("  已達最大持倉數", MAX_POSITIONS, "，跳過剩餘")
+            log("  已達最大持倉數", MAX_POSITIONS, "，跳過剩餘")
+            skipped["max_pos"] += 1
             break
-        print("  處理新信號:", sig_id)
+        log("  處理新信號:", sig_id)
         record = open_batch_tp_position(ex, signal, equity, free_usdt)
         record["sig_id"] = sig_id
         processed.append(sig_id)
         _changed = True
+        if "現價偏離信號進場價過多" in (record.get("msg") or ""):
+            skipped["drift"] += 1
 
         if record.get("pending"):
             pending.append({
@@ -521,7 +552,7 @@ def process_once(ex):
             new_pending += 1
             open_symbols.add(csym)
             pos_count += 1
-            print("    🕐 限價單已掛:", record["symbol"], "@", record.get("entry"))
+            log("    🕐 限價單已掛:", record["symbol"], "@", record.get("entry"))
             push_event("🕐 限價單已掛｜" + record["symbol"] + " @ " + str(record.get("entry")))
             continue
 
@@ -530,24 +561,26 @@ def process_once(ex):
         if record["ok"]:
             open_symbols.add(csym)
             pos_count += 1
-            print("    ✅ 下單成功:", record["symbol"],
+            log("    ✅ 下單成功:", record["symbol"],
                   "本金", record.get("margin_usdt"), "×", LEVERAGE, "倍",
                   "TP單:", len([t for t in record["tp_orders"] if t.get("ok")]),
                   "止損:", record["sl_ok"])
             push_event("✅ 開倉成功｜" + record["symbol"] + " " + record["side"] +
                        "｜本金 " + str(record.get("margin_usdt")) + "｜止損 " + ("OK" if record["sl_ok"] else "失敗"))
             if record["msg"]:
-                print("    ⚠️", record["msg"])
+                log("    ⚠️", record["msg"])
         else:
-            print("    🔴 下單失敗:", record["msg"])
+            log("    🔴 下單失敗:", record["msg"])
             push_event("🔴 開倉失敗｜" + signal.get("symbol", "") + "｜" + record["msg"])
+            last_error = signal.get("symbol", "") + "：" + record["msg"]
     if _changed:
         save_json(PROCESSED_FILE, processed[-2000:])
     if new_pending > 0:
         save_json(PENDING_FILE, pending[-100:])
     if new_count > 0:
         save_json(TRADES_FILE, trades[-1000:])
-        print("  本輪處理", new_count, "個新信號。總紀錄:", len(trades))
+        log("  本輪處理", new_count, "個新信號。總紀錄:", len(trades))
+    _save_last_cycle(queue, pending, len(current_positions), skipped, last_error)
 
 
 def process_pending(ex):
@@ -568,7 +601,7 @@ def process_pending(ex):
         try:
             order = ex.fetch_order(order_id, symbol)
         except Exception as e:
-            print("  ⚠️ 查詢限價單失敗:", symbol, str(e)[:100])
+            log("  ⚠️ 查詢限價單失敗:", symbol, str(e)[:100])
             remaining.append(p)
             continue
 
@@ -592,7 +625,7 @@ def process_pending(ex):
             trades.append(record)
             changed_trades = True
             changed_pending = True
-            print("  ✅ 限價單成交:", symbol, "@", fill_price)
+            log("  ✅ 限價單成交:", symbol, "@", fill_price)
             push_event("✅ 限價成交｜" + symbol + " @ " + str(fill_price))
             continue
 
@@ -600,7 +633,7 @@ def process_pending(ex):
             try:
                 ex.cancel_order(order_id, symbol)
             except Exception as e:
-                print("  ⚠️ 取消過期限價單失敗:", symbol, str(e)[:100])
+                log("  ⚠️ 取消過期限價單失敗:", symbol, str(e)[:100])
             if filled > 0:
                 min_amt = _get_min_amount(ex, symbol)
                 if filled >= min_amt:
@@ -616,7 +649,7 @@ def process_pending(ex):
                     _place_sl_and_tp(ex, symbol, side, close_side, filled, fill_price, p, record)
                     trades.append(record)
                     changed_trades = True
-                    print("  ⚠️ 限價單部分成交後過期，已轉正式倉:", symbol, "量", filled)
+                    log("  ⚠️ 限價單部分成交後過期，已轉正式倉:", symbol, "量", filled)
                     push_event("⚠️ 限價單部分成交後過期，已轉正式倉｜" + symbol + "（量 " + str(filled) + "）")
                 else:
                     try:
@@ -625,7 +658,7 @@ def process_pending(ex):
                     except Exception as e:
                         push_event("🔴🔴 限價單碎股無法平倉，請手動處理｜" + symbol + " 量 " + str(filled) + " | " + str(e)[:80])
             else:
-                print("  ⏰ 限價單過期未成交，已取消:", symbol)
+                log("  ⏰ 限價單過期未成交，已取消:", symbol)
                 push_event("⏰ 限價單過期未成交，已取消｜" + symbol)
             changed_pending = True
             continue
@@ -692,19 +725,19 @@ def check_trailing_stop(ex):
             slo = ex.create_order(sym, "market", close_side, current_amount, None,
                                   {"stopLossPrice": new_sl, "reduceOnly": True})
         except Exception as e:
-            print("  ⚠️ 鎖利上移失敗（保留舊止損單）:", sym, str(e)[:100])
+            log("  ⚠️ 鎖利上移失敗（保留舊止損單）:", sym, str(e)[:100])
             continue
         if old_id:
             try:
                 ex.cancel_order(old_id, sym)
             except Exception as e:
-                print("  ⚠️ 撤舊止損單失敗（新舊單可能短暫並存）:", str(e)[:100])
+                log("  ⚠️ 撤舊止損單失敗（新舊單可能短暫並存）:", str(e)[:100])
         rec["sl_order_id"] = slo.get("id")
         rec["sl_used"] = new_sl
         rec["sl_stage"] = new_stage
         rec["trailing_done"] = True
         changed = True
-        print("  ✅ 鎖利上移:", sym, "stage", new_stage, "→ SL", new_sl)
+        log("  ✅ 鎖利上移:", sym, "stage", new_stage, "→ SL", new_sl)
         push_event("🔒 鎖利上移｜" + sym + " stage " + str(new_stage) + " → SL " + str(new_sl))
     if changed:
         save_json(TRADES_FILE, trades)
@@ -732,7 +765,7 @@ def reconcile_stale_orders(ex):
         rec["cleaned"] = True
         changed = True
         if cancelled:
-            print("  🧹 清理殘單:", sym, "取消", cancelled, "張")
+            log("  🧹 清理殘單:", sym, "取消", cancelled, "張")
     if changed:
         save_json(TRADES_FILE, trades)
 
@@ -759,10 +792,10 @@ def check_liquidations(ex):
         })
         data["records"] = data["records"][-100:]
         new += 1
-        print("  🔴🔴🔴 偵測到爆倉！", lq.get("symbol"), "（累計:", data["count"], "）")
+        log("  🔴🔴🔴 偵測到爆倉！", lq.get("symbol"), "（累計:", data["count"], "）")
     if new > 0:
         save_json(liq_file, data)
-        print("  ⚠️ 本輪新增", new, "次爆倉。請留意 liquidations.json")
+        log("  ⚠️ 本輪新增", new, "次爆倉。請留意 liquidations.json")
 
 
 def update_pnl_ledger(ex):
@@ -776,7 +809,7 @@ def update_pnl_ledger(ex):
             resp = ex.private_get_v5_position_closed_pnl({"category": "linear", "limit": "50"})
             raw_list = (resp.get("result") or {}).get("list") or []
         except Exception as e:
-            print("  ⚠️ 抓真實 PnL 失敗（本輪略過）:", str(e)[:120])
+            log("  ⚠️ 抓真實 PnL 失敗（本輪略過）:", str(e)[:120])
             return
 
     if not raw_list:
@@ -825,30 +858,30 @@ def mark_backlog_processed():
         save_json(PROCESSED_FILE, list(dict.fromkeys(processed + sig_ids))[-2000:])
         done = load_json(PROCESSED_CLOSES_FILE, [])
         save_json(PROCESSED_CLOSES_FILE, list(dict.fromkeys(done + close_ids))[-1000:])
-        print("  🚦 啟動標記:既有", len(sig_ids), "信號 +", len(close_ids), "平倉 → 已處理,只交易啟動後的新信號")
+        log("  🚦 啟動標記:既有", len(sig_ids), "信號 +", len(close_ids), "平倉 → 已處理,只交易啟動後的新信號")
     except Exception as e:
-        print("⚠️ 啟動標記 backlog 失敗(略過,改靠 Redis 既有狀態保護):", str(e)[:120])
+        log("⚠️ 啟動標記 backlog 失敗(略過,改靠 Redis 既有狀態保護):", str(e)[:120])
 
 
 def main_loop():
-    print("=" * 50)
-    print("auto_trader.py 自動交易（Redis｜輪詢", POLL_INTERVAL, "秒）")
-    print("=" * 50)
-    print("模式：", "Bybit 測試網(假錢)" if trader.USE_SANDBOX else "🔴🔴🔴 真錢 🔴🔴🔴")
-    print("設定：最多", MAX_POSITIONS, "倉｜單筆本金 = 淨值 ÷ 4｜槓桿", LEVERAGE, "｜等級", ALLOWED_TIERS)
-    print("⚠️ 20倍：爆倉線約 -5%，止損強制收緊到最遠 -3.5%（留爆倉緩衝）")
-    print("⚠️ 日內熔斷：淨值跌破當日起始 ×(1-" + os.getenv("MAX_DAILY_DD", "0.10") + ")，當日不再開新倉")
+    log("=" * 50)
+    log("auto_trader.py 自動交易（Redis｜輪詢", POLL_INTERVAL, "秒）")
+    log("=" * 50)
+    log("模式：", "Bybit 測試網(假錢)" if trader.USE_SANDBOX else "🔴🔴🔴 真錢 🔴🔴🔴")
+    log("設定：最多", MAX_POSITIONS, "倉｜單筆本金 = 淨值 ÷ 4｜槓桿", LEVERAGE, "｜等級", ALLOWED_TIERS)
+    log("⚠️ 20倍：爆倉線約 -5%，止損強制收緊到最遠 -3.5%（留爆倉緩衝）")
+    log("⚠️ 日內熔斷：淨值跌破當日起始 ×(1-" + os.getenv("MAX_DAILY_DD", "0.10") + ")，當日不再開新倉")
     if not _USE_REDIS:
-        print("🔴 .env 缺 Upstash Redis 設定，無法讀信號")
+        log("🔴 .env 缺 Upstash Redis 設定，無法讀信號")
         return
     ex = trader.get_exchange()
     # S6：啟動時確認帳戶為單向持倉模式（失敗只警告，不中斷）
     try:
         ex.set_position_mode(False)
     except Exception as e:
-        print("⚠️ 設定單向持倉模式失敗，請確認 Bybit 帳戶為 One-Way 模式:", str(e)[:120])
-    print("✅ 連線成功，餘額:", trader.get_balance(ex))
-    print("開始輪詢...（Ctrl+C 停止）\n")
+        log("⚠️ 設定單向持倉模式失敗，請確認 Bybit 帳戶為 One-Way 模式:", str(e)[:120])
+    log("✅ 連線成功，餘額:", trader.get_balance(ex))
+    log("開始輪詢...（Ctrl+C 停止）\n")
     mark_backlog_processed()
     round_num = 0
     while True:
@@ -863,10 +896,11 @@ def main_loop():
             if round_num % 40 == 0:
                 update_pnl_ledger(ex)
         except KeyboardInterrupt:
-            print("\n已停止。")
+            log("\n已停止。")
             break
         except Exception as e:
-            print("⚠️ 本輪出錯（繼續下一輪）:", str(e)[:150])
+            log("⚠️ 本輪出錯（繼續下一輪）:", str(e)[:150])
+        redis_cmd(["SET", "at:heartbeat", datetime.now(timezone.utc).isoformat()])
         time.sleep(POLL_INTERVAL)
 
 
