@@ -22,7 +22,7 @@ export default function Nav() {
   const { authed, isPremium, isAdmin, user } = usePremium();
 
   return (
-    <aside className="sticky top-0 z-20 flex h-screen w-[72px] flex-col items-center gap-1 border-r border-ink-700 bg-ink-900/80 py-4 backdrop-blur lg:w-56 lg:items-stretch lg:px-3">
+    <aside className="sticky top-0 z-20 hidden h-screen w-[72px] flex-col items-center gap-1 border-r border-ink-700 bg-ink-900/80 py-4 backdrop-blur md:flex lg:w-56 lg:items-stretch lg:px-3">
       <Link href="/" className="mb-4 flex items-center gap-2 px-2 lg:px-1">
         <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-tide-400 to-tide-600 font-bold text-ink-950">黑</div>
         <div className="hidden flex-col leading-tight lg:flex">

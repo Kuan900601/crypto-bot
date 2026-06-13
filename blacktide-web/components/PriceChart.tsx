@@ -36,7 +36,7 @@ export default function PriceChart({ symbol }: { symbol: string }) {
           grid: { vertLines: { color: "#131c2b" }, horzLines: { color: "#131c2b" } },
           rightPriceScale: { borderColor: "#1a2436" },
           timeScale: { borderColor: "#1a2436", timeVisible: true },
-          width: el.clientWidth, height: 360,
+          width: el.clientWidth, height: el.clientHeight || 360,
           autoSize: false,
         });
         chart = c as unknown as { remove: () => void; applyOptions: (o: unknown) => void };
@@ -48,7 +48,7 @@ export default function PriceChart({ symbol }: { symbol: string }) {
         series.setData(candles as unknown as Parameters<typeof series.setData>[0]);
         c.timeScale().fitContent();
 
-        ro = new ResizeObserver(() => { if (el) c.applyOptions({ width: el.clientWidth }); });
+        ro = new ResizeObserver(() => { if (el) c.applyOptions({ width: el.clientWidth, height: el.clientHeight || 360 }); });
         ro.observe(el);
       } catch (e) {
         if (!disposed) setErr(String(e));
@@ -81,7 +81,7 @@ export default function PriceChart({ symbol }: { symbol: string }) {
           ))}
         </div>
       </div>
-      <div ref={box} className="w-full" style={{ height: 360 }} />
+      <div ref={box} className="h-[300px] w-full md:h-[420px]" />
       {err && <div className="mt-2 text-xs text-down">K 線讀取失敗：{err}</div>}
     </div>
   );

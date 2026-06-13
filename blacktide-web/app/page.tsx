@@ -8,6 +8,7 @@ import StatCard from "@/components/StatCard";
 import SignalCard from "@/components/SignalCard";
 import Sparkline from "@/components/Sparkline";
 import PageHeader from "@/components/PageHeader";
+import TickerTape from "@/components/TickerTape";
 import { SourceBadge } from "@/components/Badges";
 import Link from "next/link";
 
@@ -20,6 +21,7 @@ export default function Home() {
 
   return (
     <div>
+      <div className="mb-5"><TickerTape tickers={tickers} /></div>
       <PageHeader
         title="總覽 Overview"
         subtitle="策略驗證期 · 所有數據為 SIM 模擬，期望值未達標前不代表可實盤"

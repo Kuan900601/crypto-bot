@@ -1,14 +1,40 @@
+@import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap");
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root { color-scheme: dark; }
 html, body { height: 100%; }
-body { background: #070b12; color: #e2e8f0; font-feature-settings: "tnum" 1; }
-::selection { background: rgba(34, 211, 238, 0.25); }
+body {
+  color: #e2e8f0;
+  font-feature-settings: "tnum" 1;
+  background:
+    radial-gradient(1100px 480px at 85% -10%, rgba(212, 175, 55, 0.08), transparent 60%),
+    radial-gradient(900px 520px at -10% 108%, rgba(212, 175, 55, 0.05), transparent 60%),
+    #06070b;
+}
+::selection { background: rgba(212, 175, 55, 0.3); }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: #1a2436; border-radius: 8px; }
+::-webkit-scrollbar-thumb { background: #1e2433; border-radius: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* 品牌主視覺鋪底（選用）：存 public/brand/hero.jpg 自動生效，沒存不影響 */
+.brand-hero { position: fixed; inset: 0; z-index: -30; background: url("/brand/hero.jpg") center / cover no-repeat; opacity: 0.07; pointer-events: none; }
+
+/* 卡片 / 光暈（既有元件以 .card 為基底，這裡改成黑金玻璃質感） */
+.card {
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.35);
+}
+.glow { box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.18), 0 8px 40px -12px rgba(212, 175, 55, 0.3); }
+
+.text-gold { background: linear-gradient(135deg, #f5e3a3 0%, #d4af37 45%, #8f6f1d 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.glow-gold { text-shadow: 0 0 18px rgba(212, 175, 55, 0.35); }
+.hairline-gold { height: 1px; background: linear-gradient(90deg, transparent, rgba(212, 175, 55, 0.45), transparent); }
+.scrollbar-none { scrollbar-width: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
 
 .flash-up { animation: flashUp 0.6s ease-out; }
 .flash-down { animation: flashDown 0.6s ease-out; }
@@ -16,6 +42,6 @@ body { background: #070b12; color: #e2e8f0; font-feature-settings: "tnum" 1; }
 @keyframes flashDown { 0% { color: #f43f5e; } 100% { color: inherit; } }
 .pulse-dot { animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-
-.card { background: linear-gradient(180deg,#0e1521,#0a0f18); border:1px solid #131c2b; border-radius:16px; }
-.glow { box-shadow: 0 0 0 1px rgba(34,211,238,.12), 0 8px 40px -12px rgba(6,182,212,.25); }
+@keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+.animate-marquee { animation: marquee 36s linear infinite; }
+.animate-marquee:hover { animation-play-state: paused; }
