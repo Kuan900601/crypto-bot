@@ -2,7 +2,6 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
 :root { color-scheme: dark; }
 html, body { height: 100%; }
 body {
@@ -17,25 +16,12 @@ body {
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #1e2433; border-radius: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-
-/* 品牌主視覺鋪底（選用）：存 public/brand/hero.jpg 自動生效，沒存不影響 */
-.brand-hero { position: fixed; inset: 0; z-index: -30; background: url("/brand/hero.jpg") center / cover no-repeat; opacity: 0.07; pointer-events: none; }
-
-/* 卡片 / 光暈（既有元件以 .card 為基底，這裡改成黑金玻璃質感） */
-.card {
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
-  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.35);
-}
-.glow { box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.18), 0 8px 40px -12px rgba(212, 175, 55, 0.3); }
-
-.text-gold { background: linear-gradient(135deg, #f5e3a3 0%, #d4af37 45%, #8f6f1d 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.brand-hero { position: fixed; inset: 0; z-index: -30; background: url("/brand/hero.jpg") center / cover no-repeat; opacity: 0.06; pointer-events: none; }
+.text-gold { background: linear-gradient(135deg, #f5e3a3 0%, #d4af37 45%, #8f6f1d 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .glow-gold { text-shadow: 0 0 18px rgba(212, 175, 55, 0.35); }
-.hairline-gold { height: 1px; background: linear-gradient(90deg, transparent, rgba(212, 175, 55, 0.45), transparent); }
+.hairline-gold { height: 1px; background: linear-gradient(90deg, transparent, rgba(212, 175, 55, 0.5), transparent); }
 .scrollbar-none { scrollbar-width: none; }
 .scrollbar-none::-webkit-scrollbar { display: none; }
-
 .flash-up { animation: flashUp 0.6s ease-out; }
 .flash-down { animation: flashDown 0.6s ease-out; }
 @keyframes flashUp { 0% { color: #10b981; } 100% { color: inherit; } }

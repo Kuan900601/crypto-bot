@@ -1,19 +1,15 @@
 {
   "name": "blacktide-web",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start"
-  },
+  "scripts": { "dev": "next dev", "build": "next build", "start": "next start" },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "framer-motion": "^11.11.17",
-    "lightweight-charts": "^4.2.3",
+    "lightweight-charts": "^4.2.0",
     "lucide-react": "^0.453.0",
     "next": "14.2.21",
-    "next-auth": "^4.24.11",
+    "next-auth": "^4.24.7",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "zustand": "^4.5.5"

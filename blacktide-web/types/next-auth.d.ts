@@ -1,14 +1,17 @@
-import "next-auth";
-
+import { DefaultSession } from "next-auth";
 declare module "next-auth" {
   interface Session {
-    user: {
-      name?: string | null;
-      email?: string | null;
-      image?: string | null;
-      plan?: "free" | "premium";
-      isAdmin?: boolean;
+    user: DefaultSession["user"] & {
+      uid: string;
+      plan: "free" | "premium";
+      isAdmin: boolean;
+      isLifetime: boolean;
       planExpiry?: string;
     };
+  }
+}
+declare module "next-auth/jwt" {
+  interface JWT {
+    uid?: string; plan?: string; isAdmin?: boolean; isLifetime?: boolean; planExpiry?: string;
   }
 }

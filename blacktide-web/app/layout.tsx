@@ -1,28 +1,21 @@
-import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import Nav from "@/components/Nav";
-import MobileNav from "@/components/MobileNav";
-import AuthProvider from "@/components/AuthProvider";
-
-export const metadata: Metadata = {
+import Providers from "@/components/Providers";
+import FxBackground from "@/components/FxBackground";
+import Shell from "@/components/Shell";
+export const metadata = {
   title: "黑潮 BLACKTIDE | 專業交易分析平台",
-  description: "Bybit 即時行情、K 線分析、黑潮 Signals 訊號與市場情報",
+  description: "Bybit 即時行情、AI 分析、黑潮船長訊號、即時新聞與異常監控",
 };
-
-export const viewport: Viewport = { themeColor: "#06070b" };
-
+export const viewport = { themeColor: "#06070b" };
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-Hant">
-      <body className="min-h-screen text-slate-200 antialiased">
+      <body>
         <div className="brand-hero" aria-hidden />
-        <AuthProvider>
-          <div className="flex">
-            <Nav />
-            <main className="min-h-screen flex-1 px-4 py-6 pb-24 md:pb-6 lg:px-8">{children}</main>
-          </div>
-          <MobileNav />
-        </AuthProvider>
+        <Providers>
+          <FxBackground />
+          <Shell>{children}</Shell>
+        </Providers>
       </body>
     </html>
   );

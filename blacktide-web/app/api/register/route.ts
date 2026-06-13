@@ -1,23 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createUser } from "@/lib/users";
-
-export const runtime = "nodejs";
-
-export async function POST(req: NextRequest) {
+import bcrypt from "bcryptjs";
+import { getUser, newUser, saveUser } from "@/lib/auth";
+export async function POST(req: Request) {
   try {
-    const { email, password, name } = (await req.json()) as {
-      email?: string; password?: string; name?: string;
-    };
-    if (!email || !/.+@.+\..+/.test(email)) {
-      return NextResponse.json({ error: "BAD_EMAIL" }, { status: 400 });
-    }
-    if (!password || password.length < 6) {
-      return NextResponse.json({ error: "WEAK_PASSWORD" }, { status: 400 });
-    }
-    await createUser(email, name || "", password);
-    return NextResponse.json({ ok: true });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: msg }, { status: msg === "EMAIL_TAKEN" ? 409 : 500 });
+    const { email, password, name } = await req.json();
+    if (!email || !/.+@.+\..+/.test(email)) return Response.json({ error: "Email 格式不正確" }, { status: 400 });
+    if (!password || String(password).length < 8) return Response.json({ error: "密碼至少 8 碼" }, { status: 400 });
+    if (await getUser(email)) return Response.json({ error: "此 Email 已註冊" }, { status: 409 });
+    const u = newUser(email, name || "", await bcrypt.hash(String(password), 10));
+    await saveUser(u);
+    return Response.json({ ok: true });
+  } catch {
+    return Response.json({ error: "註冊失敗，請稍後再試" }, { status: 500 });
   }
 }

@@ -1,37 +1,100 @@
-import { NextResponse } from "next/server";
-import { getBotData, REDIS_READY } from "@/lib/redis";
-import { mapActiveSignals, mapResults, computeStats } from "@/lib/botMap";
-import { DEMO_SIGNALS, DEMO_HISTORY, DEMO_STATS } from "@/lib/mock";
-import { SignalsResponse } from "@/lib/types";
-
+import { SIGNALS } from "@/lib/mock";
+import { redisGet } from "@/lib/redis";
+import { Signal, TakeProfit } from "@/lib/types";
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
-function demo(extra?: Partial<SignalsResponse>): SignalsResponse {
-  return { source: "demo", active: DEMO_SIGNALS, history: DEMO_HISTORY, stats: DEMO_STATS, ...extra };
+const TP_WEIGHT: Record<number, number> = { 1: 15, 2: 35, 3: 35, 4: 15 };
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function buildTps(raw: any, entry: number): TakeProfit[] {
+  const hit: number[] = Array.isArray(raw?.tp_hit) ? raw.tp_hit : [];
+  const out: TakeProfit[] = [];
+  for (const lv of [1, 2, 3, 4]) {
+    const price = Number(raw?.["tp" + lv] ?? 0);
+    if (!price) continue;
+    const sl = Number(raw?.sl ?? 0);
+    const risk = Math.abs(entry - sl) || 1;
+    const r = +(Math.abs(price - entry) / risk).toFixed(1);
+    out.push({ level: lv, price, r, weight: TP_WEIGHT[lv] ?? 0, hit: hit.includes(lv) });
+  }
+  return out;
 }
-
-export async function GET() {
-  if (!REDIS_READY) {
-    return NextResponse.json(demo());
-  }
+function mapActive(symbol: string, raw: any): Signal | null {
   try {
-    const data = await getBotData();
-    if (!data) {
-      // Redis 通了但還沒有 bot_data（bot 尚未寫入）→ 退回 demo 但標明來源
-      return NextResponse.json(demo({ source: "demo", error: "redis_empty" }));
-    }
-    const activeRaw = (data.active_signals ?? {}) as Record<string, unknown>;
-    const resultsRaw = (data.signal_results ?? []) as unknown[];
-    const payload: SignalsResponse = {
-      source: "live",
-      active: mapActiveSignals(activeRaw),
-      history: mapResults(resultsRaw),
-      stats: computeStats(resultsRaw),
+    const entry = Number(raw?.entry ?? 0);
+    if (!entry) return null;
+    const dirStr = String(raw?.direction ?? raw?.direction_en ?? "LONG").toUpperCase();
+    const isLong = !(dirStr.includes("SHORT") || dirStr.includes("空"));
+    return {
+      id: "active-" + symbol,
+      symbol: symbol.replace("/USDT", "").replace("USDT", ""),
+      direction: isLong ? "long" : "short",
+      tier: (raw?.tier ?? "B") as Signal["tier"],
+      entryGrade: (raw?.entry_grade ?? "C") as Signal["entryGrade"],
+      score: Number(raw?.score ?? 0),
+      votes: Number(raw?.votes ?? raw?.consensus_at_entry ?? raw?.consensus_votes ?? 0),
+      newsVote: (raw?.news_vote ?? 0) as Signal["newsVote"],
+      entryLow: entry, entryHigh: entry,
+      stopLoss: Number(raw?.sl ?? 0),
+      tps: buildTps(raw, entry),
+      leverage: Number(raw?.leverage ?? 1),
+      winRate: Number(raw?.win_rate ?? 0),
+      rr: Number(raw?.rr ?? raw?.rr_at_entry ?? 1.5),
+      status: "active",
+      openedAt: String(raw?.created ?? ""),
     };
-    return NextResponse.json(payload);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json(demo({ source: "error", error: msg }));
+  } catch { return null; }
+}
+function mapResult(raw: any, i: number): Signal | null {
+  try {
+    if (!raw?.symbol) return null;
+    const entry = Number(raw?.entry ?? 0);
+    const finalPct = Number(raw?.final_pct ?? 0);
+    const dirStr = String(raw?.direction ?? "LONG").toUpperCase();
+    const isLong = !(dirStr.includes("SHORT") || dirStr.includes("空"));
+    return {
+      id: "hist-" + i,
+      symbol: String(raw.symbol).replace("/USDT", "").replace("USDT", ""),
+      direction: isLong ? "long" : "short",
+      tier: (raw?.tier ?? "B") as Signal["tier"],
+      entryGrade: (raw?.entry_grade ?? "C") as Signal["entryGrade"],
+      score: Number(raw?.score ?? 0),
+      votes: Number(raw?.votes ?? 0),
+      newsVote: (raw?.news_vote ?? 0) as Signal["newsVote"],
+      entryLow: entry, entryHigh: entry,
+      stopLoss: Number(raw?.sl ?? 0),
+      tps: buildTps(raw, entry),
+      leverage: Number(raw?.leverage ?? 1),
+      winRate: Number(raw?.win_rate ?? 0),
+      rr: Number(raw?.rr ?? 1.5),
+      status: finalPct > 0 ? "tp" : "sl",
+      finalPct: +finalPct.toFixed(2),
+      openedAt: String(raw?.created ?? raw?.closed_at ?? ""),
+    };
+  } catch { return null; }
+}
+export async function GET() {
+  const key = process.env.BOT_REDIS_KEY || "bot_data";
+  const rawStr = await redisGet(key);
+  if (rawStr) {
+    try {
+      const data = JSON.parse(rawStr);
+      const out: Signal[] = [];
+      // bot 實際寫小寫鍵 active_signals / signal_results；同時相容大寫
+      const act = data?.active_signals ?? data?.ACTIVE_SIGNALS;
+      if (act && typeof act === "object") {
+        for (const [sym, sig] of Object.entries(act)) {
+          const m = mapActive(sym, sig);
+          if (m) out.push(m);
+        }
+      }
+      const hist = data?.signal_results ?? data?.SIGNAL_RESULTS;
+      if (Array.isArray(hist)) {
+        hist.slice(-30).reverse().forEach((r: any, i: number) => {
+          const m = mapResult(r, i);
+          if (m) out.push(m);
+        });
+      }
+      if (out.length) return Response.json({ signals: out, source: "redis" });
+    } catch {}
   }
+  return Response.json({ signals: SIGNALS, source: "mock" });
 }

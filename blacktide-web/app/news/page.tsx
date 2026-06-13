@@ -1,49 +1,51 @@
 "use client";
-
-import { useFetch } from "@/lib/useFetch";
+import { useEffect, useMemo, useState } from "react";
 import { NewsItem } from "@/lib/types";
-import { timeAgoZh } from "@/lib/format";
-import PageHeader from "@/components/PageHeader";
-
-interface Resp { news: NewsItem[] }
-
-function sentMeta(s: NewsItem["sentiment"]) {
-  if (s === "bull") return { txt: "看多", cls: "bg-up/15 text-up" };
-  if (s === "bear") return { txt: "看空", cls: "bg-down/15 text-down" };
-  return { txt: "中性", cls: "bg-slate-500/15 text-slate-300" };
-}
-
+import { SectionTitle, Card, Badge, Chip } from "@/components/ui";
+const SENT: Record<NewsItem["sentiment"], { label: string; tone: "up" | "down" | "slate" }> = {
+  bull: { label: "利多", tone: "up" }, bear: { label: "利空", tone: "down" }, neutral: { label: "中性", tone: "slate" },
+};
 export default function NewsPage() {
-  const { data } = useFetch<Resp>("/api/news", 30000);
-  const news = data?.news ?? [];
+  const [news, setNews] = useState<NewsItem[]>([]);
+  const [f, setF] = useState<"all" | NewsItem["sentiment"]>("all");
+  const [q, setQ] = useState("");
+  useEffect(() => { fetch("/api/news").then((r) => r.json()).then((d) => setNews(d.news)).catch(() => {}); }, []);
+  const filtered = useMemo(() => news.filter((n) =>
+    (f === "all" || n.sentiment === f) &&
+    (!q || (n.title + n.summary + n.tags.join("")).toLowerCase().includes(q.toLowerCase()))
+  ), [news, f, q]);
   return (
-    <div>
-      <PageHeader title="情報 News" subtitle="新聞情緒（Mock）· bot 第 8 票來源，驗證通過後可接 CryptoPanic + Claude 分析" right={<span className="text-[11px] text-slate-600">Mock</span>} />
+    <div className="space-y-5">
+      <SectionTitle title="即時新聞" desc="AI 摘要 + 情緒分析 + 影響評估（未設金鑰時為 DEMO 模擬資料）" />
+      <div className="flex flex-wrap items-center gap-2">
+        <Chip active={f === "all"} onClick={() => setF("all")}>全部</Chip>
+        <Chip active={f === "bull"} onClick={() => setF("bull")}>利多</Chip>
+        <Chip active={f === "bear"} onClick={() => setF("bear")}>利空</Chip>
+        <Chip active={f === "neutral"} onClick={() => setF("neutral")}>中性</Chip>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜尋新聞…"
+          className="ml-auto w-40 rounded-lg border border-white/5 bg-ink-800 px-3 py-1.5 text-sm outline-none focus:border-tide-500/40" />
+      </div>
       <div className="space-y-3">
-        {news.map((n) => {
-          const m = sentMeta(n.sentiment);
-          return (
-            <div key={n.id} className="card p-4">
-              <div className="flex items-start justify-between gap-3">
-                <h3 className="text-sm font-medium text-slate-100">{n.title}</h3>
-                <span className={"shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold " + m.cls}>{m.txt}</span>
-              </div>
-              <p className="mt-1.5 text-sm text-slate-400">{n.summary}</p>
-              <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-500">
-                <span>{n.source}</span>
-                <span>·</span>
-                <span>{timeAgoZh(n.time)}</span>
-                <span>·</span>
-                <span className="text-amber-400">影響 {"●".repeat(n.impact)}{"○".repeat(5 - n.impact)}</span>
-                <div className="ml-auto flex gap-1">
-                  {n.tags.map((t) => (
-                    <span key={t} className="rounded bg-ink-700 px-1.5 py-0.5 text-slate-400">{t}</span>
-                  ))}
-                </div>
-              </div>
+        {filtered.length === 0 && <div className="rounded-xl border border-white/5 p-8 text-center text-sm text-slate-500">沒有符合條件的新聞</div>}
+        {filtered.map((n) => (
+          <Card key={n.id} className="p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={SENT[n.sentiment].tone}>{SENT[n.sentiment].label}</Badge>
+              <span className="text-sm font-semibold leading-snug">{n.title}</span>
+              <span className="ml-auto shrink-0 text-[11px] text-slate-500">{n.source} · {n.time}</span>
             </div>
-          );
-        })}
+            {n.summary && <p className="mt-2 text-xs leading-relaxed text-slate-400">{n.summary}</p>}
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              <span className="text-[10px] text-slate-500">影響程度</span>
+              <span className="flex gap-0.5">
+                {[0, 1, 2, 3, 4].map((i) => <span key={i} className={`h-1.5 w-1.5 rounded-full ${i < n.impact ? "bg-tide-400" : "bg-white/10"}`} />)}
+              </span>
+              <span className="ml-auto flex gap-1.5">
+                {n.tags.map((t) => <span key={t} className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-slate-400">{t}</span>)}
+              </span>
+            </div>
+          </Card>
+        ))}
       </div>
     </div>
   );
