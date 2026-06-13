@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, Radio, LineChart, Newspaper, Activity, FlaskConical,
+  LayoutDashboard, Radio, LineChart, Newspaper, Activity, FlaskConical, Crown, User,
 } from "lucide-react";
+import { usePremium } from "@/lib/usePremium";
 
 const LINKS = [
   { href: "/", label: "總覽", icon: LayoutDashboard },
@@ -13,10 +14,13 @@ const LINKS = [
   { href: "/news", label: "情報", icon: Newspaper },
   { href: "/monitor", label: "監控", icon: Activity },
   { href: "/backtest", label: "驗證", icon: FlaskConical },
+  { href: "/pricing", label: "方案", icon: Crown },
 ];
 
 export default function Nav() {
   const path = usePathname();
+  const { authed, isPremium, isAdmin, user } = usePremium();
+
   return (
     <aside className="sticky top-0 z-20 flex h-screen w-[72px] flex-col items-center gap-1 border-r border-ink-700 bg-ink-900/80 py-4 backdrop-blur lg:w-56 lg:items-stretch lg:px-3">
       <Link href="/" className="mb-4 flex items-center gap-2 px-2 lg:px-1">
@@ -46,9 +50,26 @@ export default function Nav() {
           );
         })}
       </nav>
-      <div className="hidden px-3 text-[10px] leading-relaxed text-slate-600 lg:block">
-        驗證期 · SIM 模擬數據<br />v0.1
-      </div>
+
+      {/* 帳號區 */}
+      <Link
+        href={authed ? "/account" : "/login"}
+        className="mt-2 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-slate-400 hover:bg-ink-700/60 hover:text-slate-200"
+      >
+        <User size={18} className="shrink-0" />
+        <span className="hidden min-w-0 flex-col lg:flex">
+          {authed ? (
+            <>
+              <span className="truncate text-xs text-slate-200">{user?.name || user?.email}</span>
+              <span className={"text-[10px] " + (isPremium ? "text-tide-300" : "text-slate-500")}>
+                {isAdmin ? "Admin" : isPremium ? "Premium" : "Free"}
+              </span>
+            </>
+          ) : (
+            <span className="text-xs">登入 / 註冊</span>
+          )}
+        </span>
+      </Link>
     </aside>
   );
 }

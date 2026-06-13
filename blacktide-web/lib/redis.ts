@@ -33,3 +33,23 @@ export async function getBotData(): Promise<Record<string, unknown> | null> {
     return null;
   }
 }
+
+// --- 一般 key 讀寫（給網站自己的會員資料用，key 前綴 web:*，與 bot 的 bot_data 完全隔離）---
+export async function redisGetKey(key: string): Promise<string | null> {
+  try {
+    const r = await redisCmd(["GET", key]);
+    return typeof r === "string" ? r : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function redisSetKey(key: string, value: string): Promise<boolean> {
+  if (!REDIS_READY) return false;
+  try {
+    const r = await redisCmd(["SET", key, value]);
+    return r === "OK";
+  } catch {
+    return false;
+  }
+}

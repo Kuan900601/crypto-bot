@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// 儀表板存取閘門（HTTP Basic Auth）。
-// 沿用 bot 慣例：DASH_PASSWORD 未設 → 放行（公開，等同 demo）；設了 → 要密碼才看得到。
-// 帳號可隨意輸入，只驗密碼。Vercel 走 HTTPS，憑證不會明文外洩。
+// 儀表板「私人模式」閘門（HTTP Basic Auth）。
+// 沿用 bot 慣例：DASH_PASSWORD 未設 → 放行（公開）；設了 → 整站要密碼。
+// ⚠️ 會員收費模式（NextAuth）應讓站台公開，故請「不要」設 DASH_PASSWORD；
+//    兩者是互斥的存取模式。為保險，登入/驗證/金流 webhook 路徑一律排除在 Basic Auth 外。
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|login|api/auth|api/nowpayments).*)"],
 };
 
 export function middleware(req: NextRequest) {
