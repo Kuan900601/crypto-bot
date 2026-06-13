@@ -1,7 +1,8 @@
 "use client";
 
 import { useFetch } from "@/lib/useFetch";
-import { SignalsResponse, Ticker, MarketStats } from "@/lib/types";
+import { useMarket } from "@/lib/useMarket";
+import { SignalsResponse } from "@/lib/types";
 import { fmtPrice, fmtPct, compactZh } from "@/lib/format";
 import StatCard from "@/components/StatCard";
 import SignalCard from "@/components/SignalCard";
@@ -10,15 +11,12 @@ import PageHeader from "@/components/PageHeader";
 import { SourceBadge } from "@/components/Badges";
 import Link from "next/link";
 
-interface MarketResp { tickers: Ticker[]; stats: MarketStats; }
-
 export default function Home() {
   const sig = useFetch<SignalsResponse>("/api/signals", 15000);
-  const mkt = useFetch<MarketResp>("/api/market", 20000);
+  const { tickers, stats: mktStats, src: mktSrc } = useMarket();
 
   const stats = sig.data?.stats;
   const active = sig.data?.active ?? [];
-  const tickers = mkt.data?.tickers ?? [];
 
   return (
     <div>
@@ -76,7 +74,9 @@ export default function Home() {
         <section>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-slate-300">行情</h2>
-            <span className="text-[11px] text-slate-600">Mock</span>
+            <span className="text-[11px] text-slate-600">
+              {mktSrc.crypto === "bybit" ? "Bybit 即時" : "Mock"}
+            </span>
           </div>
           <div className="card divide-y divide-ink-700">
             {tickers.slice(0, 8).map((t) => {
@@ -96,19 +96,19 @@ export default function Home() {
               );
             })}
           </div>
-          {mkt.data && (
+          {mktStats && (
             <div className="card mt-3 grid grid-cols-3 gap-2 p-3 text-center">
               <div>
                 <div className="text-[10px] text-slate-500">恐懼貪婪</div>
-                <div className="font-mono text-slate-200">{mkt.data.stats.fearGreed}</div>
+                <div className="font-mono text-slate-200">{mktStats.fearGreed}</div>
               </div>
               <div>
                 <div className="text-[10px] text-slate-500">BTC 佔比</div>
-                <div className="font-mono text-slate-200">{mkt.data.stats.btcDominance}%</div>
+                <div className="font-mono text-slate-200">{mktStats.btcDominance}%</div>
               </div>
               <div>
                 <div className="text-[10px] text-slate-500">24h 爆倉</div>
-                <div className="font-mono text-slate-200">{compactZh(mkt.data.stats.liq24h)}</div>
+                <div className="font-mono text-slate-200">{compactZh(mktStats.liq24h)}</div>
               </div>
             </div>
           )}

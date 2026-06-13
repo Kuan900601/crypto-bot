@@ -14,7 +14,16 @@ export interface Ticker {
 export interface MarketStats {
   fearGreed: number; btcDominance: number; liq24h: number;
   signalWinRate: number; signalCount: number; ev: number;
+  btcTurnover?: number; btcFunding?: number;
 }
+
+export interface MarketResponse {
+  tickers: Ticker[];
+  stats: MarketStats;
+  source: { crypto: "bybit" | "mock"; macro: "live" | "mock" };
+}
+
+export interface Candle { time: number; open: number; high: number; low: number; close: number; }
 
 export interface TakeProfit { level: number; price: number; r: number; weight: number; hit: boolean; }
 

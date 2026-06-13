@@ -1,15 +1,39 @@
 "use client";
 
+import { useState } from "react";
 import { AnalysisItem } from "@/lib/types";
 import { fmtPrice } from "@/lib/format";
 import PageHeader from "@/components/PageHeader";
+import PriceChart from "@/components/PriceChart";
 import { ANALYSIS } from "@/lib/mock";
+import { COINS } from "@/lib/bybit";
 
 export default function AnalysisPage() {
-  // 分析資料目前為 mock（由 lib/mock 提供）；驗證通過後可接 analyzer 輸出。
+  // K 線為 Bybit 即時；下方多空偏向/價位/建議仍為 mock，驗證通過後可接 analyzer 輸出。
+  const [symbol, setSymbol] = useState("BTC");
   return (
     <div>
-      <PageHeader title="分析 Analysis" subtitle="多幣種多空偏向、關鍵價位與操作建議（Mock · 驗證通過後可接 analyzer 輸出）" right={<span className="text-[11px] text-slate-600">Mock</span>} />
+      <PageHeader title="分析 Analysis" subtitle="K 線為 Bybit 即時行情；偏向與操作建議為 Mock（驗證通過後接 analyzer）" right={<span className="text-[11px] text-slate-600">K 線即時 · 分析 Mock</span>} />
+
+      <div className="mb-3 flex flex-wrap gap-1">
+        {COINS.map((c) => (
+          <button
+            key={c.symbol}
+            onClick={() => setSymbol(c.symbol)}
+            className={
+              "rounded-md px-2.5 py-1 text-xs font-semibold " +
+              (symbol === c.symbol ? "bg-tide-500/20 text-tide-300" : "text-slate-400 hover:text-slate-200")
+            }
+          >
+            {c.symbol}
+          </button>
+        ))}
+      </div>
+
+      <div className="mb-6">
+        <PriceChart symbol={symbol} />
+      </div>
+
       <AnalysisGrid />
     </div>
   );
