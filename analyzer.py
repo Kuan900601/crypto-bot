@@ -224,7 +224,7 @@ def plot_signal_chart(df, symbol, timeframe, direction,
 
     # === Y 軸範圍計算（含緩衝） ===
     all_prices = [float(df['high'].max()), float(df['low'].min()), current]
-    for v in [entry, sl, tp1, tp2, tp3, tp4]:
+    for v in [entry, sl, tp1, tp2, tp3]:
         if v: all_prices.append(v)
     if support_levels: all_prices.extend([s for s in support_levels[:2] if s])
     if resistance_levels: all_prices.extend([r for r in resistance_levels[:2] if r])
@@ -244,16 +244,16 @@ def plot_signal_chart(df, symbol, timeframe, direction,
             # 止損區（紅色，從 entry 到 sl，向下）
             ax1.fill_betweenx([sl, entry], -1, n - 0.5,
                               color=RED_ACCENT, alpha=0.10, zorder=1)
-            # 止盈區（綠色，從 entry 向上到 tp4）
-            if tp4 and tp4 > entry:
-                ax1.fill_betweenx([entry, tp4], -1, n - 0.5,
+            # 止盈區（綠色，從 entry 向上到 tp3）
+            if tp3 and tp3 > entry:
+                ax1.fill_betweenx([entry, tp3], -1, n - 0.5,
                                   color=GREEN_ACCENT, alpha=0.10, zorder=1)
         else:
             # SHORT：止損區在上方
             ax1.fill_betweenx([entry, sl], -1, n - 0.5,
                               color=RED_ACCENT, alpha=0.10, zorder=1)
-            if tp4 and tp4 < entry:
-                ax1.fill_betweenx([tp4, entry], -1, n - 0.5,
+            if tp3 and tp3 < entry:
+                ax1.fill_betweenx([tp3, entry], -1, n - 0.5,
                                   color=GREEN_ACCENT, alpha=0.10, zorder=1)
 
     # === 收集要繪製的價位線 ===
@@ -274,14 +274,14 @@ def plot_signal_chart(df, symbol, timeframe, direction,
             if r and y_min < r < y_max:
                 # 跳過跟 TP 太近的
                 skip = False
-                for tp in [tp1, tp2, tp3, tp4]:
+                for tp in [tp1, tp2, tp3]:
                     if tp and abs(r - tp) / tp < 0.003:
                         skip = True; break
                 if skip: continue
                 levels.append((r, f'R{i+1}', '#f44336', '--', 1.0, 0.4, 1))
 
     # 止盈（高優先）
-    for tp, lname in [(tp1, 'TP1'), (tp2, 'TP2'), (tp3, 'TP3'), (tp4, 'TP4')]:
+    for tp, lname in [(tp1, 'TP1'), (tp2, 'TP2'), (tp3, 'TP3')]:
         if tp and y_min < tp < y_max:
             levels.append((tp, lname, GREEN_ACCENT, ':', 1.8, 0.9, 2))
 
@@ -6642,12 +6642,12 @@ class CryptoAnalyzer:
 
                 # 核心價位
                 r += "🎯 進場 `" + str(p["entry"]) + "` · 止損 `" + str(p["sl"]) + "`\n"
-                # TP（含 TP4：價格 ｜漲幅% ｜分批平倉%，一行一個）
+                # TP（三段 40/35/25：價格 ｜漲幅% ｜分批平倉%，一行一個）
                 tp_parts = []
                 _entry_v = p.get("entry", 0) or 0
                 _dir = 1 if p.get("direction", "LONG") == "LONG" else -1
-                _tp_close = {1: 15, 2: 35, 3: 35, 4: 15}
-                for n in (1, 2, 3, 4):
+                _tp_close = {1: 40, 2: 35, 3: 25}
+                for n in (1, 2, 3):
                     tp_v = p.get("tp" + str(n), 0)
                     if not tp_v:
                         continue
@@ -6740,22 +6740,19 @@ class CryptoAnalyzer:
                 r += "  • 止損幅度：`" + str(round(sl_pct, 2)) + "%`\n"
                 r += "\n"
 
-                # === 分批止盈計劃（權重 15/35/35/15）===
+                # === 分批止盈計劃（權重 40/35/25）===
                 r += "🎯 *分批止盈計劃*\n"
                 if sig["direction_en"] == "LONG":
                     tp1_pct = (p["tp1"] - p["entry"]) / p["entry"] * 100
                     tp2_pct = (p["tp2"] - p["entry"]) / p["entry"] * 100
                     tp3_pct = (p["tp3"] - p["entry"]) / p["entry"] * 100
-                    tp4_pct = (p["tp4"] - p["entry"]) / p["entry"] * 100
                 else:
                     tp1_pct = (p["entry"] - p["tp1"]) / p["entry"] * 100
                     tp2_pct = (p["entry"] - p["tp2"]) / p["entry"] * 100
                     tp3_pct = (p["entry"] - p["tp3"]) / p["entry"] * 100
-                    tp4_pct = (p["entry"] - p["tp4"]) / p["entry"] * 100
-                r += "  ① `" + str(p["tp1"]) + "` (+`" + str(round(tp1_pct, 2)) + "%`) 平 15% _保本出場_\n"
+                r += "  ① `" + str(p["tp1"]) + "` (+`" + str(round(tp1_pct, 2)) + "%`) 平 40% _保本出場_\n"
                 r += "  ② `" + str(p["tp2"]) + "` (+`" + str(round(tp2_pct, 2)) + "%`) 平 35%\n"
-                r += "  ③ `" + str(p["tp3"]) + "` (+`" + str(round(tp3_pct, 2)) + "%`) 平 35%\n"
-                r += "  ④ `" + str(p["tp4"]) + "` (+`" + str(round(tp4_pct, 2)) + "%`) 移動止損守剩 15%\n"
+                r += "  ③ `" + str(p["tp3"]) + "` (+`" + str(round(tp3_pct, 2)) + "%`) 平剩餘 25% _大勝下車_\n"
                 r += "\n"
 
                 # === 倉位建議 ===
@@ -6765,7 +6762,7 @@ class CryptoAnalyzer:
                 if p["position"] < orig_pos:
                     r += " _(根據" + grade + "級調整)_"
                 r += "\n"
-                r += "  風報比 1:" + str(p["rr2"]) + " 至 1:" + str(p["rr4"]) + "\n"
+                r += "  風報比 1:" + str(p["rr2"]) + " 至 1:" + str(p["rr3"]) + "\n"
 
                 # === 確認 K 線提醒 ===
                 if not p.get("has_confirmation"):

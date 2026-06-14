@@ -60,9 +60,8 @@ def bingx_trade_url(symbol, direction):
     return base
 
 def bingx_swap_url(symbol):
-    """BingX 永續合約頁面"""
-    pair = symbol.replace("/", "-")
-    return "https://bingx.com/zh-tw/perpetual/" + pair
+    """Bybit 永續合約頁面（沿用函式名避免改動所有呼叫點）"""
+    return "https://www.bybit.com/trade/usdt/" + symbol.replace("/USDT", "").replace("/", "") + "USDT"
 
 def bingx_spot_url(symbol):
     """BingX 現貨頁面"""
@@ -1702,7 +1701,7 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 text += "  進場 `" + str(_entry) + "` 止損 `" + str(sig.get("sl", "?")) + "`\n"
                 text += "  狀態 " + tp_status + " | 評分 `" + str(sig.get("score", "?")) + "` | " + age_str + "\n"
                 kb_rows.append([
-                    InlineKeyboardButton("📱 " + sym_short + " 開 BingX", url=bingx_swap_url(sym)),
+                    InlineKeyboardButton("📱 " + sym_short + " 開 Bybit", url=bingx_swap_url(sym)),
                     InlineKeyboardButton("📋 參數", callback_data="copy_" + sym.replace("/", "_"))
                 ])
             kb_rows.append([InlineKeyboardButton("🏠 返回主選單", callback_data="home")])
@@ -1899,22 +1898,20 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         msg = "📋 *" + sym_short + " 下單參數*\n"
         msg += "━━━━━━━━━━━━━━━\n"
-        msg += "請在 BingX 中設定以下參數：\n\n"
+        msg += "請在 Bybit 中設定以下參數：\n\n"
         msg += "🔸 *交易對*：`" + sym.replace("/", "-") + "`\n"
         msg += "🔸 *方向*：" + direction_zh + "\n"
         msg += "🔸 *進場價*：`" + str(sig.get("entry")) + "`\n"
         msg += "🔸 *止損價*：`" + str(sig.get("sl")) + "`\n\n"
         msg += "*📍 階梯止盈設定*\n"
         if sig.get("tp1", 0) > 0:
-            msg += "TP1：`" + str(sig.get("tp1")) + "` 平 15%\n"
+            msg += "TP1：`" + str(sig.get("tp1")) + "` 平 40%\n"
         if sig.get("tp2", 0) > 0:
             msg += "TP2：`" + str(sig["tp2"]) + "` 平 35%\n"
         if sig.get("tp3", 0) > 0:
-            msg += "TP3：`" + str(sig["tp3"]) + "` 平 35%\n"
-        if sig.get("tp4", 0) > 0:
-            msg += "TP4：`" + str(sig["tp4"]) + "` 平 15%\n"
-        msg += "\n*💡 BingX 設定步驟*\n"
-        msg += "1️⃣ 開啟 BingX 該幣交易頁\n"
+            msg += "TP3：`" + str(sig["tp3"]) + "` 平 25%\n"
+        msg += "\n*💡 Bybit 設定步驟*\n"
+        msg += "1️⃣ 開啟 Bybit 該幣交易頁\n"
         msg += "2️⃣ 選擇 *合約* → 設定槓桿\n"
         if sig.get("order_type") == "LIMIT":
             msg += "3️⃣ 選擇 *限價* → 填入進場價\n"
@@ -1925,10 +1922,10 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         msg += "_長按上方的價格可以直接複製_\n"
         msg += "_確認後回到 TG 讓我幫你追蹤_"
 
-        # 加入返回按鈕和 BingX 連結
-        url = bingx_swap_url(sym)
+        # 加入返回按鈕和 Bybit 連結
+        url = "https://www.bybit.com/trade/usdt/" + sym.replace("/USDT", "") + "USDT"
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📱 開啟 BingX " + sym_short, url=url)],
+            [InlineKeyboardButton("📱 開啟 Bybit " + sym_short, url=url)],
             [InlineKeyboardButton("🔙 返回", callback_data="home")]
         ])
         await q.edit_message_text(msg, parse_mode="Markdown", reply_markup=kb)
@@ -2502,7 +2499,7 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
             url = bingx_swap_url(sym)
             keyboard_rows.append([
                 InlineKeyboardButton(
-                    "📱 " + sym_short + " " + direction_zh + " — 開啟 BingX",
+                    "📱 " + sym_short + " " + direction_zh + " — 開啟 Bybit",
                     url=url
                 )
             ])
@@ -2575,7 +2572,7 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
                         tier_emoji + " *" + sym_short + " " + ("Long ▲" if direction == "LONG" else "Short ▼") + "  " + tier + " 級*\n"
                         "進場品質: " + entry_grade_display(grade) + " | 信心: " + str(score) + "\n"
                         "Entry: `" + str(sig.get("entry", 0)) + "`  |  SL: `" + str(sig.get("sl", 0)) + "`\n"
-                        "TP1-4: `" + str(sig.get("tp1", 0)) + "` / `" + str(sig.get("tp2", 0)) + "` / `" + str(sig.get("tp3", 0)) + "` / `" + str(sig.get("tp4", 0)) + "`"
+                        "TP1-3: `" + str(sig.get("tp1", 0)) + "` / `" + str(sig.get("tp2", 0)) + "` / `" + str(sig.get("tp3", 0)) + "`"
                     )
                     await send_chart_with_caption(
                         ctx, chat_id, chart_data["df"], sym, "1H", direction,
@@ -2912,8 +2909,8 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
     # 計算結果百分比
     cp = current_price or entry
     # ⭐ v53 正確結算：計入分批止盈已實現的利潤
-    # 倉位權重：TP1 平 15%、TP2 平 35%、TP3 平 35%、TP4 平 15%（v53 後段加重）
-    _weights = {1: 0.15, 2: 0.35, 3: 0.35, 4: 0.15}
+    # 倉位權重：TP1 平 40%、TP2 平 35%、TP3 平 25%（對齊 Bybit 三段實際成交；改此設定後須跑 /reset_stats）
+    _weights = {1: 0.40, 2: 0.35, 3: 0.25}
     _dir = 1 if direction == "LONG" else -1
     tp_hit = sig.get("tp_hit", [])
 
@@ -2931,8 +2928,8 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
     remaining_weight = max(0.0, 1.0 - realized_weight)
     if reason_code == "SL_HIT":
         exit_price = sig.get("sl", entry)  # v55: 缺sl时用entry兜底
-    elif reason_code == "TP4_HIT":
-        exit_price = sig.get("tp4", entry)
+    elif reason_code == "TP3_HIT":
+        exit_price = sig.get("tp3", entry)
     else:
         exit_price = cp
     # v53 加固：若已達過 TP（tp_hit 非空），代表止損應已移至保本價。
@@ -2951,10 +2948,10 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
     tier = sig.get("tier", "B")
     tier_emoji = {"S": "💎", "A": "🥇", "B": "🥈", "C": "🥉"}.get(tier, "")
 
-    if reason_code == "TP4_HIT":
+    if reason_code == "TP3_HIT":
         msg = "🎉 *" + sym_short + " " + direction_zh + " — 完美下車*\n"
         msg += "━━━━━━━━━━━━━━━\n"
-        msg += "已達最後止盈\n進場 `" + str(entry) + "` → 出場 `" + str(sig.get("tp4", "?")) + "`\n"
+        msg += "已達最後止盈\n進場 `" + str(entry) + "` → 出場 `" + str(sig.get("tp3", "?")) + "`\n"
         msg += "完整收益約 *+" + str(round(final_pct, 2)) + "%*"
     elif reason_code == "SL_HIT":
         tp_hit = sig.get("tp_hit", [])
@@ -3082,9 +3079,6 @@ async def notify_tp_hit(ctx, symbol, tp_level, current_price):
     elif tp_level == 2:
         new_sl = sig.get("tp1", entry)
         sl_action = "止損自動移至 *TP1* `" + str(new_sl) + "` (鎖利)"
-    elif tp_level == 3:
-        new_sl = sig.get("tp2", entry)
-        sl_action = "止損自動移至 *TP2* `" + str(new_sl) + "` (大幅鎖利)"
     else:
         sl_action = "達最終止盈"
 
@@ -3126,10 +3120,9 @@ async def notify_tp_hit(ctx, symbol, tp_level, current_price):
             logger.error("智能 TP 延伸失敗: " + str(e))
 
     tp_messages = {
-        1: ("✅", "達到 TP1 保本點", "*立即平 15% 倉位*"),
+        1: ("✅", "達到 TP1 保本點", "*立即平 40% 倉位*"),
         2: ("💰", "達到 TP2 鎖利", "*平 35% 倉位*"),
-        3: ("🏆", "達到 TP3 大勝", "*平 35% 倉位*"),
-        4: ("🎯", "達到 TP4 滿貫", "*平剩餘 15%*"),
+        3: ("🏆", "達到 TP3 大勝下車", "*平剩餘 25% 倉位*"),
     }
     emoji, title, action = tp_messages[tp_level]
     msg = emoji + " *" + tier_emoji + " " + sym_short + " " + direction_zh + " — " + title + "*\n"
@@ -3138,9 +3131,9 @@ async def notify_tp_hit(ctx, symbol, tp_level, current_price):
     msg += "浮盈 *+" + str(round(profit_pct, 2)) + "%*\n\n"
     msg += "📌 *立即動作*\n" + action + "\n\n"
     msg += "🛡 *自動風控*\n" + sl_action + "\n"
-    if tp_level < 4:
+    if tp_level < 3:
         remaining_tps = []
-        for t in range(tp_level + 1, 5):
+        for t in range(tp_level + 1, 4):
             if sig.get("tp" + str(t), 0) > 0:
                 remaining_tps.append("TP" + str(t) + " `" + str(sig["tp" + str(t)]) + "`")
         if remaining_tps:
@@ -3156,8 +3149,8 @@ async def notify_tp_hit(ctx, symbol, tp_level, current_price):
         except Exception as e:
             logger.error("通知 TP 失敗 " + str(chat_id) + ": " + str(e))
 
-    if tp_level == 4:
-        await close_signal(ctx, symbol, "TP4_HIT", "達最終止盈")
+    if tp_level == 3:
+        await close_signal(ctx, symbol, "TP3_HIT", "達最終止盈")
     else:
         save_data()
 
@@ -3210,7 +3203,7 @@ async def check_active_signals(ctx):
             # === 止盈（從高到低）===
             tp_hit = sig.get("tp_hit", [])
             tp_triggered = False
-            for level in [4, 3, 2, 1]:
+            for level in [3, 2, 1]:
                 if level in tp_hit:
                     continue
                 tp_price = sig.get("tp" + str(level), 0)
@@ -3652,7 +3645,7 @@ def main():
 
                 # 距下個 TP 多遠
                 next_tp = None
-                for level in range(1, 5):
+                for level in range(1, 4):
                     if level not in tp_hit:
                         next_tp = sig.get("tp" + str(level), 0)
                         next_tp_label = "TP" + str(level)
