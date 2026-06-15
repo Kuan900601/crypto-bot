@@ -2,12 +2,12 @@ import { SIGNALS } from "@/lib/mock";
 import { redisGet } from "@/lib/redis";
 import { Signal, TakeProfit } from "@/lib/types";
 export const dynamic = "force-dynamic";
-const TP_WEIGHT: Record<number, number> = { 1: 15, 2: 35, 3: 35, 4: 15 };
+const TP_WEIGHT: Record<number, number> = { 1: 40, 2: 35, 3: 25 };
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function buildTps(raw: any, entry: number): TakeProfit[] {
   const hit: number[] = Array.isArray(raw?.tp_hit) ? raw.tp_hit : [];
   const out: TakeProfit[] = [];
-  for (const lv of [1, 2, 3, 4]) {
+  for (const lv of [1, 2, 3]) {
     const price = Number(raw?.["tp" + lv] ?? 0);
     if (!price) continue;
     const sl = Number(raw?.sl ?? 0);

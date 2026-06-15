@@ -1,5 +1,4 @@
 "use client";
-import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -11,7 +10,6 @@ import MobileNav from "./MobileNav";
 import PricingModal from "./PricingModal";
 import { useApp } from "@/lib/store";
 export default function Shell({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const { status } = useSession();
   const setPricingOpen = useApp((s) => s.setPricingOpen);
@@ -20,14 +18,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen overflow-hidden">
       <div className="hidden h-full md:block"><Sidebar /></div>
-      {open && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-0 h-full w-60"><Sidebar onNavigate={() => setOpen(false)} /></div>
-        </div>
-      )}
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar onMenu={() => setOpen(true)} />
+        <Topbar />
         <main className="relative flex-1 overflow-y-auto px-3 pb-24 pt-4 md:px-6 md:pb-6 md:pt-5">
           <motion.div key={pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
             {children}

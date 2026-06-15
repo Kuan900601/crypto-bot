@@ -23,6 +23,7 @@ function mapPost(raw: Record<string, any>, i: number): NewsItem | null {
       impact: clampImpact(1 + imp + Math.min(2, Math.floor((pos + neg) / 5))),
       summary: String(raw.description ?? raw.metadata?.description ?? "（來源僅提供標題。接上 bot 新聞分析後顯示摘要）"),
       tags: Array.isArray(raw.currencies) ? raw.currencies.slice(0, 4).map((c: any) => String(c.code)) : [],
+      url: String(raw.url ?? raw.source?.url ?? ""),
     };
   } catch { return null; }
 }

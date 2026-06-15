@@ -1,11 +1,13 @@
 "use client";
 import { create } from "zustand";
+import { SymbolLite } from "./types";
 export interface Notif { id: string; title: string; body: string; time: string; read: boolean; }
 interface AppState {
   watchlist: string[]; toggleWatch: (s: string) => void;
   selectedSymbol: string; setSymbol: (s: string) => void;
   notifs: Notif[]; pushNotif: (n: Omit<Notif, "read">) => void; markAllRead: () => void;
   pricingOpen: boolean; setPricingOpen: (v: boolean) => void;
+  detail: SymbolLite | null; setDetail: (s: SymbolLite | null) => void;
 }
 export const useApp = create<AppState>((set) => ({
   watchlist: ["BTC", "SOL", "ETH"],
@@ -22,4 +24,6 @@ export const useApp = create<AppState>((set) => ({
   markAllRead: () => set((st) => ({ notifs: st.notifs.map((n) => ({ ...n, read: true })) })),
   pricingOpen: false,
   setPricingOpen: (v) => set({ pricingOpen: v }),
+  detail: null,
+  setDetail: (s) => set({ detail: s }),
 }));

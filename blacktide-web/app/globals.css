@@ -16,7 +16,17 @@ body {
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #1e2433; border-radius: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-.brand-hero { position: fixed; inset: 0; z-index: -30; background: url("/brand/hero.jpg") center / cover no-repeat; opacity: 0.06; pointer-events: none; }
+.brand-hero {
+  position: fixed; inset: -4%; z-index: -30;
+  background: url("/brand/hero.jpg") center / cover no-repeat;
+  opacity: 0.09; pointer-events: none;
+  animation: heroDrift 50s ease-in-out infinite alternate;
+}
+@keyframes heroDrift {
+  0% { transform: scale(1.05) translate(0, 0); }
+  100% { transform: scale(1.14) translate(-1.5%, -1.2%); }
+}
+@media (prefers-reduced-motion: reduce) { .brand-hero { animation: none; } }
 .text-gold { background: linear-gradient(135deg, #f5e3a3 0%, #d4af37 45%, #8f6f1d 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .glow-gold { text-shadow: 0 0 18px rgba(212, 175, 55, 0.35); }
 .hairline-gold { height: 1px; background: linear-gradient(90deg, transparent, rgba(212, 175, 55, 0.5), transparent); }

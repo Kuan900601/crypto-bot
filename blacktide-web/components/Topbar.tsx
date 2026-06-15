@@ -1,69 +1,90 @@
 "use client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { Bell, Search, Menu } from "lucide-react";
-import { TICKERS } from "@/lib/mock";
+import { useEffect, useRef, useState } from "react";
+import { Search, Bell, X } from "lucide-react";
 import { useApp } from "@/lib/store";
+import { SymbolLite } from "@/lib/types";
 import UserMenu from "./UserMenu";
-export default function Topbar({ onMenu }: { onMenu: () => void }) {
-  const [q, setQ] = useState("");
-  const [showBell, setShowBell] = useState(false);
-  const router = useRouter();
-  const { setSymbol, notifs, markAllRead } = useApp();
+import SymbolDetail from "./SymbolDetail";
+export default function Topbar() {
+  const { notifs, markAllRead, setDetail } = useApp();
   const unread = notifs.filter((n) => !n.read).length;
-  const kw = q.trim().toLowerCase();
-  const matches = kw ? TICKERS.filter((t) => (t.symbol + t.name).toLowerCase().includes(kw)).slice(0, 6) : [];
+  const [q, setQ] = useState("");
+  const [all, setAll] = useState<SymbolLite[]>([]);
+  const [open, setOpen] = useState(false);
+  const [bellOpen, setBellOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (all.length || !open) return;
+    fetch("/api/symbols").then((r) => r.json()).then((d) => setAll(d.symbols || [])).catch(() => {});
+  }, [open, all.length]);
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+  const ql = q.trim().toUpperCase();
+  const results = ql ? all.filter((s) => s.symbol.toUpperCase().includes(ql) || s.name.toUpperCase().includes(ql)).slice(0, 30) : [];
+  const pick = (s: SymbolLite) => { setDetail(s); setQ(""); setOpen(false); };
   return (
-    <header className="relative z-30 flex h-14 shrink-0 items-center gap-3 border-b border-white/5 bg-ink-900/70 px-4 backdrop-blur">
-      <button className="text-slate-400 md:hidden" onClick={onMenu} aria-label="選單"><Menu size={20} /></button>
-      <div className="relative w-full max-w-sm">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜尋幣種 / 美股…"
-          className="w-full rounded-lg border border-white/5 bg-ink-800 py-1.5 pl-9 pr-3 text-sm outline-none focus:border-tide-500/40" />
-        {matches.length > 0 && (
-          <div className="absolute top-10 z-40 w-full overflow-hidden rounded-lg border border-white/10 bg-ink-800 shadow-xl">
-            {matches.map((t) => (
-              <button key={t.symbol} onClick={() => { setSymbol(t.symbol); setQ(""); router.push("/"); }}
-                className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-white/5">
-                <span className="font-medium">{t.symbol}</span>
-                <span className="text-xs text-slate-500">{t.name}</span>
-              </button>
-            ))}
+    <>
+      <header className="sticky top-0 z-40 border-b border-white/5 bg-ink-900/80 backdrop-blur">
+        <div className="flex h-14 items-center gap-3 px-4">
+          <div className="flex items-center gap-2 lg:hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/logo.png" alt="黑潮" className="h-7 w-7 rounded-full ring-1 ring-tide-400/40" />
+            <span className="font-display text-sm font-bold text-gold">黑潮</span>
           </div>
-        )}
-      </div>
-      <div className="ml-auto flex items-center gap-3">
-        <div className="relative">
-          <button onClick={() => setShowBell((v) => !v)} className="relative rounded-lg p-2 text-slate-400 hover:bg-white/5">
-            <Bell size={18} />
-            {unread > 0 && (
-              <span className="absolute right-0.5 top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-tide-500 px-1 text-[9px] font-bold text-ink-950">{unread}</span>
-            )}
-          </button>
-          {showBell && (
-            <div className="absolute right-0 top-11 z-40 w-80 overflow-hidden rounded-xl border border-white/10 bg-ink-800 shadow-xl">
-              <div className="flex items-center justify-between border-b border-white/5 px-4 py-2.5">
-                <span className="text-sm font-semibold">通知</span>
-                <button onClick={markAllRead} className="text-xs text-tide-400 hover:underline">全部已讀</button>
+          <div ref={boxRef} className="relative ml-auto w-full max-w-md lg:ml-0">
+            <div className="flex items-center gap-2 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2">
+              <Search size={15} className="text-slate-500" />
+              <input
+                value={q}
+                onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+                onFocus={() => setOpen(true)}
+                placeholder="搜尋幣種 / 美股（BTC、SOL、NVDA…）"
+                className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600"
+              />
+              {q && <button onClick={() => setQ("")} className="text-slate-500 hover:text-slate-300"><X size={14} /></button>}
+            </div>
+            {open && (ql ? results.length > 0 : all.length > 0) && (
+              <div className="absolute left-0 right-0 top-12 z-50 max-h-80 overflow-y-auto rounded-xl border border-white/10 bg-ink-800 p-1.5 shadow-2xl">
+                {(ql ? results : all.slice(0, 12)).map((s) => (
+                  <button key={s.type + s.symbol + s.tvSymbol} onClick={() => pick(s)}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-white/5">
+                    <span className="font-mono text-sm font-semibold">{s.symbol}</span>
+                    <span className="truncate text-xs text-slate-500">{s.name}</span>
+                    <span className={`ml-auto rounded px-1.5 py-0.5 text-[10px] ${s.type === "crypto" ? "bg-tide-500/15 text-tide-300" : "bg-amber-500/15 text-amber-300"}`}>
+                      {s.type === "crypto" ? "幣" : "股"}
+                    </span>
+                  </button>
+                ))}
+                {!ql && <div className="px-3 py-1.5 text-[10px] text-slate-600">輸入代號搜尋 · 點選看即時圖表</div>}
               </div>
-              <div className="max-h-80 overflow-y-auto">
-                {notifs.length === 0 && <div className="p-4 text-sm text-slate-500">目前沒有通知</div>}
+            )}
+          </div>
+          <div className="relative">
+            <button onClick={() => { setBellOpen((v) => !v); if (!bellOpen) markAllRead(); }} className="relative rounded-lg p-2 text-slate-400 hover:bg-white/5">
+              <Bell size={18} />
+              {unread > 0 && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-tide-500" />}
+            </button>
+            {bellOpen && (
+              <div className="absolute right-0 top-12 z-50 max-h-96 w-80 overflow-y-auto rounded-xl border border-white/10 bg-ink-800 p-1.5 shadow-2xl">
+                <div className="px-2 py-1 text-xs font-semibold text-slate-400">通知</div>
+                {notifs.length === 0 && <div className="px-2 py-3 text-xs text-slate-600">暫無通知</div>}
                 {notifs.map((n) => (
-                  <div key={n.id} className="border-b border-white/5 px-4 py-3 last:border-0">
-                    <div className="flex items-center gap-2 text-sm">
-                      {!n.read && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-tide-400" />}
-                      <span className="font-medium">{n.title}</span>
-                      <span className="ml-auto shrink-0 text-[10px] text-slate-500">{n.time}</span>
-                    </div>
-                    <div className="mt-0.5 text-xs text-slate-400">{n.body}</div>
+                  <div key={n.id} className="rounded-lg px-2 py-2 hover:bg-white/5">
+                    <div className="text-sm font-medium">{n.title}</div>
+                    <div className="mt-0.5 text-xs text-slate-500">{n.body}</div>
+                    <div className="mt-0.5 text-[10px] text-slate-600">{n.time}</div>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
+          <UserMenu />
         </div>
-        <UserMenu />
-      </div>
-    </header>
+      </header>
+      <SymbolDetail />
+    </>
   );
 }

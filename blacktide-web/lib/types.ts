@@ -8,6 +8,10 @@ export interface Ticker {
   marketCap?: number; openInterest?: number; longShortRatio?: number; fundingRate?: number;
   spark: number[]; tvSymbol: string;
 }
+export interface SymbolLite {
+  symbol: string; name: string; type: AssetClass;
+  tvSymbol: string; bybit?: string | null;
+}
 export interface MarketStats {
   fearGreed: number; btcDominance: number;
   btcTurnover?: number; btcFunding?: number;
@@ -27,7 +31,7 @@ export interface Signal {
 export interface NewsItem {
   id: string; title: string; source: string; time: string;
   sentiment: "bull" | "bear" | "neutral"; impact: 1 | 2 | 3 | 4 | 5;
-  summary: string; tags: string[];
+  summary: string; tags: string[]; url?: string;
 }
 export interface AlertItem {
   id: string; type: "whale" | "flow" | "liquidation" | "funding" | "volume";
