@@ -1,11 +1,11 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Search, Bell, X } from "lucide-react";
+import { Search, Bell, X, Menu } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { SymbolLite } from "@/lib/types";
 import UserMenu from "./UserMenu";
 import SymbolDetail from "./SymbolDetail";
-export default function Topbar() {
+export default function Topbar({ onMenu }: { onMenu?: () => void }) {
   const { notifs, markAllRead, setDetail } = useApp();
   const unread = notifs.filter((n) => !n.read).length;
   const [q, setQ] = useState("");
@@ -29,21 +29,17 @@ export default function Topbar() {
     <>
       <header className="sticky top-0 z-40 border-b border-white/5 bg-ink-900/80 backdrop-blur">
         <div className="flex h-14 items-center gap-3 px-4">
-          <div className="flex items-center gap-2 lg:hidden">
+          <div className="flex items-center gap-2 md:hidden">
+            <button onClick={onMenu} aria-label="選單" className="rounded-lg p-1.5 text-slate-300 hover:bg-white/5"><Menu size={20} /></button>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/brand/logo.png" alt="黑潮" className="h-7 w-7 rounded-full ring-1 ring-tide-400/40" />
-            <span className="font-display text-sm font-bold text-gold">黑潮</span>
           </div>
-          <div ref={boxRef} className="relative ml-auto w-full max-w-md lg:ml-0">
+          <div ref={boxRef} className="relative ml-auto w-full max-w-md md:ml-0">
             <div className="flex items-center gap-2 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2">
               <Search size={15} className="text-slate-500" />
-              <input
-                value={q}
-                onChange={(e) => { setQ(e.target.value); setOpen(true); }}
-                onFocus={() => setOpen(true)}
+              <input value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)}
                 placeholder="搜尋幣種 / 美股（BTC、SOL、NVDA…）"
-                className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600"
-              />
+                className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600" />
               {q && <button onClick={() => setQ("")} className="text-slate-500 hover:text-slate-300"><X size={14} /></button>}
             </div>
             {open && (ql ? results.length > 0 : all.length > 0) && (
@@ -53,9 +49,7 @@ export default function Topbar() {
                     className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-white/5">
                     <span className="font-mono text-sm font-semibold">{s.symbol}</span>
                     <span className="truncate text-xs text-slate-500">{s.name}</span>
-                    <span className={`ml-auto rounded px-1.5 py-0.5 text-[10px] ${s.type === "crypto" ? "bg-tide-500/15 text-tide-300" : "bg-amber-500/15 text-amber-300"}`}>
-                      {s.type === "crypto" ? "幣" : "股"}
-                    </span>
+                    <span className={`ml-auto rounded px-1.5 py-0.5 text-[10px] ${s.type === "crypto" ? "bg-tide-500/15 text-tide-300" : "bg-amber-500/15 text-amber-300"}`}>{s.type === "crypto" ? "幣" : "股"}</span>
                   </button>
                 ))}
                 {!ql && <div className="px-3 py-1.5 text-[10px] text-slate-600">輸入代號搜尋 · 點選看即時圖表</div>}
