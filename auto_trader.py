@@ -15,7 +15,7 @@ MAX_POSITIONS = int(os.getenv("AT_MAX_POSITIONS", "4"))
 LEVERAGE = int(os.getenv("AT_LEVERAGE", "20"))
 MAX_SL_PCT = float(os.getenv("AT_MAX_SL_PCT", "0.035"))
 ALLOWED_TIERS = [t.strip() for t in os.getenv("AUTO_TRADE_TIERS", "S,A,B").split(",") if t.strip()]
-TP_SPLIT = {1: 0.15, 2: 0.35, 3: 0.35, 4: 0.15}  # 四段止盈，與 bot.py 結算權重同口徑
+TP_SPLIT = {1: 0.40, 2: 0.35, 3: 0.25}  # v61：三段止盈 40/35/25，對齊 bot.py 結算與 Bybit 實際三段成交
 POLL_INTERVAL = 15
 
 PROCESSED_FILE = "processed_signals.json"
@@ -199,47 +199,11 @@ def _get_min_amount(ex, symbol):
         return 0.0001
 
 
-def _place_sl_and_tp(ex, symbol, side, close_side, total_amount, price, signal, record):
-    """掛止損（必須成功，否則市價平倉、絕不留裸倉）+ 分批止盈（TP1~4，過小段自動合併）。"""
-    sl = signal.get("sl")
-    if sl:
-        if side == "buy":
-            safe_sl = price * (1 - MAX_SL_PCT)
-            if sl < safe_sl:
-                sl = safe_sl
-        else:
-            safe_sl = price * (1 + MAX_SL_PCT)
-            if sl > safe_sl:
-                sl = safe_sl
-        try:
-            sl = float(ex.price_to_precision(symbol, sl))  # 對齊價格精度，避免被交易所打回
-        except Exception:
-            pass
-        try:
-            slo = ex.create_order(symbol, "market", close_side, total_amount, None,
-                                  {"stopLossPrice": sl, "reduceOnly": True})
-            record["sl_ok"] = True
-            record["sl_used"] = sl
-            record["sl_order_id"] = slo.get("id")
-        except Exception as e:
-            record["msg"] += " | 止損掛單失敗: " + str(e)[:150]
-
-    # 止損沒掛上（價格缺失或被交易所打回）→ 立刻平倉，絕不持有沒止損的倉
-    if not record["sl_ok"]:
-        record["ok"] = False
-        record["closed_naked"] = True
-        record["msg"] = "🔴 止損沒掛上，已立刻平倉（不留裸倉）。" + record["msg"]
-        try:
-            trader.close_position(ex, symbol)
-            push_event("🔴 止損掛單失敗，已緊急平倉（不留裸倉）｜" + symbol)
-        except Exception as e:
-            record["msg"] += " | ⚠️⚠️⚠️ 平倉也失敗，請立刻手動平倉！: " + str(e)[:120]
-            push_event("🔴🔴🔴 止損失敗且緊急平倉也失敗，請立刻手動處理！｜" + symbol + " | " + str(e)[:80])
-        return record
-
-    # E3：止損成功才掛止盈，TP1~4 分批；單段量過小就併入下一段，最後段不足併回前段
+def _place_tp_orders(ex, symbol, side, close_side, total_amount, signal, record):
+    """掛分批止盈（TP1~3 各自獨立 reduceOnly 條件單；某段失敗不影響整倉止損，不再因此平倉）。
+    三段口徑＝TP_SPLIT 40/35/25；單段量過小就併入下一段，最後段不足併回前段。"""
     min_amt = _get_min_amount(ex, symbol)
-    levels = [lv for lv in (1, 2, 3, 4) if signal.get("tp%d" % lv)]
+    levels = [lv for lv in (1, 2, 3) if signal.get("tp%d" % lv)]
     final_amounts = {}
     carry = 0.0
     for i, lv in enumerate(levels):
@@ -271,7 +235,67 @@ def _place_sl_and_tp(ex, symbol, side, close_side, total_amount, price, signal, 
             record["tp_orders"].append({"level": lv, "price": tp_price, "amount": tp_amount, "ok": True, "id": tpo.get("id")})
         except Exception as e:
             record["tp_orders"].append({"level": lv, "price": tp_price, "ok": False, "err": str(e)[:80]})
+            push_event("⚠️ TP" + str(lv) + " 掛單失敗（不影響整倉止損）｜" + symbol + "｜" + str(e)[:100])
     return record
+
+
+def _clamp_sl(side, ref_price, sl):
+    """夾住止損距離不超過 MAX_SL_PCT。回傳止損價（無 sl 回 None）。"""
+    if not sl:
+        return None
+    sl = float(sl)
+    if side == "buy":
+        return max(sl, ref_price * (1 - MAX_SL_PCT))
+    return min(sl, ref_price * (1 + MAX_SL_PCT))
+
+
+def _attach_position_sl(ex, symbol, sl_price, total_amount, close_side):
+    """對已存在的持倉設整倉止損：優先 Bybit V5 trading-stop，退回 reduceOnly 條件單。
+    回傳 (ok, sl_used, msg, error)。"""
+    if not sl_price:
+        return False, None, "", ""
+    try:
+        sl_str = ex.price_to_precision(symbol, sl_price)
+    except Exception:
+        sl_str = str(sl_price)
+    try:
+        ex.private_post_v5_position_trading_stop({
+            "category": "linear",
+            "symbol": trader._bybit_symbol_id(ex, symbol),
+            "stopLoss": sl_str,
+            "positionIdx": 0,
+        })
+        return True, float(sl_str), " | 整倉止損已設(V5)", ""
+    except Exception as e1:
+        err = str(e1)[:200]
+    try:
+        ex.create_order(symbol, "market", close_side, total_amount, None,
+                        {"stopLossPrice": float(sl_str), "reduceOnly": True})
+        return True, float(sl_str), " | 止損改用 reduceOnly 條件單", err
+    except Exception as e2:
+        return False, None, " | 🔴 止損 V5 與 reduceOnly 皆失敗", err + " | " + str(e2)[:150]
+
+
+def _finalize_filled_position(ex, symbol, side, close_side, amount, fill_price, sig_like, record):
+    """限價成交/部分成交轉正式倉：先補整倉止損，成功才掛分批止盈；止損掛不上才緊急平倉。"""
+    sl_price = _clamp_sl(side, fill_price, sig_like.get("sl"))
+    ok, sl_used, msg, err = _attach_position_sl(ex, symbol, sl_price, amount, close_side)
+    record["sl_ok"] = ok
+    record["sl_used"] = sl_used
+    if msg:
+        record["msg"] += msg
+    if sl_price and not ok:
+        record["ok"] = False
+        record["closed_naked"] = True
+        record["msg"] = "🔴 限價成交後止損掛失敗，緊急平倉（最後手段）。" + record["msg"]
+        try:
+            trader.close_position(ex, symbol)
+            push_event("🔴 限價成交後止損掛失敗，已緊急平倉｜" + symbol + "｜" + err)
+        except Exception as e:
+            record["msg"] += " | ⚠️ 平倉也失敗，請手動平倉: " + str(e)[:120]
+            push_event("🔴🔴🔴 止損失敗且緊急平倉也失敗，請手動處理｜" + symbol + " | " + str(e)[:80])
+        return record
+    return _place_tp_orders(ex, symbol, side, close_side, amount, sig_like, record)
 
 
 def open_batch_tp_position(ex, signal, equity, free_usdt=None):
@@ -369,17 +393,33 @@ def open_batch_tp_position(ex, signal, equity, free_usdt=None):
         record["entry"] = entry_px
         return record
 
-    # 1) 市價開倉
-    try:
-        order = ex.create_order(symbol, "market", side, total_amount)
-        record["order_id"] = order.get("id")
-        record["ok"] = True
-    except Exception as e:
-        record["msg"] = "開倉失敗: " + str(e)[:200]
+    # 1) 市價開倉 + Bybit V5 原生附帶整倉止損（P1-1：開倉即附帶止損，無「開了卻沒止損」窗口）
+    sl_price = _clamp_sl(side, price, signal.get("sl"))  # 不允許比 MAX_SL_PCT 更遠
+    prot = trader.open_position_with_protection(ex, symbol, side, total_amount, sl_price)
+    record["order_id"] = prot.get("order_id")
+    record["ok"] = prot.get("ok", False)
+    record["sl_ok"] = prot.get("sl_attached", False)
+    record["sl_used"] = prot.get("sl_used")
+    if prot.get("msg"):
+        record["msg"] += (" | " if record["msg"] else "") + prot["msg"]
+    if not record["ok"]:
+        return record  # 開倉本身失敗
+
+    # 止損附帶 + V5 fallback 皆失敗 → 最後手段才緊急平倉（不再是常態路徑）
+    if sl_price and not record["sl_ok"]:
+        record["ok"] = False
+        record["closed_naked"] = True
+        record["msg"] = "🔴 止損附帶與 V5 fallback 皆失敗，緊急平倉（最後手段）。" + record["msg"]
+        try:
+            trader.close_position(ex, symbol)
+            push_event("🔴 止損掛單失敗，已緊急平倉（不留裸倉）｜" + symbol + "｜" + (prot.get("error") or ""))
+        except Exception as e:
+            record["msg"] += " | ⚠️⚠️⚠️ 平倉也失敗，請立刻手動平倉！: " + str(e)[:120]
+            push_event("🔴🔴🔴 止損失敗且緊急平倉也失敗，請立刻手動處理！｜" + symbol + " | " + str(e)[:80])
         return record
 
-    # 2)+3) 掛止損（必須成功，否則立刻平倉）+ 分批止盈
-    return _place_sl_and_tp(ex, symbol, side, close_side, total_amount, price, signal, record)
+    # 2) 整倉止損已附帶 → 掛分批止盈（TP1~3 獨立 reduceOnly；某段失敗不影響整倉止損）
+    return _place_tp_orders(ex, symbol, side, close_side, total_amount, signal, record)
 
 
 def push_event(text):
@@ -472,11 +512,13 @@ def process_once(ex):
     except Exception as e:
         last_error = "讀餘額失敗: " + str(e)[:120]
         log("🔴 讀餘額失敗，本輪不開倉:", str(e)[:120])
+        push_event("🔴 讀餘額失敗，本輪不開倉｜" + str(e)[:150])
         _save_last_cycle(queue, pending, None, skipped, last_error)
         return
     if equity <= 0:
-        log("🔴 餘額為 0，跳過開倉")
-        _save_last_cycle(queue, pending, None, skipped, "餘額為 0")
+        log("🔴 餘額為 0，跳過開倉（請確認資金在統一交易帳戶 UTA、API 已開合約權限）")
+        push_event("🔴 餘額為 0，跳過開倉｜請確認資金在統一交易帳戶 UTA、API 已開合約權限")
+        _save_last_cycle(queue, pending, None, skipped, "餘額為 0（請確認資金在 UTA 統一帳戶、API 開合約權限）")
         return
     if check_circuit_breaker(equity):
         skipped["breaker"] = 1
@@ -621,7 +663,7 @@ def process_pending(ex):
                 "sl_order_id": None, "ok": True, "msg": "", "sl_stage": 0,
                 "tp1": p.get("tp1"), "tp2": p.get("tp2"),
             }
-            _place_sl_and_tp(ex, symbol, side, close_side, filled, fill_price, p, record)
+            _finalize_filled_position(ex, symbol, side, close_side, filled, fill_price, p, record)
             trades.append(record)
             changed_trades = True
             changed_pending = True
@@ -646,7 +688,7 @@ def process_pending(ex):
                         "sl_order_id": None, "ok": True, "msg": "", "sl_stage": 0,
                         "tp1": p.get("tp1"), "tp2": p.get("tp2"),
                     }
-                    _place_sl_and_tp(ex, symbol, side, close_side, filled, fill_price, p, record)
+                    _finalize_filled_position(ex, symbol, side, close_side, filled, fill_price, p, record)
                     trades.append(record)
                     changed_trades = True
                     log("  ⚠️ 限價單部分成交後過期，已轉正式倉:", symbol, "量", filled)

@@ -50,9 +50,23 @@ def get_exchange():
 
 
 def get_balance(ex):
-    bal = ex.fetch_balance()
-    total = bal.get("total", {})
-    return total.get("USDT", 0)
+    """統一交易帳戶（UTA）USDT 權益。優先讀 unified，讀不到退回預設帳戶。"""
+    bal = None
+    try:
+        bal = ex.fetch_balance({"type": "unified"})
+    except Exception:
+        bal = None
+    if not bal:
+        bal = ex.fetch_balance()
+    usdt = (bal.get("total", {}) or {}).get("USDT", 0)
+    if not usdt:
+        # UTA 有時要用 accountType=UNIFIED 才讀得到
+        try:
+            bal2 = ex.fetch_balance({"accountType": "UNIFIED"})
+            usdt = (bal2.get("total", {}) or {}).get("USDT", 0) or usdt
+        except Exception:
+            pass
+    return usdt
 
 
 def get_free_balance(ex):
@@ -102,6 +116,70 @@ def open_position(ex, symbol, side, amount, leverage, tp_price=None, sl_price=No
             result["msg"] += " | 止盈掛單失敗: " + str(e)[:150]
     if result["ok"] and sl_price is not None and not result["sl_ok"]:
         result["msg"] = "🔴🔴🔴 警告：開倉成功但止損沒掛上！請立即手動補止損！" + result["msg"]
+    return result
+
+
+def _bybit_symbol_id(ex, symbol):
+    """取 Bybit V5 原生 symbol（如 BTCUSDT）。讀不到就用字串還原。"""
+    try:
+        return ex.market(symbol)["id"]
+    except Exception:
+        return symbol.replace("/", "").split(":")[0]
+
+
+def open_position_with_protection(ex, symbol, side, amount, sl_price, tp_prices=None):
+    """市價開倉並以 Bybit V5 原生附帶式止損（整倉 stopLoss）保護。
+    進場單直接帶 stopLoss → 開倉即附帶，根治「開了卻沒止損的窗口」。
+    讀回持倉確認 stopLoss 已生效；沒生效則用 V5 trading-stop 補設；仍失敗才算裸倉。
+    回傳 dict：ok, order_id, sl_attached(bool), sl_used, msg, error。"""
+    result = {"ok": False, "order_id": None, "sl_attached": False,
+              "sl_used": None, "msg": "", "error": ""}
+    params = {}
+    sl_str = None
+    if sl_price:
+        try:
+            sl_str = ex.price_to_precision(symbol, sl_price)
+        except Exception:
+            sl_str = str(sl_price)
+        params["stopLoss"] = sl_str
+    try:
+        order = ex.create_order(symbol, "market", side, amount, None, params)
+        result["order_id"] = order.get("id")
+        result["ok"] = True
+    except Exception as e:
+        result["error"] = str(e)[:300]
+        result["msg"] = "開倉失敗: " + str(e)[:200]
+        return result
+    if not sl_price:
+        return result
+    # 讀回持倉確認 stopLoss 是否生效
+    try:
+        positions = ex.fetch_positions([symbol])
+        for p in positions:
+            if abs(p.get("contracts") or 0) > 0:
+                info = p.get("info", {}) or {}
+                sl_val = info.get("stopLoss")
+                if sl_val and str(sl_val) not in ("", "0", "0.0"):
+                    result["sl_attached"] = True
+                    result["sl_used"] = float(sl_val)
+                break
+    except Exception as e:
+        result["msg"] += " | 讀回持倉確認止損失敗: " + str(e)[:120]
+    # fallback：附帶沒生效 → 用 V5 trading-stop 設整倉止損
+    if not result["sl_attached"]:
+        try:
+            ex.private_post_v5_position_trading_stop({
+                "category": "linear",
+                "symbol": _bybit_symbol_id(ex, symbol),
+                "stopLoss": sl_str,
+                "positionIdx": 0,
+            })
+            result["sl_attached"] = True
+            result["sl_used"] = float(sl_str)
+            result["msg"] += " | 止損改用 V5 trading-stop 設定成功"
+        except Exception as e:
+            result["error"] = (result["error"] + " | " if result["error"] else "") + str(e)[:200]
+            result["msg"] += " | 🔴 V5 trading-stop 也失敗: " + str(e)[:150]
     return result
 
 
