@@ -2,34 +2,46 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { Crown, LogOut, Camera, Send, Save } from "lucide-react";
+import Link from "next/link";
+import { Crown, LogOut, Camera, Send, Save, BadgeCheck, ShieldAlert, Gift, CheckCircle2 } from "lucide-react";
 import { Card, SectionTitle, Badge } from "@/components/ui";
 import { useApp } from "@/lib/store";
 import { TIER_LABEL } from "@/lib/access";
-interface Me { uid: string; email: string; name: string; phone: string; avatar: string; tier: "free" | "air" | "pro"; cycle: string | null; subAmount: number; planExpiry: string | null; isAdmin: boolean; createdAt: string; }
+interface Me { uid: string; email: string; nickname: string; phone: string; avatar: string; tier: "free" | "air" | "pro"; cycle: string | null; subAmount: number; planExpiry: string | null; emailVerified: boolean; phoneVerified: boolean; invitedBy: string; referrals: number; referralRewarded: number; isAdmin: boolean; createdAt: string; }
 const inp = "w-full rounded-lg border border-white/10 bg-ink-900 px-3 py-2.5 text-sm outline-none focus:border-tide-500/40";
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (<div><div className="mb-1 text-xs text-slate-500">{label}</div>{children}</div>);
 }
+const fmtDate = (s: string | null) => { if (!s) return "—"; try { return new Date(s).toLocaleDateString("zh-TW"); } catch { return "—"; } };
 export default function MemberPage() {
   const { status } = useSession();
   const router = useRouter();
   const setPricingOpen = useApp((s) => s.setPricingOpen);
   const [me, setMe] = useState<Me | null>(null);
-  const [name, setName] = useState("");
+  const [nickname, setNickname] = useState("");
   const [phone, setPhone] = useState("");
   const [avatar, setAvatar] = useState("");
   const [saved, setSaved] = useState("");
   const [fb, setFb] = useState("");
+  const [anon, setAnon] = useState(false);
   const [fbMsg, setFbMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [paid, setPaid] = useState(false);
+  const [vSent, setVSent] = useState(false);
+  const [vCode, setVCode] = useState("");
+  const [vMsg, setVMsg] = useState("");
+  const [vBusy, setVBusy] = useState(false);
   useEffect(() => { if (status === "unauthenticated") router.replace("/login"); }, [status, router]);
   useEffect(() => {
-    if (status !== "authenticated") return;
-    fetch("/api/me").then((r) => r.json()).then((d) => {
-      if (d && !d.error) { setMe(d); setName(d.name || ""); setPhone(d.phone || ""); setAvatar(d.avatar || ""); }
-    }).catch(() => {});
-  }, [status]);
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get("paid") === "1") { setPaid(true); window.history.replaceState({}, "", "/member"); }
+    } catch {}
+  }, []);
+  const loadMe = () => fetch("/api/me").then((r) => r.json()).then((d) => {
+    if (d && !d.error) { setMe(d); setNickname(d.nickname || ""); setPhone(d.phone || ""); setAvatar(d.avatar || ""); }
+  }).catch(() => {});
+  useEffect(() => { if (status === "authenticated") loadMe(); }, [status]);
   const onAvatar = (file?: File) => {
     if (!file) return;
     const reader = new FileReader();
@@ -49,7 +61,7 @@ export default function MemberPage() {
   const saveProfile = async () => {
     setBusy(true); setSaved("");
     try {
-      const r = await fetch("/api/me", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, phone, avatar }) });
+      const r = await fetch("/api/me", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nickname, phone, avatar }) });
       setSaved(r.ok ? "已儲存" : "儲存失敗");
     } catch { setSaved("儲存失敗"); } finally { setBusy(false); }
   };
@@ -57,15 +69,39 @@ export default function MemberPage() {
     if (!fb.trim()) { setFbMsg("請先填寫反饋內容"); return; }
     setBusy(true); setFbMsg("");
     try {
-      const r = await fetch("/api/feedback", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: fb }) });
+      const r = await fetch("/api/feedback", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: fb, anonymous: anon }) });
       if (r.ok) { setFbMsg("已送出，感謝你的回饋！"); setFb(""); } else setFbMsg(((await r.json()).error) || "送出失敗");
     } catch { setFbMsg("送出失敗"); } finally { setBusy(false); }
   };
+  const sendCode = async () => {
+    setVBusy(true); setVMsg("");
+    try {
+      const r = await fetch("/api/verify/email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "send" }) });
+      const d = await r.json();
+      if (!d.configured) { setVMsg("寄信服務尚未設定（管理員需設定 RESEND_API_KEY）"); }
+      else if (d.sent) { setVSent(true); setVMsg("驗證碼已寄出，請查收信箱（含垃圾信匣）"); }
+      else { setVMsg("寄送失敗，請稍後再試"); }
+    } catch { setVMsg("寄送失敗"); } finally { setVBusy(false); }
+  };
+  const checkCode = async () => {
+    setVBusy(true); setVMsg("");
+    try {
+      const r = await fetch("/api/verify/email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "check", code: vCode }) });
+      if (r.ok) { setVMsg("信箱已驗證 ✓"); setVSent(false); setVCode(""); loadMe(); }
+      else setVMsg(((await r.json()).error) || "驗證失敗");
+    } catch { setVMsg("驗證失敗"); } finally { setVBusy(false); }
+  };
   if (status === "loading" || !me) return <div className="mx-auto mt-10 max-w-2xl"><Card className="h-40 animate-pulse" /></div>;
-  const letter = (name || me.email || "?").slice(0, 1).toUpperCase();
+  const letter = (nickname || me.email || "?").slice(0, 1).toUpperCase();
   return (
     <div className="mx-auto max-w-2xl space-y-5">
-      <SectionTitle title="會員中心" desc="個人資料、訂閱等級與意見反饋" />
+      <SectionTitle title="會員中心" desc="個人資料、訂閱等級、帳號驗證與意見反饋" />
+      {paid && (
+        <div className="flex items-center gap-2 rounded-xl border border-up/25 bg-up/10 px-4 py-2.5 text-xs text-up">
+          <CheckCircle2 size={18} className="shrink-0" />
+          <span>付款流程完成！款項於區塊鏈確認後，訂閱會自動開通，可能需稍候片刻再重新整理。</span>
+        </div>
+      )}
       <Card className="p-5">
         <div className="flex items-center gap-4">
           <label className="relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-full ring-1 ring-tide-400/40">
@@ -79,9 +115,12 @@ export default function MemberPage() {
             <input type="file" accept="image/*" className="hidden" onChange={(e) => onAvatar(e.target.files?.[0])} />
           </label>
           <div className="min-w-0">
-            <div className="text-base font-bold">{name || "—"}</div>
+            <div className="text-base font-bold">{nickname || "—"}</div>
             <div className="mt-0.5 font-mono text-[11px] text-slate-500">UID {me.uid}</div>
-            <div className="mt-1"><Badge tone={me.tier === "pro" ? "amber" : me.tier === "air" ? "tide" : "slate"}>{TIER_LABEL[me.tier]}</Badge></div>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <Badge tone={me.tier === "pro" ? "amber" : me.tier === "air" ? "tide" : "slate"}>{TIER_LABEL[me.tier]}</Badge>
+              {me.tier !== "free" && me.planExpiry && <span className="text-[11px] text-slate-500">到期 {fmtDate(me.planExpiry)}</span>}
+            </div>
           </div>
           <div className="ml-auto flex flex-col gap-2">
             {me.tier !== "pro" && <button onClick={() => setPricingOpen(true)} className="flex items-center gap-1 rounded-lg bg-amber-500/15 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/25"><Crown size={13} /> 升級</button>}
@@ -90,10 +129,35 @@ export default function MemberPage() {
         </div>
       </Card>
       <Card className="p-5">
+        <div className="text-sm font-semibold">帳號驗證</div>
+        <div className="mt-3 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-slate-500">信箱</span>
+            <span className="text-sm text-slate-300">{me.email}</span>
+            {me.emailVerified
+              ? <Badge tone="up"><BadgeCheck size={12} /> 已驗證</Badge>
+              : <Badge tone="amber"><ShieldAlert size={12} /> 未驗證</Badge>}
+            {!me.emailVerified && <button disabled={vBusy} onClick={sendCode} className="ml-auto rounded-lg bg-tide-500/15 px-3 py-1 text-xs font-semibold text-tide-300 hover:bg-tide-500/25 disabled:opacity-50">發送驗證碼</button>}
+          </div>
+          {!me.emailVerified && vSent && (
+            <div className="flex items-center gap-2">
+              <input className={inp + " font-mono tracking-widest"} placeholder="輸入 6 位數驗證碼" value={vCode} onChange={(e) => setVCode(e.target.value.replace(/\D/g, "").slice(0, 6))} />
+              <button disabled={vBusy || vCode.length !== 6} onClick={checkCode} className="shrink-0 rounded-lg bg-tide-500/20 px-4 py-2.5 text-sm font-semibold text-tide-300 disabled:opacity-50">驗證</button>
+            </div>
+          )}
+          {vMsg && <div className="text-xs text-slate-400">{vMsg}</div>}
+          <div className="flex flex-wrap items-center gap-2 border-t border-white/5 pt-3">
+            <span className="text-xs text-slate-500">手機</span>
+            <span className="text-sm text-slate-300">{me.phone || "—"}</span>
+            {me.phoneVerified ? <Badge tone="up"><BadgeCheck size={12} /> 已驗證</Badge> : <Badge tone="slate">未啟用</Badge>}
+          </div>
+        </div>
+      </Card>
+      <Card className="p-5">
         <div className="text-sm font-semibold">個人資料</div>
         <div className="mt-3 space-y-3">
-          <Field label="姓名"><input className={inp} value={name} onChange={(e) => setName(e.target.value)} /></Field>
-          <Field label="電話"><input className={inp} value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
+          <Field label="暱稱"><input className={inp} value={nickname} onChange={(e) => setNickname(e.target.value)} /></Field>
+          <Field label="手機"><input className={inp} value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
           <Field label="信箱"><input className={inp + " opacity-60"} value={me.email} disabled /></Field>
           <Field label="UID"><input className={inp + " font-mono opacity-60"} value={me.uid} disabled /></Field>
         </div>
@@ -102,15 +166,33 @@ export default function MemberPage() {
           {saved && <span className="text-xs text-slate-400">{saved}</span>}
         </div>
       </Card>
+      <Link href="/activity" className="block">
+        <Card className="flex items-center gap-3 p-4">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/15 text-amber-300"><Gift size={18} /></span>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold">邀請好友拿訂閱</div>
+            <div className="text-[11px] text-slate-500">已成功邀請 {me.referrals} 人 · 每 5 人送 1 個月 Plus</div>
+          </div>
+          <span className="ml-auto text-xs text-tide-300">前往活動 →</span>
+        </Card>
+      </Link>
       <Card className="p-5">
-        <div className="text-sm font-semibold">意見反饋</div>
-        <p className="mt-1 text-xs text-slate-500">送出時會一併附上你的姓名、電話、信箱與 UID，方便我們聯繫。</p>
-        <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">
-          <div className="rounded-lg bg-white/[0.03] p-2"><div className="text-slate-600">姓名</div><div className="mt-0.5 truncate">{name || "—"}</div></div>
-          <div className="rounded-lg bg-white/[0.03] p-2"><div className="text-slate-600">電話</div><div className="mt-0.5 truncate">{phone || "—"}</div></div>
-          <div className="rounded-lg bg-white/[0.03] p-2"><div className="text-slate-600">信箱</div><div className="mt-0.5 truncate">{me.email}</div></div>
-          <div className="rounded-lg bg-white/[0.03] p-2"><div className="text-slate-600">UID</div><div className="mt-0.5 truncate font-mono">{me.uid}</div></div>
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold">意見反饋</div>
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-400">
+            <input type="checkbox" checked={anon} onChange={(e) => setAnon(e.target.checked)} className="accent-tide-500" />
+            匿名反饋
+          </label>
         </div>
+        <p className="mt-1 text-xs text-slate-500">{anon ? "匿名送出：不會附帶你的暱稱、信箱、手機與 UID。" : "送出時會一併附上你的暱稱、電話、信箱與 UID，方便我們聯繫。"}</p>
+        {!anon && (
+          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">
+            <div className="rounded-lg bg-white/[0.03] p-2"><div className="text-slate-600">暱稱</div><div className="mt-0.5 truncate">{nickname || "—"}</div></div>
+            <div className="rounded-lg bg-white/[0.03] p-2"><div className="text-slate-600">手機</div><div className="mt-0.5 truncate">{phone || "—"}</div></div>
+            <div className="rounded-lg bg-white/[0.03] p-2"><div className="text-slate-600">信箱</div><div className="mt-0.5 truncate">{me.email}</div></div>
+            <div className="rounded-lg bg-white/[0.03] p-2"><div className="text-slate-600">UID</div><div className="mt-0.5 truncate font-mono">{me.uid}</div></div>
+          </div>
+        )}
         <textarea value={fb} onChange={(e) => setFb(e.target.value)} rows={4} placeholder="想回報問題、許願功能或聊聊使用心得都歡迎…"
           className="mt-3 w-full rounded-lg border border-white/10 bg-ink-900 px-3 py-2.5 text-sm outline-none focus:border-tide-500/40" />
         <div className="mt-3 flex items-center gap-3">
@@ -118,7 +200,7 @@ export default function MemberPage() {
           {fbMsg && <span className="text-xs text-slate-400">{fbMsg}</span>}
         </div>
       </Card>
-      <button onClick={() => signOut({ callbackUrl: "/" })} className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/10 py-2.5 text-sm text-slate-300 hover:bg-white/5"><LogOut size={14} /> 登出</button>
+      <button onClick={() => signOut({ callbackUrl: "/login" })} className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/10 py-2.5 text-sm text-slate-300 hover:bg-white/5"><LogOut size={14} /> 登出</button>
     </div>
   );
 }

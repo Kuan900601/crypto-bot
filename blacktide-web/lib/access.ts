@@ -1,6 +1,7 @@
 export type Tier = "free" | "air" | "pro";
 export const RANK: Record<Tier, number> = { free: 0, air: 1, pro: 2 };
-export const TIER_LABEL: Record<Tier, string> = { free: "免費會員", air: "Air 會員", pro: "Pro 會員" };
+export const TIER_LABEL: Record<Tier, string> = { free: "免費會員", air: "Plus 會員", pro: "Pro 會員" };
+export const TIER_SHORT: Record<Tier, string> = { free: "FREE", air: "PLUS", pro: "PRO" };
 // 路由所需的最低方案（未列出者為公開）
 const ROUTE_TIER: { prefix: string; tier: Tier }[] = [
   { prefix: "/signals", tier: "pro" },

@@ -29,7 +29,7 @@ export default function PricingModal() {
   const Plan = ({ t, accent }: { t: "air" | "pro"; accent: string }) => (
     <div className={`rounded-xl border p-4 ${t === "pro" ? "border-amber-500/30 bg-amber-500/5" : "border-tide-500/30 bg-tide-500/5"}`}>
       <div className="flex items-center gap-2">
-        <span className={`text-sm font-bold ${t === "pro" ? "text-amber-200" : "text-tide-200"}`}>{t === "pro" ? "Pro 會員" : "Air 會員"}</span>
+        <span className={`text-sm font-bold ${t === "pro" ? "text-amber-200" : "text-tide-200"}`}>{t === "pro" ? "Pro 會員" : "Plus 會員"}</span>
         {cycle === "yearly" && <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] text-slate-300">省 {PRICING[t].off}%</span>}
       </div>
       <div className="mt-2 font-mono text-2xl font-bold">{price(t)} <span className="text-sm font-normal text-slate-500">{unit}</span></div>
@@ -45,7 +45,7 @@ export default function PricingModal() {
         <div className="flex items-center">
           <div>
             <div className="text-base font-bold">選擇你的方案</div>
-            <div className="mt-0.5 text-xs text-slate-500">Air 解鎖分析與資訊；Pro 解鎖黑潮船長訊號與回測</div>
+            <div className="mt-0.5 text-xs text-slate-500">Plus 解鎖分析與資訊；Pro 解鎖黑潮船長訊號與回測</div>
           </div>
           <button onClick={() => setPricingOpen(false)} className="ml-auto rounded-lg p-1.5 text-slate-400 hover:bg-white/5"><X size={18} /></button>
         </div>
@@ -62,7 +62,7 @@ export default function PricingModal() {
         </div>
         <div className="mt-4 overflow-hidden rounded-xl border border-white/5">
           <div className="grid grid-cols-[1fr_56px_56px] border-b border-white/5 bg-white/[0.03] px-3 py-2 text-[11px] text-slate-400">
-            <span>功能</span><span className="text-center text-tide-300">Air</span><span className="text-center text-amber-300">Pro</span>
+            <span>功能</span><span className="text-center text-tide-300">Plus</span><span className="text-center text-amber-300">Pro</span>
           </div>
           {FEATURES.map((f) => (
             <div key={f.name} className="grid grid-cols-[1fr_56px_56px] items-center border-b border-white/5 px-3 py-2 text-xs last:border-0">

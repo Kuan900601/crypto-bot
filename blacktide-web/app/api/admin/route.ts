@@ -12,11 +12,11 @@ async function requireAdmin() {
 export async function GET() {
   if (!(await requireAdmin())) return Response.json({ error: "無權限" }, { status: 403 });
   const emails = await redisSMembers(USERS_SET);
-  const users: { email: string; name: string; phone: string; uid: string; tier: string; cycle?: string; subAmount?: number; planExpiry?: string; createdAt: string }[] = [];
+  const users: { email: string; nickname: string; name: string; phone: string; uid: string; tier: string; cycle?: string; subAmount?: number; planExpiry?: string; emailVerified?: boolean; referrals?: number; createdAt: string }[] = [];
   for (const e of emails) {
     const u = await getUser(e);
     if (!u) continue;
-    users.push({ email: u.email, name: u.name, phone: u.phone || "", uid: u.uid, tier: tierOf(u), cycle: u.cycle, subAmount: u.subAmount, planExpiry: u.planExpiry, createdAt: u.createdAt });
+    users.push({ email: u.email, nickname: u.nickname || u.name, name: u.name, phone: u.phone || "", uid: u.uid, tier: tierOf(u), cycle: u.cycle, subAmount: u.subAmount, planExpiry: u.planExpiry, emailVerified: !!u.emailVerified, referrals: u.referrals || 0, createdAt: u.createdAt });
   }
   users.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   const air = users.filter((u) => u.tier === "air");
