@@ -713,9 +713,44 @@ def process_pending(ex):
         save_json(TRADES_FILE, trades[-1000:])
 
 
+def _atr_pct(ex, symbol):
+    """最近 14 根 1h ATR / 收盤價。讀不到回 None。"""
+    try:
+        ohlcv = ex.fetch_ohlcv(symbol, "1h", limit=20)
+        if not ohlcv or len(ohlcv) < 15:
+            return None
+        trs = []
+        prev_close = ohlcv[0][4]
+        for o in ohlcv[1:]:
+            high, low, close = o[2], o[3], o[4]
+            tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+            trs.append(tr)
+            prev_close = close
+        atr = sum(trs[-14:]) / min(14, len(trs))
+        last_close = ohlcv[-1][4]
+        if last_close > 0:
+            return atr / last_close
+    except Exception:
+        return None
+    return None
+
+
+def _trail_buffer_pct(ex, symbol):
+    """止損緩衝 = max(TRAIL_BUFFER_MIN_PCT, 0.5×ATR%)。讀不到 ATR 用最小值。"""
+    min_buf = float(os.getenv("TRAIL_BUFFER_MIN_PCT", "0.004"))
+    atr_pct = _atr_pct(ex, symbol)
+    if atr_pct:
+        return max(min_buf, 0.5 * atr_pct)
+    return min_buf
+
+
 def check_trailing_stop(ex):
-    """E3：TP 鎖利階梯。隨 TP1~3 陸續成交，分三階段把止損上移鎖利（每階段只做一次）。
-    sl_stage：0=未鎖利, 1=鎖30% TP1距離, 2=鎖到TP1, 3=鎖到TP2。"""
+    """E3 / v61：TP 成交階梯移動整倉止損（每階段只做一次，用 V5 trading-stop 原子更新位階止損）。
+    依剩餘倉位比例反推已成交到哪一段（三段 40/35/25：TP1後≈0.60、TP2後≈0.25、TP3後≈0）：
+      stage1（TP1 成交）→ entry−緩衝（給回踩留空間，非死保本）
+      stage2（TP2 成交）→ entry（此時才保本）
+      stage3（TP3 成交）→ TP1
+    緩衝用 max(TRAIL_BUFFER_MIN_PCT, 0.5×1h ATR%)。整倉止損為位階屬性，更新即原子取代，無需先撤舊單。"""
     trades = load_json(TRADES_FILE, [])
     positions = trader.get_positions(ex)
     pos_map = {to_ccxt_symbol(p["symbol"]): p for p in positions}
@@ -735,52 +770,47 @@ def check_trailing_stop(ex):
         side = rec["side"]
         entry = rec.get("entry_price")
         tp1 = rec.get("tp1")
-        tp2 = rec.get("tp2")
         stage = rec.get("sl_stage", 0)
+        if not entry:
+            continue
 
         new_sl = None
         new_stage = stage
-        if ratio <= 0.17 and stage < 3 and tp2:
-            new_sl = tp2
-            new_stage = 3
-        elif ratio <= 0.52 and stage < 2 and tp1:
+        if ratio <= 0.05 and stage < 3 and tp1:
             new_sl = tp1
+            new_stage = 3
+        elif ratio <= 0.27 and stage < 2:
+            new_sl = entry  # TP2 成交 → 保本
             new_stage = 2
-        elif ratio <= 0.87 and stage < 1 and tp1 and entry:
-            if side == "buy":
-                new_sl = entry + (tp1 - entry) * 0.3
-            else:
-                new_sl = entry - (entry - tp1) * 0.3
+        elif ratio <= 0.62 and stage < 1:
+            buf = _trail_buffer_pct(ex, sym)
+            new_sl = entry * (1 - buf) if side == "buy" else entry * (1 + buf)
             new_stage = 1
 
         if new_sl is None:
             continue
 
-        close_side = "sell" if side == "buy" else "buy"
-        old_id = rec.get("sl_order_id")
         try:
-            new_sl = float(ex.price_to_precision(sym, new_sl))
+            sl_str = ex.price_to_precision(sym, new_sl)
         except Exception:
-            pass
-        # S3：先掛新止損單成功拿到 id，才撤舊單；新掛失敗保留舊單
+            sl_str = str(new_sl)
+        # 用 V5 trading-stop 原子更新整倉止損（無需先撤舊單）；失敗保留原止損
         try:
-            slo = ex.create_order(sym, "market", close_side, current_amount, None,
-                                  {"stopLossPrice": new_sl, "reduceOnly": True})
+            ex.private_post_v5_position_trading_stop({
+                "category": "linear",
+                "symbol": trader._bybit_symbol_id(ex, sym),
+                "stopLoss": sl_str,
+                "positionIdx": 0,
+            })
         except Exception as e:
-            log("  ⚠️ 鎖利上移失敗（保留舊止損單）:", sym, str(e)[:100])
+            log("  ⚠️ 止損上移失敗（保留原止損）:", sym, str(e)[:100])
             continue
-        if old_id:
-            try:
-                ex.cancel_order(old_id, sym)
-            except Exception as e:
-                log("  ⚠️ 撤舊止損單失敗（新舊單可能短暫並存）:", str(e)[:100])
-        rec["sl_order_id"] = slo.get("id")
-        rec["sl_used"] = new_sl
+        rec["sl_used"] = float(sl_str)
         rec["sl_stage"] = new_stage
         rec["trailing_done"] = True
         changed = True
-        log("  ✅ 鎖利上移:", sym, "stage", new_stage, "→ SL", new_sl)
-        push_event("🔒 鎖利上移｜" + sym + " stage " + str(new_stage) + " → SL " + str(new_sl))
+        log("  ✅ 止損上移:", sym, "stage", new_stage, "→ SL", sl_str)
+        push_event("🔒 止損上移 stage" + str(new_stage) + "｜" + sym + " → SL " + str(sl_str))
     if changed:
         save_json(TRADES_FILE, trades)
 

@@ -3067,18 +3067,18 @@ async def notify_tp_hit(ctx, symbol, tp_level, current_price):
     tier = sig.get("tier", "B")
     tier_emoji = {"S": "💎", "A": "🥇", "B": "🥈", "C": "🥉"}.get(tier, "")
 
-    # ⭐ v31 動態移動止損
+    # ⭐ v31 動態移動止損（v61：與 auto_trader 止損口徑一致——TP1 後 entry−緩衝、TP2 後才保本）
     new_sl = None
     old_sl = sig.get("sl", entry)  # v55: 缺sl時用entry兜底
+    _buf = float(os.getenv("TRAIL_BUFFER_MIN_PCT", "0.004"))
     if tp_level == 1:
-        # v54 改進：不再鉤死在成本價（太緊→一回調就被洗出，贏家只吃到 TP1 15%）
-        # 改移到「成本價 + TP1漲幅的 30%」，鎖一小段利潤但留波動空間，讓贏家跑到 TP2/TP3
-        tp1_price = sig.get("tp1", entry)
-        new_sl = round(entry + (tp1_price - entry) * 0.3, 6)
-        sl_action = "止損自動移至 `" + str(new_sl) + "` (鎖利保本，留波動空間)"
+        # v61：TP1 後移到「entry−緩衝」而非鎖死，給回踩留空間（根治「TP1 後一回踩就被保本掃出」）
+        new_sl = round(entry * (1 - _buf), 6) if direction == "LONG" else round(entry * (1 + _buf), 6)
+        sl_action = "止損自動移至 `" + str(new_sl) + "` (entry−緩衝，留回踩空間)"
     elif tp_level == 2:
-        new_sl = sig.get("tp1", entry)
-        sl_action = "止損自動移至 *TP1* `" + str(new_sl) + "` (鎖利)"
+        # v61：TP2 後才移到保本價(entry)，讓剩餘倉位有空間跑到 TP3
+        new_sl = round(entry, 6)
+        sl_action = "止損自動移至保本價 `" + str(new_sl) + "` (鎖利)"
     else:
         sl_action = "達最終止盈"
 
@@ -3262,9 +3262,13 @@ async def check_active_signals(ctx):
                         # analyzer.adaptive_sl_adjust 函式本體保留但不再採用。
                         # TP 之後的階梯鎖利仍由 notify_tp_hit 處理，不受影響。
 
-                        should_exit, exit_reason = analyzer.early_exit_signal(
-                            df15m, direction, entry, sl
-                        )
+                        # v61 降噪：主動退出判斷 K 線 15m→1h，避免 15m 雜訊提前洗出場
+                        if not isinstance(df1h_track, Exception):
+                            should_exit, exit_reason = analyzer.early_exit_signal(
+                                df1h_track, direction, entry, sl
+                            )
+                        else:
+                            should_exit, exit_reason = False, ""
                         if should_exit:
                             # 避免重複警告
                             last_warning = sig.get("last_exit_warning", 0)
@@ -3456,14 +3460,20 @@ async def check_signal_reversal(ctx):
                         continue
                     last_alert = LAST_REVERSAL_ALERT.get(sym, 0)
                     now_ts = datetime.now(timezone.utc).timestamp()
-                    if now_ts - last_alert < 3600:
+                    # v61 降噪：冷卻 1h→2h
+                    if now_ts - last_alert < 7200:
                         continue
-                    df = await analyzer.fetch_ohlcv(session, sym, "15m", 30)
+                    # v61 降噪：同一信號最多發 2 次反向警告
+                    if sig.get("reversal_alert_count", 0) >= 2:
+                        continue
+                    # v61 降噪：判斷 K 線 15m→1h，避免 15m 雜訊提前誤判
+                    df = await analyzer.fetch_ohlcv(session, sym, "1h", 30)
                     if df is None or len(df) < 10:
                         continue
                     has_reversal, reasons = analyzer.kline_reversal_check(df, sig["direction"], sig["entry"])
                     if has_reversal:
                         LAST_REVERSAL_ALERT[sym] = now_ts
+                        sig["reversal_alert_count"] = sig.get("reversal_alert_count", 0) + 1
                         sym_short = sym.replace("/USDT", "")
                         direction_zh = "做多" if sig["direction"] == "LONG" else "做空"
                         ticker = await analyzer.fetch_ticker(session, sym)
@@ -3489,9 +3499,8 @@ async def check_signal_reversal(ctx):
                         else:
                             msg += "  • 浮虧較深 → 建議主動出場\n"
                             msg += "  • 不要硬撐到止損價"
+                        # v61 降噪：反向警告只發給 watchers，不再發頻道（避免洗頻）
                         notify_t = list(sig.get("watchers", []))
-                        if BLACK_HUNTER_CHANNEL:
-                            notify_t.append(BLACK_HUNTER_CHANNEL)
                         for u in notify_t:
                             try:
                                 await ctx.bot.send_message(chat_id=u, text=msg, parse_mode="Markdown")

@@ -2095,30 +2095,29 @@ class CryptoAnalyzer:
             warnings = []
 
             if direction == "LONG":
-                # 1. 強陰線
+                # v61：強 K 警告收緊——需「強陰線(body/range>0.8)」且「收盤跌破 EMA20」兩條件同時成立
                 last = last3.iloc[-1]
                 body = float(last["close"]) - float(last["open"])
                 full_range = float(last["high"]) - float(last["low"]) + 1e-9
-                if body < 0 and abs(body) / full_range > 0.7:
-                    warnings.append("出現強陰線")
-                # 2. 連 3 紅變綠
+                strong_bear = body < 0 and abs(body) / full_range > 0.8
+                broke_ema = last_close < ema20_v * 0.997
+                if strong_bear and broke_ema:
+                    warnings.append("強陰線且跌破 EMA20")
+                # 連 3 根陰線（獨立訊號，保留）
                 reds = sum(1 for i in range(3) if float(last3.iloc[i]["close"]) < float(last3.iloc[i]["open"]))
                 if reds >= 3:
                     warnings.append("連續 3 根陰線")
-                # 3. 跌破 EMA20
-                if last_close < ema20_v * 0.997:
-                    warnings.append("跌破 EMA20")
             else:
                 last = last3.iloc[-1]
                 body = float(last["close"]) - float(last["open"])
                 full_range = float(last["high"]) - float(last["low"]) + 1e-9
-                if body > 0 and abs(body) / full_range > 0.7:
-                    warnings.append("出現強陽線")
+                strong_bull = body > 0 and abs(body) / full_range > 0.8
+                broke_ema = last_close > ema20_v * 1.003
+                if strong_bull and broke_ema:
+                    warnings.append("強陽線且突破 EMA20")
                 greens = sum(1 for i in range(3) if float(last3.iloc[i]["close"]) > float(last3.iloc[i]["open"]))
                 if greens >= 3:
                     warnings.append("連續 3 根陽線")
-                if last_close > ema20_v * 1.003:
-                    warnings.append("突破 EMA20")
             return len(warnings) > 0, " + ".join(warnings)
         except Exception:
             return False, ""
