@@ -31,9 +31,11 @@ PUSH_INTERVAL_MIN = 3  # ⭐ v40 平衡為 3 分鐘
 _HUNTER_SCANNING = {"locked": False, "locked_at": 0, "last_push": 0}
 
 # ⭐ v48 C 級延遲：記錄最後一次 B 級以上推播時間
-# 用途：4.5 小時內若有 B 級以上推播，C 級就不推
+# 用途：C_TIER_DELAY_MIN 分鐘內若有 B 級以上推播，C 級就不推
 # 一旦推 B+，重置計時；一旦推 C，也重置（避免狂推 C）
 _C_TIER_GATE = {"last_high_tier_push": 0, "circuit_break_until": 0}
+# ⭐ v61：C 級延遲改環境變數，預設 30 分（原寫死 4.5h，突破型 C 級被卡到噴完）
+C_TIER_DELAY_MIN = float(os.getenv("C_TIER_DELAY_MIN", "30"))
 
 # ⭐ v54 版本標識
 BOT_VERSION = "v56"
@@ -407,7 +409,7 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "• K 線確認 / Squeeze / 逆勢調整\n\n"
         "*⏰ 推播節奏控制*\n"
         "• S/A/B 級 → 即時推播\n"
-        "• C 級 → 累積冷卻 4.5h 才推\n"
+        "• C 級 → 累積冷卻才推（可調，預設 30min）\n"
         "• 止損移動 → 0.3%+ 才通知（防洗版）\n\n"
         "*🧠 量化分析全項*\n"
         "• 五維度評分（趨勢/動能/結構/量能/風險）\n"
@@ -1824,9 +1826,10 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         last_high = _C_TIER_GATE.get("last_high_tier_push", 0)
         if last_high > 0:
             hrs_since = (now_ts - last_high) / 3600
-            if hrs_since < 4.5:
-                remaining = 4.5 - hrs_since
-                text += "• C 級冷卻: 🟡 還需 `" + str(round(remaining, 1)) + "h`\n"
+            _c_delay_h = C_TIER_DELAY_MIN / 60.0
+            if hrs_since < _c_delay_h:
+                remaining = _c_delay_h - hrs_since
+                text += "• C 級冷卻: 🟡 還需 `" + str(round(remaining * 60, 0)) + "min`\n"
             else:
                 text += "• C 級冷卻: ✅ 已過，下次有 C 會推\n"
         else:
@@ -2195,9 +2198,10 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
     # ⭐ v40.3 先檢查鎖卡死，再檢查訂閱者
     # 避免「無訂閱者 + 鎖卡死」場景永久卡死
     now_ts = time.time()
+    _scan_started = now_ts  # v61：記錄本輪掃描耗時
     if _HUNTER_SCANNING["locked"]:
-        if now_ts - _HUNTER_SCANNING["locked_at"] > 300:  # 5 分鐘
-            logger.warning("⚠️ 掃描鎖卡住超過 5 分鐘，強制重置")
+        if now_ts - _HUNTER_SCANNING["locked_at"] > 180:  # v61：鎖 timeout 300→180s
+            logger.warning("⚠️ 掃描鎖卡住超過 3 分鐘，強制重置")
             _HUNTER_SCANNING["locked"] = False
         else:
             logger.info("上一輪掃描中，跳過此輪")
@@ -2412,19 +2416,20 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
             _C_TIER_GATE["last_high_tier_push"] = now_ts
             logger.info("📊 推播 " + str(len(high_tier_signals)) + " 個 S/A/B 級信號，重置 C 級冷卻")
         else:
-            # 只有 C 級 → 看是否已過 4.5 小時冷卻
+            # 只有 C 級 → 看是否已過 C_TIER_DELAY_MIN 冷卻
+            _c_delay_h = C_TIER_DELAY_MIN / 60.0
             hours_since_high = (now_ts - _C_TIER_GATE["last_high_tier_push"]) / 3600
             # 啟動時 last_high_tier_push = 0，會非常大 → 視為從未推過（要等冷卻）
             if _C_TIER_GATE["last_high_tier_push"] == 0:
                 # 第一次啟動：用 bot 啟動時間當基準（避免一啟動就狂推 C）
                 _C_TIER_GATE["last_high_tier_push"] = now_ts
-                logger.info("🕐 v48 啟動：C 級冷卻計時開始（4.5 小時後才推 C 級）")
+                logger.info("🕐 v48 啟動：C 級冷卻計時開始（" + str(C_TIER_DELAY_MIN) + " 分鐘後才推 C 級）")
                 return
-            if hours_since_high < 4.5:
+            if hours_since_high < _c_delay_h:
                 # 冷卻中，不推 C
-                remaining = 4.5 - hours_since_high
-                logger.info("⏸ C 級冷卻中：距上次 B+ 推播 " + str(round(hours_since_high, 1)) +
-                            "h，還需 " + str(round(remaining, 1)) + "h 才推 C")
+                remaining = _c_delay_h - hours_since_high
+                logger.info("⏸ C 級冷卻中：距上次 B+ 推播 " + str(round(hours_since_high * 60, 0)) +
+                            "min，還需 " + str(round(remaining * 60, 0)) + "min 才推 C")
                 return
             # 冷卻完成，可以推 C 級
             filtered_signals = c_tier_signals
@@ -2630,10 +2635,160 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
         logger.error("黑潮船長執行失敗: " + str(e))
     finally:
         _HUNTER_SCANNING["locked"] = False  # ⭐ v38 釋放鎖
+        # v61：記錄本輪掃描耗時，>120s 警告（讓「掃描太慢導致跳輪」看得見）
+        try:
+            scan_secs = round(time.time() - _scan_started, 1)
+            if scan_secs > 120:
+                logger.warning("⚠️ 本輪掃描耗時 " + str(scan_secs) + "s（>120s，可能導致跳輪）")
+            if _USE_REDIS:
+                _redis_cmd_raw(["SET", "bt:last_scan", json.dumps(
+                    {"ts": datetime.now(timezone.utc).isoformat(), "scan_secs": scan_secs},
+                    ensure_ascii=False)])
+        except Exception:
+            pass
 
 
 
 # ===== 信號追蹤系統 =====
+
+def _safe_after(iso_str, cutoff):
+    try:
+        return datetime.fromisoformat(iso_str) > cutoff
+    except Exception:
+        return False
+
+
+def _build_fast_sig(sym, direction, price, df15m, strength, reason):
+    """v61 P3-2：快速動能信號的進場/止損/止盈（結構性 SL + R 階梯 1.5/2.5/3.5）。"""
+    try:
+        lows = df15m["low"].astype(float)
+        highs = df15m["high"].astype(float)
+        entry = float(price)
+        if direction == "LONG":
+            swing_low = float(lows.iloc[-12:].min())
+            sl = min(swing_low, entry * (1 - 0.012))
+            risk = entry - sl
+            if risk <= 0:
+                return None
+            tp1, tp2, tp3 = entry + risk * 1.5, entry + risk * 2.5, entry + risk * 3.5
+        else:
+            swing_high = float(highs.iloc[-12:].max())
+            sl = max(swing_high, entry * (1 + 0.012))
+            risk = sl - entry
+            if risk <= 0:
+                return None
+            tp1, tp2, tp3 = entry - risk * 1.5, entry - risk * 2.5, entry - risk * 3.5
+        return {
+            "symbol": sym, "direction": direction,
+            "entry": analyzer.px_round(entry), "sl": analyzer.px_round(sl),
+            "tp1": analyzer.px_round(tp1), "tp2": analyzer.px_round(tp2),
+            "tp3": analyzer.px_round(tp3), "tp4": 0,
+            "score": max(50, int(strength)),   # >26 避免被觀察單閘門擋掉
+            "entry_grade": "B", "tier": "B", "order_type": "MARKET",
+            "timeframe": "短線", "tier_label": "⚡快速動能 B 級",
+            "rr": 1.5, "fast_momentum": True,
+        }
+    except Exception:
+        return None
+
+
+async def _push_fast_signal(ctx, sig, reason):
+    sym_short = sig["symbol"].replace("/USDT", "")
+    direction_zh = "做多" if sig["direction"] == "LONG" else "做空"
+    msg = "⚡ *" + sym_short + " 快速動能 — " + direction_zh + "*\n"
+    msg += "━━━━━━━━━━━━━━━\n"
+    msg += "進場 `" + str(sig["entry"]) + "`　止損 `" + str(sig["sl"]) + "`\n"
+    msg += "TP1 `" + str(sig["tp1"]) + "` · TP2 `" + str(sig["tp2"]) + "` · TP3 `" + str(sig["tp3"]) + "`\n"
+    msg += "強度 *" + str(sig["score"]) + "*｜" + reason + "\n"
+    msg += "_⚡ 突破搶先單，節奏快、自負風險_"
+    targets = list(HUNTER_WATCHERS)
+    if BLACK_HUNTER_CHANNEL:
+        targets.append(BLACK_HUNTER_CHANNEL)
+    for u in set(targets):
+        try:
+            await ctx.bot.send_message(chat_id=u, text=msg, parse_mode="Markdown")
+        except Exception:
+            pass
+
+
+async def fast_momentum_scan(ctx: ContextTypes.DEFAULT_TYPE):
+    """v61 P3-2：快速動能搶先偵測（輕量，不動主掃描）。
+    只掃 24h 漲跌幅前 12，抓 5m+15m，命中放量突破即立即推播 + 進 Redis 佇列。
+    受連虧暫停／熔斷管制（沿用 auto_protection_mode / SYMBOL_LOSSES）。"""
+    if not HUNTER_WATCHERS and not BLACK_HUNTER_CHANNEL:
+        return
+    try:
+        protection_mode, _ = analyzer.auto_protection_mode(SIGNAL_RESULTS)
+    except Exception:
+        protection_mode = "NORMAL"
+    if protection_mode == "CIRCUIT_BREAK":
+        return
+    try:
+        async with aiohttp.ClientSession() as session:
+            # 1) 只抓 ticker 選候選（不重抓全 52 幣 K 線）
+            t_tasks = [analyzer.fetch_ticker(session, s) for s in analyzer.SCAN_POOL]
+            tickers = await asyncio.gather(*t_tasks, return_exceptions=True)
+            cand = []
+            for s, t in zip(analyzer.SCAN_POOL, tickers):
+                if isinstance(t, Exception):
+                    continue
+                try:
+                    chg = float(t.get("priceChangePercent", 0))
+                    price = float(t.get("lastPrice", 0))
+                    if price > 0:
+                        cand.append((s, abs(chg), price))
+                except Exception:
+                    continue
+            cand.sort(key=lambda x: x[1], reverse=True)
+            cand = cand[:12]
+            if not cand:
+                return
+            # 2) 只對候選抓 5m + 15m
+            k_tasks = []
+            for s, _, _ in cand:
+                k_tasks.append(analyzer.fetch_ohlcv(session, s, "5m", 60))
+                k_tasks.append(analyzer.fetch_ohlcv(session, s, "15m", 60))
+            kdata = await asyncio.gather(*k_tasks, return_exceptions=True)
+        min_strength = int(os.getenv("FAST_MOMENTUM_MIN_STRENGTH", "55"))
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        pushed = 0
+        for idx, (sym, _, price) in enumerate(cand):
+            df5m = kdata[idx * 2]
+            df15m = kdata[idx * 2 + 1]
+            if isinstance(df5m, Exception) or isinstance(df15m, Exception):
+                continue
+            if sym in ACTIVE_SIGNALS:   # 已有活躍信號 → 不疊
+                continue
+            direction, strength, reason = analyzer.fast_breakout_check(df5m, df15m)
+            if not direction:
+                continue
+            # 連虧暫停過濾（24h 內 ≥2 筆虧損）
+            recent_losses = [x for x in SYMBOL_LOSSES.get(sym, []) if _safe_after(x, cutoff)]
+            if len(recent_losses) >= 2:
+                continue
+            # 最近推播冷卻（同向 1h）
+            key = sym + "_" + direction
+            rp = RECENT_PUSHES.get(key)
+            if rp and _safe_after(rp.get("time", ""), datetime.now(timezone.utc) - timedelta(hours=1)):
+                continue
+            if strength < min_strength or (protection_mode == "DEFENSIVE" and strength < min_strength + 15):
+                logger.info("⚡快速動能：" + sym + " 強度不足(" + str(strength) + ")，只記錄不推")
+                continue
+            sig = _build_fast_sig(sym, direction, price, df15m, strength, reason)
+            if not sig:
+                continue
+            register_signal(sig, list(HUNTER_WATCHERS))   # 內含 Redis 佇列橋接
+            RECENT_PUSHES[key] = {"entry": sig["entry"],
+                                  "time": datetime.now(timezone.utc).isoformat(),
+                                  "score": sig["score"]}
+            await _push_fast_signal(ctx, sig, reason)
+            logger.info("⚡快速動能推播: " + sym + " " + direction + " 強度 " + str(strength))
+            pushed += 1
+            if pushed >= 3:
+                break
+    except Exception as e:
+        logger.error("快速動能掃描失敗: " + str(e))
+
 
 def parse_hunter_signals(result):
     """從黑潮船長推播文本解析信號詳情（v40.2 配合 v38 實際輸出格式）
@@ -3564,6 +3719,12 @@ def main():
     app.job_queue.run_repeating(
         auto_broadcast,
         interval=PUSH_INTERVAL_MIN * 60,
+        first=60
+    )
+    # ⭐ v61 P3-2：快速動能搶先偵測（輕量，每 90 秒）
+    app.job_queue.run_repeating(
+        fast_momentum_scan,
+        interval=90,
         first=60
     )
     # ⭐ 每 2 分鐘檢查活躍信號（TP/SL/過期）

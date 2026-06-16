@@ -2122,6 +2122,41 @@ class CryptoAnalyzer:
         except Exception:
             return False, ""
 
+    def fast_breakout_check(self, df5m, df15m, lookback=12):
+        """v61 P3-2：快速動能突破偵測（輕量）。
+        條件：5m 最新收盤放量突破 15m 近期高/低 + 5m 近 3 根連續同向 + 量 > 均量 1.8x。
+        回傳 (direction, strength, reason)；無訊號回 (None, 0, "")。"""
+        try:
+            if df5m is None or df15m is None or len(df5m) < 5 or len(df15m) < lookback + 1:
+                return None, 0, ""
+            closes5 = df5m["close"].astype(float)
+            vols5 = df5m["volume"].astype(float)
+            last_close = float(closes5.iloc[-1])
+            avg_vol = float(vols5.iloc[-20:].mean()) if len(vols5) >= 20 else float(vols5.mean())
+            last_vol = float(vols5.iloc[-1])
+            vol_ratio = last_vol / avg_vol if avg_vol > 0 else 1.0
+            # 近期高低（用 15m 排除最後一根，當突破參考）
+            recent_high = float(df15m["high"].astype(float).iloc[-(lookback + 1):-1].max())
+            recent_low = float(df15m["low"].astype(float).iloc[-(lookback + 1):-1].min())
+            # 5m 近 3 根方向
+            last3 = df5m.tail(3)
+            ups = sum(1 for i in range(len(last3)) if float(last3.iloc[i]["close"]) > float(last3.iloc[i]["open"]))
+            downs = len(last3) - ups
+            direction = None
+            if last_close > recent_high and ups >= 3 and vol_ratio > 1.8:
+                direction = "LONG"
+                brk = (last_close - recent_high) / recent_high * 100 if recent_high > 0 else 0
+            elif last_close < recent_low and downs >= 3 and vol_ratio > 1.8:
+                direction = "SHORT"
+                brk = (recent_low - last_close) / recent_low * 100 if recent_low > 0 else 0
+            if not direction:
+                return None, 0, ""
+            strength = min(100, int(40 + vol_ratio * 8 + brk * 15))
+            reason = "5m 放量突破（量比 " + str(round(vol_ratio, 1)) + "x、突破 " + str(round(brk, 2)) + "%）"
+            return direction, strength, reason
+        except Exception:
+            return None, 0, ""
+
 
     # ⭐ 多時間框架嚴格共振（v23：1H + 4H 必須同向，加 1D 趨勢確認）
     def mtf_alignment(self, df1h, df4h, df_d):
@@ -3098,7 +3133,7 @@ class CryptoAnalyzer:
         """
         根據近 20 筆交易結果調整推播門檻
         連勝 → 放寬 5 分
-        連敗 → 收緊 10 分
+        連敗 → 收緊 5 分（v61：上調幅度上限 +5，避免近期幾筆虧損就把門檻拉高到一直不推）
         """
         if not recent_results or len(recent_results) < 5:
             return 0  # 中性
@@ -3113,7 +3148,7 @@ class CryptoAnalyzer:
         if win_rate >= 0.7 and last5_wins >= 4:
             return -5  # 表現好 → 放寬門檻（多抓機會）
         elif win_rate <= 0.4 or last5_wins <= 1:
-            return 10  # 表現差 → 收緊門檻
+            return 5  # v61：表現差 → 收緊門檻（上限 +5，原 +10 易壓抑到一直不推）
         return 0
 
     # ⭐ 交易所大額流入流出（簡化版：用成交量異常代替）
@@ -5993,9 +6028,9 @@ class CryptoAnalyzer:
                         tasks.append(self.fetch_lsr_cached(session, sym))
                     batch_results = await asyncio.gather(*tasks, return_exceptions=True)
                     all_results.extend(batch_results)
-                    # 批次間隔 0.5 秒，避免被限流
+                    # v61：批次間隔 0.5→0.3 秒，縮短整輪掃描時間（仍避免被限流）
                     if batch_idx < total_batches - 1:
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(0.3)
 
                 # ⭐ v30 重試：對失敗的幣種重試一次（核心關鍵幣）
                 retry_indices = []
