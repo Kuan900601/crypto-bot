@@ -25,9 +25,10 @@ export async function saveUser(u: WebUser): Promise<void> {
   if (!ok) mem.set(k, u);
   await redisSAdd(USERS_SET, u.email);
 }
-export function tierOf(u: { isAdmin?: boolean; isLifetime?: boolean; tier?: string; plan?: string } | null | undefined): Tier {
+export function tierOf(u: { isAdmin?: boolean; isLifetime?: boolean; tier?: string; plan?: string; planExpiry?: string } | null | undefined): Tier {
   if (!u) return "free";
   if (u.isAdmin || u.isLifetime) return "pro";
+  if (u.planExpiry && new Date(u.planExpiry).getTime() < Date.now()) return "free";
   if (u.tier === "air" || u.tier === "pro") return u.tier;
   if (u.plan === "premium") return "pro";
   return "free";

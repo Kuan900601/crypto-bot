@@ -12,18 +12,16 @@ const ITEMS = [
 export default function MobileNav() {
   const pathname = usePathname();
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-tide-500/15 bg-ink-900/90 backdrop-blur-lg md:hidden"
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/5 bg-ink-900/70 backdrop-blur-xl md:hidden"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-      <div className="grid grid-cols-5">
+      <div className="mx-auto grid max-w-md grid-cols-5">
         {ITEMS.map((it) => {
           const active = pathname === it.href;
           const Icon = it.icon;
           return (
-            <Link key={it.href} href={it.href}
-              className={`flex flex-col items-center gap-0.5 py-2 text-[10px] transition-colors ${active ? "text-tide-300" : "text-slate-500"}`}>
-              <Icon size={18} />
-              {it.label}
-              <span className={`h-0.5 w-5 rounded-full ${active ? "bg-tide-400" : "bg-transparent"}`} />
+            <Link key={it.href} href={it.href} className="flex flex-col items-center gap-1 py-2">
+              <span className={`flex h-7 w-12 items-center justify-center rounded-full transition-colors ${active ? "bg-tide-500/15 text-tide-300" : "text-slate-500"}`}><Icon size={18} /></span>
+              <span className={`text-[10px] transition-colors ${active ? "text-tide-300" : "text-slate-500"}`}>{it.label}</span>
             </Link>
           );
         })}

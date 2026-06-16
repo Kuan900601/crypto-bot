@@ -4,32 +4,40 @@
 @tailwind utilities;
 :root { color-scheme: dark; }
 html, body { height: 100%; }
+html { scroll-behavior: smooth; }
+* { -webkit-tap-highlight-color: transparent; }
 body {
-  color: #e2e8f0;
+  color: #e5e7eb;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, "PingFang TC", "Noto Sans TC", sans-serif;
   font-feature-settings: "tnum" 1;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   background:
     radial-gradient(1100px 480px at 85% -10%, rgba(212, 175, 55, 0.08), transparent 60%),
     radial-gradient(900px 520px at -10% 108%, rgba(212, 175, 55, 0.05), transparent 60%),
     #06070b;
 }
+main { -webkit-overflow-scrolling: touch; }
 ::selection { background: rgba(212, 175, 55, 0.3); }
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: #1e2433; border-radius: 8px; }
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 ::-webkit-scrollbar-track { background: transparent; }
+/* iOS 風點按回饋：所有按鈕按下微縮 */
+button:not(:disabled):active { transform: scale(0.97); }
+a:active { -webkit-tap-highlight-color: transparent; }
 .brand-hero {
   position: fixed; inset: -4%; z-index: -30;
   background: url("/brand/hero.jpg") center / cover no-repeat;
-  opacity: 0.09; pointer-events: none;
+  opacity: 0.08; pointer-events: none;
   animation: heroDrift 50s ease-in-out infinite alternate;
 }
-@keyframes heroDrift {
-  0% { transform: scale(1.05) translate(0, 0); }
-  100% { transform: scale(1.14) translate(-1.5%, -1.2%); }
-}
-@media (prefers-reduced-motion: reduce) { .brand-hero { animation: none; } }
+@keyframes heroDrift { 0% { transform: scale(1.05) translate(0,0); } 100% { transform: scale(1.14) translate(-1.5%, -1.2%); } }
+@media (prefers-reduced-motion: reduce) { .brand-hero { animation: none; } html { scroll-behavior: auto; } }
 .text-gold { background: linear-gradient(135deg, #f5e3a3 0%, #d4af37 45%, #8f6f1d 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .glow-gold { text-shadow: 0 0 18px rgba(212, 175, 55, 0.35); }
 .hairline-gold { height: 1px; background: linear-gradient(90deg, transparent, rgba(212, 175, 55, 0.5), transparent); }
+.glass { background: rgba(16,18,26,0.6); backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); }
 .scrollbar-none { scrollbar-width: none; }
 .scrollbar-none::-webkit-scrollbar { display: none; }
 .flash-up { animation: flashUp 0.6s ease-out; }
@@ -41,3 +49,6 @@ body {
 @keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
 .animate-marquee { animation: marquee 36s linear infinite; }
 .animate-marquee:hover { animation-play-state: paused; }
+/* 進場淡入（給卡片群用，可選）*/
+@keyframes riseIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.rise-in { animation: riseIn 0.35s cubic-bezier(0.22, 0.8, 0.26, 1) both; }

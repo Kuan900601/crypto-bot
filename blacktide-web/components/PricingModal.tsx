@@ -19,6 +19,7 @@ export default function PricingModal() {
     try {
       const r = await fetch("/api/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tier, cycle }) });
       const d = await r.json();
+      if (d.url) { window.location.href = d.url; return; }
       setMsg(d.message || d.error || "已送出");
     } catch { setMsg("結帳服務暫時無法使用，請稍後再試"); }
     finally { setBusy(false); }
