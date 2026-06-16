@@ -75,7 +75,8 @@ def get_free_balance(ex):
         bal = ex.fetch_balance()
         free = bal.get("free", {})
         return float(free.get("USDT", 0))
-    except Exception:
+    except Exception as e:
+        print("⚠️ get_free_balance 讀取失敗（將略過可用餘額上限）:", str(e)[:150], flush=True)
         return None
 
 

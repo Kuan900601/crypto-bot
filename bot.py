@@ -51,10 +51,9 @@ def entry_grade_display(grade):
 
 # ⭐ BingX 連結產生器
 def bingx_trade_url(symbol, direction):
-    """
-    產生 BingX 交易頁面深層連結
-    symbol: BTC/USDT 格式
-    direction: LONG / SHORT
+    """[DEPRECATED v61 P4-4] 產生 BingX 交易頁深層連結。
+    交易所已切 Bybit，本函式無任何呼叫點（死碼）。暫不刪除以免連鎖壞掉，未來確認後再移除。
+    symbol: BTC/USDT 格式；direction: LONG / SHORT
     """
     pair = symbol.replace("/", "-")  # BingX 用 BTC-USDT
     # BingX 永續合約交易頁
@@ -66,7 +65,7 @@ def bingx_swap_url(symbol):
     return "https://www.bybit.com/trade/usdt/" + symbol.replace("/USDT", "").replace("/", "") + "USDT"
 
 def bingx_spot_url(symbol):
-    """BingX 現貨頁面"""
+    """[DEPRECATED v61 P4-4] BingX 現貨頁面。交易所已切 Bybit，無任何呼叫點（死碼）。暫不刪除。"""
     pair = symbol.replace("/", "_")
     return "https://bingx.com/zh-tw/spot/" + pair
 
@@ -338,7 +337,7 @@ def main_menu():
     return InlineKeyboardMarkup([
         # 第一排：核心功能（最常用）
         [InlineKeyboardButton("🌊 黑潮船長 (即時掃描)", callback_data="hunter")],
-        [InlineKeyboardButton("⭐ 今日為你挑選 TOP 1", callback_data="todays_pick")],
+        # v61 P4-3：移除「今日為你挑選 TOP1」按鈕（與黑潮掃描重複）；callback todays_pick 仍保留可用
         # 第二排：自動化
         [InlineKeyboardButton("🔔 黑潮船長推播 ON", callback_data="auto_on"),
          InlineKeyboardButton("🔕 OFF", callback_data="auto_off")],
@@ -346,9 +345,8 @@ def main_menu():
         # 第三排：信號管理
         [InlineKeyboardButton("📡 追蹤中信號", callback_data="active_signals"),
          InlineKeyboardButton("📊 歷史戰績", callback_data="stats")],
-        # 第四排：個別分析
-        [InlineKeyboardButton("⚡ 即時動能", callback_data="momentum"),
-         InlineKeyboardButton("📊 異動掃描", callback_data="movers")],
+        # 第四排：個別分析（v61 P4-3：移除「即時動能」按鈕，與「異動掃描」重複；callback momentum 仍保留可用）
+        [InlineKeyboardButton("📊 異動掃描", callback_data="movers")],
         [InlineKeyboardButton("🌐 市場情緒", callback_data="sentiment"),
          InlineKeyboardButton("📰 加密快訊", callback_data="news_only")],
         [InlineKeyboardButton("🔭 趨勢總覽", callback_data="trend"),
@@ -981,6 +979,16 @@ async def cmd_at_debug(update, context):
         skipped = last_cycle.get("skipped", {})
         text += "skipped: " + json.dumps(skipped, ensure_ascii=False) + "\n"
         text += "last_error: " + str(last_cycle.get("last_error")) + "\n"
+    else:
+        text += "無資料\n"
+
+    # ⑤b bot 主掃描耗時（v61 P3-3 / P4-6）
+    last_scan = _redis_get_json_key("bt:last_scan", None)
+    text += "\n*⑤b bot 掃描耗時*\n"
+    if last_scan:
+        ss = last_scan.get("scan_secs")
+        flag = " ⚠️>120s 可能跳輪" if (ss or 0) > 120 else ""
+        text += "scan_secs: " + str(ss) + flag + "｜ts: " + str(last_scan.get("ts")) + "\n"
     else:
         text += "無資料\n"
 

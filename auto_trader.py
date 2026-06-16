@@ -303,8 +303,8 @@ def open_batch_tp_position(ex, signal, equity, free_usdt=None):
     # S5：開倉前先清掉同幣殘留的舊 TP/SL 掛單，避免干擾新倉
     try:
         trader.cancel_symbol_orders(ex, symbol)
-    except Exception:
-        pass
+    except Exception as e:
+        log("  ⚠️ 開倉前清舊掛單失敗（續開）:", symbol, str(e)[:100])
     direction = signal.get("direction", "").upper()
     side = "buy" if direction in ("LONG", "BUY", "做多") else "sell"
     close_side = "sell" if side == "buy" else "buy"
