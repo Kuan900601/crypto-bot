@@ -38,7 +38,7 @@ _C_TIER_GATE = {"last_high_tier_push": 0, "circuit_break_until": 0}
 C_TIER_DELAY_MIN = float(os.getenv("C_TIER_DELAY_MIN", "30"))
 
 # ⭐ v54 版本標識
-BOT_VERSION = "v56"
+BOT_VERSION = "v61"
 
 # ⭐ v54 進場品質顯示：內部值 S/A/B/C/D 不變（邏輯依賴），僅在顯示層翻譯成三級中文
 def entry_grade_display(grade):
