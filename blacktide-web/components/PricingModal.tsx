@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/lib/store";
-import { X, Check, Minus } from "lucide-react";
+import { X, Check, Minus, Send, ArrowRight } from "lucide-react";
 import { PRICING, FEATURES } from "@/lib/access";
 export default function PricingModal() {
   const { pricingOpen, setPricingOpen } = useApp();
@@ -49,6 +49,20 @@ export default function PricingModal() {
           </div>
           <button onClick={() => setPricingOpen(false)} className="ml-auto rounded-lg p-1.5 text-slate-400 hover:bg-white/5"><X size={18} /></button>
         </div>
+        {/* Social proof stats */}
+        <div className="mt-4 grid grid-cols-4 gap-2">
+          {[
+            { n: "52", l: "幣種掃描" },
+            { n: "7+1", l: "策略投票" },
+            { n: "24h", l: "不間斷監控" },
+            { n: "v62", l: "策略版本" },
+          ].map((s) => (
+            <div key={s.l} className="rounded-xl bg-white/[0.04] py-3 text-center">
+              <div className="font-display text-lg font-bold text-tide-300">{s.n}</div>
+              <div className="mt-0.5 text-[10px] text-slate-500">{s.l}</div>
+            </div>
+          ))}
+        </div>
         <div className="mt-4 inline-flex rounded-lg bg-white/[0.04] p-1 text-xs font-semibold">
           {(["monthly", "yearly"] as const).map((c) => (
             <button key={c} onClick={() => setCycle(c)} className={`rounded-md px-3 py-1.5 transition-colors ${cycle === c ? "bg-tide-500/15 text-tide-300" : "text-slate-400"}`}>
@@ -73,6 +87,15 @@ export default function PricingModal() {
           ))}
         </div>
         {msg && <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">{msg}</div>}
+        {/* Transparency / trust CTA */}
+        <a href="https://t.me/KuroshioSignal" target="_blank" rel="noopener noreferrer"
+          className="mt-3 flex items-center gap-3 rounded-xl border border-tide-500/15 bg-tide-500/[0.04] px-4 py-3 text-xs text-tide-300 transition-colors hover:bg-tide-500/[0.09]">
+          <Send size={14} className="shrink-0" />
+          <span className="flex-1 leading-relaxed text-slate-300">
+            <b className="text-tide-300">透明記錄</b>：每一筆信號均公開發佈於 Telegram 頻道，訂閱前可自行查閱歷史記錄。
+          </span>
+          <ArrowRight size={12} className="shrink-0 text-slate-500" />
+        </a>
         <div className="mt-3 text-[10px] leading-relaxed text-slate-600">支付方式：NOWPayments（USDT / BTC / ETH 等加密貨幣）。本服務為策略驗證期數據，不構成投資建議。</div>
       </div>
     </div>
