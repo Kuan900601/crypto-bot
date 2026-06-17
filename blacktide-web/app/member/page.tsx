@@ -95,9 +95,8 @@ export default function MemberPage() {
     try {
       const r = await fetch("/api/verify/email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "send" }) });
       const d = await r.json();
-      if (!d.configured) setVMsg("寄信服務尚未設定（管理員需設定 RESEND_API_KEY）");
-      else if (d.sent) { setVSent(true); setVMsg("驗證碼已寄出，請查收信箱（含垃圾信匣）"); }
-      else setVMsg("寄送失敗，請稍後再試");
+      if (!d.configured) setVMsg("寄信服務尚未設定（管理員需在 Vercel 設定 RESEND_API_KEY 並重新部署）");
+      else { setVSent(true); setVMsg(d.sent ? "驗證碼已寄出，請查收信箱（含垃圾信匣），於下方輸入。" : "寄送失敗：" + (d.info || "未知原因") + "（仍可稍後重試）"); }
     } catch { setVMsg("寄送失敗"); } finally { setVBusy(false); }
   };
   const checkCode = async () => {

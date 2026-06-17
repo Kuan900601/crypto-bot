@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Card, SectionTitle, Stat, Badge } from "@/components/ui";
+import SignalPerf from "@/components/SignalPerf";
 import { BadgeCheck } from "lucide-react";
 interface AdminUser { email: string; nickname?: string; name: string; phone: string; uid: string; tier: string; cycle?: string; subAmount?: number; planExpiry?: string; emailVerified?: boolean; referrals: number; invitedBy?: string; referralRewarded?: number; createdAt: string; }
 const tierUpper = (t: string) => (t === "air" ? "PLUS" : (t || "free").toUpperCase());
@@ -47,6 +48,8 @@ export default function AdminPage() {
         <Stat label="Pro 訂閱數" value={String(s?.pro ?? 0)} />
         <Stat label="付款筆數" value={String(data?.payments.length ?? 0)} />
       </div>
+      <SignalPerf />
+
       <Card className="p-4">
         <div className="mb-3 text-sm font-semibold">近 14 日註冊趨勢</div>
         <div className="flex h-28 items-end gap-1">

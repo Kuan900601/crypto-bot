@@ -3,8 +3,9 @@ import { authOptions, getUser, saveUser } from "@/lib/auth";
 import { redisGet, redisSet } from "@/lib/redis";
 export const dynamic = "force-dynamic";
 const CODEKEY = (e: string) => "web:vcode:email:" + e.trim().toLowerCase();
-async function sendEmail(to: string, code: string): Promise<boolean> {
-  const key = process.env.RESEND_API_KEY; if (!key) return false;
+async function sendEmail(to: string, code: string): Promise<{ ok: boolean; info: string }> {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return { ok: false, info: "no_key" };
   const from = process.env.RESEND_FROM || "黑潮 BLACKTIDE <onboarding@resend.dev>";
   try {
     const r = await fetch("https://api.resend.com/emails", {
@@ -12,8 +13,11 @@ async function sendEmail(to: string, code: string): Promise<boolean> {
       body: JSON.stringify({ from, to, subject: "黑潮 BLACKTIDE 信箱驗證碼",
         html: "<div style='font-family:sans-serif'><p>您好，您的信箱驗證碼為：</p><p style='font-size:24px;font-weight:bold;letter-spacing:4px'>" + code + "</p><p>10 分鐘內有效。</p></div>" }),
     });
-    return r.ok;
-  } catch { return false; }
+    if (r.ok) return { ok: true, info: "" };
+    let msg = "HTTP " + r.status;
+    try { const e = await r.json(); if (e?.message) msg = String(e.message); } catch {}
+    return { ok: false, info: msg };
+  } catch { return { ok: false, info: "network_error" }; }
 }
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
@@ -25,8 +29,8 @@ export async function POST(req: Request) {
   if (action === "send") {
     const c = Math.floor(100000 + Math.random() * 900000).toString();
     await redisSet(CODEKEY(email), JSON.stringify({ code: c, exp: Date.now() + 600000 }));
-    const sent = await sendEmail(email, c);
-    return Response.json({ ok: true, configured: !!process.env.RESEND_API_KEY, sent });
+    const res = await sendEmail(email, c);
+    return Response.json({ ok: true, configured: !!process.env.RESEND_API_KEY, sent: res.ok, info: res.info });
   }
   if (action === "check") {
     const saved = await redisGet(CODEKEY(email));

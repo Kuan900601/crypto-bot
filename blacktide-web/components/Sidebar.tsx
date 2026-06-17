@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Radio, BrainCircuit, Newspaper, Activity, FlaskConical, Gift, UserCircle, Waves } from "lucide-react";
+import { LayoutDashboard, Radio, BrainCircuit, Newspaper, Activity, FlaskConical, Gift, UserCircle, Waves, BookOpen } from "lucide-react";
 import { requiredTier } from "@/lib/access";
 const NAV_MAIN = [
   { href: "/", label: "市場總覽", icon: LayoutDashboard },
@@ -14,6 +14,7 @@ const NAV_MAIN = [
 ];
 const NAV_ME = [
   { href: "/activity", label: "活動", icon: Gift },
+  { href: "/guide", label: "使用教學", icon: BookOpen },
   { href: "/member", label: "會員中心", icon: UserCircle },
 ];
 const LEGAL = [

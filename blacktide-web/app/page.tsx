@@ -25,6 +25,9 @@ export default function Home() {
   const crypto = list.filter((t) => t.class === "crypto");
   const stocks = list.filter((t) => t.class === "stock");
   const watched = list.filter((t) => watchlist.includes(t.symbol));
+  const breadthUp = list.filter((t) => t.changePct >= 0).length;
+  const breadthDown = list.length - breadthUp;
+  const avgVol = list.length ? list.reduce((a, t) => a + Math.abs(t.changePct), 0) / list.length : 0;
   return (
     <div className="space-y-6">
       <TickerTape tickers={list} />
@@ -84,16 +87,14 @@ export default function Home() {
           <div className="mt-1 text-[11px] text-slate-600">市場資金集中度</div>
         </Card>
         <Card className="p-4">
-          <div className="text-xs text-slate-500">信號勝率（驗證中）</div>
-          <div className="mt-1 font-display text-xl font-bold">{stats?.signalWinRate != null ? stats.signalWinRate + "%" : "—"}</div>
-          <div className="mt-1 text-[11px] text-slate-600">樣本 {stats?.signalCount ?? 0} 筆</div>
+          <div className="text-xs text-slate-500">上漲 / 下跌</div>
+          <div className="mt-1 font-display text-xl font-bold"><span className="text-up">{breadthUp}</span> / <span className="text-down">{breadthDown}</span></div>
+          <div className="mt-1 text-[11px] text-slate-600">即時市場家數</div>
         </Card>
         <Card className="p-4">
-          <div className="text-xs text-slate-500">平均每筆期望值</div>
-          <div className={`mt-1 font-display text-xl font-bold ${Number(stats?.ev ?? 0) >= 0 ? "text-up" : "text-down"}`}>
-            {stats?.ev != null ? (Number(stats?.ev) >= 0 ? "+" : "") + Number(stats?.ev).toFixed(2) + "%" : "—"}
-          </div>
-          <div className="mt-1 text-[11px] text-slate-600">毛值（未扣成本）</div>
+          <div className="text-xs text-slate-500">平均波動</div>
+          <div className="mt-1 font-display text-xl font-bold">{avgVol.toFixed(2)}%</div>
+          <div className="mt-1 text-[11px] text-slate-600">24h 平均振幅</div>
         </Card>
       </section>
       {/* ===== 主流幣 ===== */}
