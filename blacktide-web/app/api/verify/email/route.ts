@@ -6,7 +6,7 @@ const CODEKEY = (e: string) => "web:vcode:email:" + e.trim().toLowerCase();
 async function sendEmail(to: string, code: string): Promise<{ ok: boolean; info: string }> {
   const key = process.env.RESEND_API_KEY;
   if (!key) return { ok: false, info: "no_key" };
-  const from = process.env.RESEND_FROM || "黑潮 BLACKTIDE <onboarding@resend.dev>";
+  const from = process.env.EMAIL_FROM || process.env.RESEND_FROM || "黑潮 BLACKTIDE <noreply@mail.blacktide.cc>";
   try {
     const r = await fetch("https://api.resend.com/emails", {
       method: "POST", headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
