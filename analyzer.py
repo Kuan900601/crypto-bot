@@ -3275,7 +3275,7 @@ class CryptoAnalyzer:
         - add: 可以加倉（更好機會）
         """
         try:
-            if df1h is None or len(df1h) < 30:
+            if df1h is None or len(df1h) < 32:
                 return "hold", ""
             direction = sig.get("direction", "")
             entry = sig.get("entry", 0)
@@ -3289,36 +3289,51 @@ class CryptoAnalyzer:
             else:
                 pnl_pct = (entry - current_price) / entry * 100
 
-            # 動能反向?
-            ema20 = df1h["close"].ewm(span=20).mean()
+            # v62 P3：結構判斷一律用「已收盤」1h K（排除未收盤當根），避免半根 K 假突破
+            closed = df1h.iloc[:-1]
+            ema20 = closed["close"].ewm(span=20).mean()
             current_ema20 = float(ema20.iloc[-1])
-            rsi_now = float(self.rsi(df1h).iloc[-1])
+            rsi_now = float(self.rsi(closed).iloc[-1])
 
+            # 動能轉弱但有獲利 → 建議減倉（沿用，不平倉）
+            if direction == "LONG" and current_price < current_ema20 * 0.995 and rsi_now < 45 and pnl_pct > 1:
+                return "reduce", "結構轉弱，建議減倉鎖利"
+            if direction == "SHORT" and current_price > current_ema20 * 1.005 and rsi_now > 55 and pnl_pct > 1:
+                return "reduce", "結構轉強，建議減倉鎖利"
+            # 強勢續航 → 持有（沿用）
+            if direction == "LONG" and rsi_now > 60 and current_price > current_ema20 * 1.01 and pnl_pct > 0:
+                return "hold", "趨勢延續，繼續持有"
+            if direction == "SHORT" and rsi_now < 40 and current_price < current_ema20 * 0.99 and pnl_pct > 0:
+                return "hold", "趨勢延續，繼續持有"
+
+            # === v62 P3：結構性主動平倉「雙確認 + 深虧」才動手，否則交給硬止損 ===
+            dd_ratio = float(os.getenv("STRUCT_EXIT_DD_RATIO", "0.6"))
+            min_pct = float(os.getenv("STRUCT_EXIT_MIN_PCT", "1.5"))
+            margin = float(os.getenv("STRUCT_BREAK_MARGIN", "0.5")) / 100.0
+            sl_dist_pct = abs(entry - sl) / entry * 100
+            loss_pct = -pnl_pct  # 虧損為正
+            # (a) 深度浮虧：取較嚴者（較大門檻）
+            if loss_pct < max(dd_ratio * sl_dist_pct, min_pct):
+                return "hold", ""
+            # (b) 結構確認破壞（已收盤 1h；前段結構低/高被收盤價破 margin 以上）
+            if len(closed) < 22:
+                return "hold", ""
+            last_close = float(closed["close"].iloc[-1])
+            prev_close = float(closed["close"].iloc[-2])
+            vol = float(closed["volume"].iloc[-1])
+            avg_vol = float(closed["volume"].iloc[-20:].mean())
+            vol_spike = avg_vol > 0 and vol > avg_vol * 1.8
             if direction == "LONG":
-                # 跌破 EMA20 + RSI 急轉
-                if current_price < current_ema20 * 0.995 and rsi_now < 45:
-                    if pnl_pct > 1:
-                        return "reduce", "結構轉弱，建議減倉鎖利"
-                    elif pnl_pct > -0.5:
-                        # v56：接近平手不再硬平,交給原本的止損/止盈,避免回檔一點就砍掉會贏的單
-                        return "hold", ""
-                    else:
-                        return "close_now", "深度浮虧 + 結構破壞，停損"
-                # 強勢續航
-                if rsi_now > 60 and current_price > current_ema20 * 1.01 and pnl_pct > 0:
-                    return "hold", "趨勢延續，繼續持有"
+                struct_low = float(closed["low"].iloc[-12:-2].min())
+                broke = last_close < struct_low * (1 - margin)
+                two_closes = broke and prev_close < struct_low * (1 - margin)
             else:
-                if current_price > current_ema20 * 1.005 and rsi_now > 55:
-                    if pnl_pct > 1:
-                        return "reduce", "結構轉強，建議減倉鎖利"
-                    elif pnl_pct > -0.5:
-                        # v56：接近平手不再硬平
-                        return "hold", ""
-                    else:
-                        return "close_now", "深度浮虧 + 結構破壞，停損"
-                if rsi_now < 40 and current_price < current_ema20 * 0.99 and pnl_pct > 0:
-                    return "hold", "趨勢延續，繼續持有"
-
+                struct_high = float(closed["high"].iloc[-12:-2].max())
+                broke = last_close > struct_high * (1 + margin)
+                two_closes = broke and prev_close > struct_high * (1 + margin)
+            # 第二確認：連續 2 根收盤都在破壞側，或破壞當根爆量
+            if broke and (two_closes or vol_spike):
+                return "close_now", "深度浮虧 + 1h 收盤結構破壞（雙確認），停損"
             return "hold", ""
         except Exception:
             return "hold", ""
