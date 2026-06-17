@@ -794,48 +794,42 @@ def process_pending(ex):
         save_json(TRADES_FILE, trades[-1000:])
 
 
-def _atr_pct(ex, symbol):
-    """最近 14 根 1h ATR / 收盤價。讀不到回 None。"""
+def _trail_levels(ex, symbol, lookback=12):
+    """v62 P4：一次抓 1h K 線算 (atr_abs, atr_pct, swing_low, swing_high)。讀不到回全 None。"""
     try:
-        ohlcv = ex.fetch_ohlcv(symbol, "1h", limit=20)
+        ohlcv = ex.fetch_ohlcv(symbol, "1h", limit=max(20, lookback + 2))
         if not ohlcv or len(ohlcv) < 15:
-            return None
+            return None, None, None, None
+        highs = [o[2] for o in ohlcv]
+        lows = [o[3] for o in ohlcv]
+        closes = [o[4] for o in ohlcv]
         trs = []
-        prev_close = ohlcv[0][4]
+        prev_close = closes[0]
         for o in ohlcv[1:]:
-            high, low, close = o[2], o[3], o[4]
-            tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
-            trs.append(tr)
-            prev_close = close
-        atr = sum(trs[-14:]) / min(14, len(trs))
-        last_close = ohlcv[-1][4]
-        if last_close > 0:
-            return atr / last_close
+            trs.append(max(o[2] - o[3], abs(o[2] - prev_close), abs(o[3] - prev_close)))
+            prev_close = o[4]
+        atr_abs = sum(trs[-14:]) / min(14, len(trs))
+        last_close = closes[-1]
+        atr_pct = atr_abs / last_close if last_close > 0 else None
+        return atr_abs, atr_pct, min(lows[-lookback:]), max(highs[-lookback:])
     except Exception:
-        return None
-    return None
-
-
-def _trail_buffer_pct(ex, symbol):
-    """止損緩衝 = max(TRAIL_BUFFER_MIN_PCT, 0.5×ATR%)。讀不到 ATR 用最小值。"""
-    min_buf = float(os.getenv("TRAIL_BUFFER_MIN_PCT", "0.004"))
-    atr_pct = _atr_pct(ex, symbol)
-    if atr_pct:
-        return max(min_buf, 0.5 * atr_pct)
-    return min_buf
+        return None, None, None, None
 
 
 def check_trailing_stop(ex):
-    """E3 / v61：TP 成交階梯移動整倉止損（每階段只做一次，用 V5 trading-stop 原子更新位階止損）。
-    依剩餘倉位比例反推已成交到哪一段（三段 40/35/25：TP1後≈0.60、TP2後≈0.25、TP3後≈0）：
-      stage1（TP1 成交）→ entry−緩衝（給回踩留空間，非死保本）
-      stage2（TP2 成交）→ entry（此時才保本）
-      stage3（TP3 成交）→ TP1
-    緩衝用 max(TRAIL_BUFFER_MIN_PCT, 0.5×1h ATR%)。整倉止損為位階屬性，更新即原子取代，無需先撤舊單。"""
+    """v62 P4：TP 成交階梯移動整倉止損，移動後 SL 須離現價夠遠且落在結構安全位（小回踩掃不到）。
+    依剩餘倉位比例反推 TP 成交段（三段 40/35/25：TP1後≈0.60、TP2後≈0.25、TP3後≈0）：
+      stage1（TP1）→ min(entry−緩衝, swing_low−0.3×ATR)，給更多空間（空單鏡像）
+      stage2（TP2）→ entry（此時才保本）
+      stage3（TP3）→ TP1
+    全部再夾「SL 須離現價至少 MIN_SL_GAP」；buffer=max(TRAIL_BUFFER_MIN_PCT,0.6×ATR%)、
+    MIN_SL_GAP=max(0.8×ATR%,0.006)。SL 只往有利方向移、且絕不設到現價的另一側。
+    用 V5 trading-stop 原子更新；失敗保留原止損並 push at:events。"""
     trades = load_json(TRADES_FILE, [])
     positions = trader.get_positions(ex)
     pos_map = {to_ccxt_symbol(p["symbol"]): p for p in positions}
     changed = False
+    min_buf_env = float(os.getenv("TRAIL_BUFFER_MIN_PCT", "0.004"))
     for rec in trades:
         if not rec.get("ok"):
             continue
@@ -855,27 +849,65 @@ def check_trailing_stop(ex):
         if not entry:
             continue
 
-        new_sl = None
-        new_stage = stage
+        # 反推本次該推進到哪一段（每段只做一次）
         if ratio <= 0.05 and stage < 3 and tp1:
-            new_sl = tp1
-            new_stage = 3
+            target_stage = 3
         elif ratio <= 0.27 and stage < 2:
-            new_sl = entry  # TP2 成交 → 保本
-            new_stage = 2
+            target_stage = 2
         elif ratio <= 0.62 and stage < 1:
-            buf = _trail_buffer_pct(ex, sym)
-            new_sl = entry * (1 - buf) if side == "buy" else entry * (1 + buf)
-            new_stage = 1
-
-        if new_sl is None:
+            target_stage = 1
+        else:
             continue
+
+        atr_abs, atr_pct, swing_low, swing_high = _trail_levels(ex, sym)
+        try:
+            cur_px = float(p.get("markPrice") or 0) or float(ex.fetch_ticker(sym)["last"])
+        except Exception:
+            cur_px = float(entry)
+        if not atr_pct or atr_pct <= 0:
+            atr_pct = 0.0
+            atr_abs = 0.0
+        buf = max(min_buf_env, 0.6 * atr_pct)
+        min_gap = max(0.8 * atr_pct, 0.006)   # 止損離現價至少這麼遠（比例）
+
+        if side == "buy":
+            if target_stage == 1:
+                new_sl = entry * (1 - buf)
+                if swing_low:
+                    new_sl = min(new_sl, swing_low - 0.3 * atr_abs)   # 取較低者→更多空間
+            elif target_stage == 2:
+                new_sl = entry
+            else:
+                new_sl = tp1
+            new_sl = min(new_sl, cur_px * (1 - min_gap))   # 強制離現價夠遠
+            if new_sl >= cur_px:
+                log("  ⚠️ 止損上移計算 ≥ 現價，跳過:", sym)
+                continue
+            cur_sl = rec.get("sl_used")
+            if cur_sl and new_sl <= cur_sl:   # 只能往上、不能放鬆 → 等下輪價格回升再試
+                continue
+        else:
+            if target_stage == 1:
+                new_sl = entry * (1 + buf)
+                if swing_high:
+                    new_sl = max(new_sl, swing_high + 0.3 * atr_abs)
+            elif target_stage == 2:
+                new_sl = entry
+            else:
+                new_sl = tp1
+            new_sl = max(new_sl, cur_px * (1 + min_gap))
+            if new_sl <= cur_px:
+                log("  ⚠️ 止損上移計算 ≤ 現價，跳過:", sym)
+                continue
+            cur_sl = rec.get("sl_used")
+            if cur_sl and new_sl >= cur_sl:
+                continue
 
         try:
             sl_str = ex.price_to_precision(sym, new_sl)
         except Exception:
             sl_str = str(new_sl)
-        # 用 V5 trading-stop 原子更新整倉止損（無需先撤舊單）；失敗保留原止損
+        # V5 trading-stop 原子更新整倉止損；失敗保留原止損（等同「先確保新單成功才生效」）
         try:
             ex.private_post_v5_position_trading_stop({
                 "category": "linear",
@@ -885,13 +917,14 @@ def check_trailing_stop(ex):
             })
         except Exception as e:
             log("  ⚠️ 止損上移失敗（保留原止損）:", sym, str(e)[:100])
+            push_event("⚠️ 止損上移失敗（保留原止損）｜" + sym + "｜" + str(e)[:100])
             continue
         rec["sl_used"] = float(sl_str)
-        rec["sl_stage"] = new_stage
+        rec["sl_stage"] = target_stage
         rec["trailing_done"] = True
         changed = True
-        log("  ✅ 止損上移:", sym, "stage", new_stage, "→ SL", sl_str)
-        push_event("🔒 止損上移 stage" + str(new_stage) + "｜" + sym + " → SL " + str(sl_str))
+        log("  ✅ 止損上移:", sym, "stage", target_stage, "→ SL", sl_str, "（離現價 ≥", round(min_gap * 100, 2), "%）")
+        push_event("🔒 止損上移 stage" + str(target_stage) + "｜" + sym + " → SL " + str(sl_str))
     if changed:
         save_json(TRADES_FILE, trades)
 
