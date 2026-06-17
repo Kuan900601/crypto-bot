@@ -48,6 +48,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         </div>
       )}
       <div className="flex min-w-0 flex-1 flex-col">
+        {/* PWA 安全區：iOS 狀態列補丁 */}
+        <div className="shrink-0" style={{ height: "env(safe-area-inset-top, 0px)", background: "rgba(6,7,11,0.97)" }} />
         <Topbar onMenu={() => setOpen(true)} />
         <main className="relative flex-1 overflow-y-auto px-4 pb-24 pt-5 md:px-8 md:pb-8 md:pt-6">
           {!locked && status === "authenticated" && <ExpiryBanner />}

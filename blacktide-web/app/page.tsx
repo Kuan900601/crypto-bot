@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Brain, Radio, ArrowRight, Crown } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { useMarket } from "@/lib/useMarket";
 import { useApp } from "@/lib/store";
 import { Card } from "@/components/ui";
@@ -19,8 +20,10 @@ function marketDir(upPct: number, fg: number) {
 export default function Home() {
   const { tickers, stats } = useMarket();
   const { setPricingOpen } = useApp();
+  const { data: session } = useSession();
   const [btc, setBtc] = useState<BtcBias | null>(null);
 
+  const tier = (session?.user?.tier as string) || "free";
   const crypto = tickers.filter((t) => t.class === "crypto");
   const up = tickers.filter((t) => t.changePct >= 0).length;
   const down = tickers.length - up;
@@ -118,13 +121,13 @@ export default function Home() {
               七大技術策略加新聞情緒投票，過五維評分與盈虧比硬門檻才出手。三段止盈 40/35/25，波動自適應止損。
             </p>
           </div>
-          <div className="flex flex-shrink-0 flex-wrap items-center gap-3">
+          <div className="flex flex-col gap-2 sm:flex-shrink-0 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
             <button onClick={() => setPricingOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-tide-400 to-tide-600 px-5 py-2.5 text-sm font-bold text-ink-950 hover:opacity-90">
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-tide-400 to-tide-600 px-5 py-3 text-sm font-bold text-ink-950 hover:opacity-90 sm:w-auto sm:py-2.5">
               <Crown size={15} /> 加入船長艙
             </button>
             <Link href="/signals"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 px-4 py-2.5 text-sm text-slate-200 hover:bg-white/5">
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-white/10 px-4 py-3 text-sm text-slate-200 hover:bg-white/5 sm:w-auto sm:py-2.5">
               <Radio size={14} /> 查看信號
             </Link>
           </div>
@@ -140,6 +143,16 @@ export default function Home() {
             : crypto.slice(0, 8).map((t) => <PriceCard key={t.symbol} t={t} />)}
         </div>
       </section>
+
+      {/* 手機浮動 CTA（免費用戶） */}
+      {tier === "free" && (
+        <div className="fixed inset-x-4 bottom-[4.5rem] z-10 md:hidden">
+          <button onClick={() => setPricingOpen(true)}
+            className="w-full rounded-2xl bg-gradient-to-r from-tide-400 to-tide-600 py-3.5 text-sm font-bold text-ink-950 shadow-xl shadow-tide-500/30">
+            <Crown size={14} className="mr-1.5 inline-block" /> 升級解鎖 · 完整交易信號
+          </button>
+        </div>
+      )}
     </div>
   );
 }
