@@ -1,7 +1,8 @@
 "use client";
 import { useState } from "react";
-import { SectionTitle, Card, Stat } from "@/components/ui";
+import { Card, Stat } from "@/components/ui";
 import { makeRng } from "@/lib/format";
+import { Play, TrendingUp, FlaskConical } from "lucide-react";
 const SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "SUI", "PEPE", "NVDA", "TSLA", "AAPL", "META"];
 const TFS = ["15m", "1h", "4h", "1d"];
 const STRATS = ["黑潮綜合（7+1 投票）", "趨勢追隨", "動量策略", "BOS 突破", "均線排列", "支撐阻力", "訂單流", "新聞情緒"];
@@ -47,15 +48,24 @@ function runBacktest(seedStr: string): Result {
   };
 }
 function EquityChart({ eq }: { eq: number[] }) {
-  const w = 560, h = 200;
+  const w = 560, h = 180;
   const min = Math.min(...eq), max = Math.max(...eq), span = max - min || 1;
   const pts = eq.map((v, i) => `${(i / (eq.length - 1)) * w},${h - ((v - min) / span) * (h - 12) - 6}`).join(" ");
   const yBase = h - ((100 - min) / span) * (h - 12) - 6;
   const up = eq[eq.length - 1] >= eq[0];
+  const color = up ? "#10b981" : "#f43f5e";
+  const fillPts = `${pts} ${w},${h} 0,${h}`;
   return (
     <svg viewBox={`0 0 ${w} ${h}`} className="w-full">
-      <line x1={0} y1={yBase} x2={w} y2={yBase} stroke="rgba(255,255,255,0.15)" strokeDasharray="4 4" />
-      <polyline points={pts} fill="none" stroke={up ? "#10b981" : "#f43f5e"} strokeWidth={2} />
+      <defs>
+        <linearGradient id="eqFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.28" />
+          <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+        </linearGradient>
+      </defs>
+      <line x1={0} y1={yBase} x2={w} y2={yBase} stroke="rgba(255,255,255,0.08)" strokeDasharray="4 4" />
+      <polygon points={fillPts} fill="url(#eqFill)" />
+      <polyline points={pts} fill="none" stroke={color} strokeWidth={2.5} />
     </svg>
   );
 }
@@ -73,52 +83,128 @@ export default function BacktestPage() {
   };
   return (
     <div className="space-y-5">
-      <SectionTitle title="策略回測" desc="12 商品 × 4 時間框 × 8 策略 · 完整風險指標" />
-      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-xs text-amber-200">
-        以下為模擬資料，僅示範介面與指標。真實策略表現請以 bot 的歷史結算（SIGNAL_RESULTS）為準——這正是「先驗證再加功能」的核心。
-      </div>
-      <Card className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-5">
-        <div><div className="mb-1 text-xs text-slate-500">商品</div>
-          <select className={selCls} value={symbol} onChange={(e) => setSymbol(e.target.value)}>{SYMBOLS.map((s) => <option key={s}>{s}</option>)}</select></div>
-        <div><div className="mb-1 text-xs text-slate-500">時間框架</div>
-          <select className={selCls} value={tf} onChange={(e) => setTf(e.target.value)}>{TFS.map((s) => <option key={s}>{s}</option>)}</select></div>
-        <div><div className="mb-1 text-xs text-slate-500">策略</div>
-          <select className={selCls} value={strat} onChange={(e) => setStrat(e.target.value)}>{STRATS.map((s) => <option key={s}>{s}</option>)}</select></div>
-        <div><div className="mb-1 text-xs text-slate-500">回測期間（天）</div>
-          <select className={selCls} value={period} onChange={(e) => setPeriod(Number(e.target.value))}>{PERIODS.map((s) => <option key={s} value={s}>{s}</option>)}</select></div>
-        <div className="flex items-end">
-          <button onClick={run} disabled={loading}
-            className="w-full rounded-lg bg-tide-500/15 py-2 text-sm font-semibold text-tide-300 hover:bg-tide-500/25 disabled:opacity-50">
-            {loading ? "回測中…" : "執行回測"}
-          </button>
+      {/* Hero */}
+      <section className="relative overflow-hidden rounded-2xl border border-white/10 p-5 sm:p-6"
+        style={{ background: "linear-gradient(135deg, rgba(100,120,255,0.07), rgba(10,12,18,0.4))" }}>
+        <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-blue-500/5 blur-3xl" />
+        <div className="relative">
+          <div className="mb-2 flex items-center gap-2">
+            <TrendingUp size={15} className="text-blue-400" />
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-blue-400">Strategy Validation</span>
+          </div>
+          <h1 className="font-display text-2xl font-bold sm:text-3xl">策略驗證 · 不靠感覺 靠數字</h1>
+          <p className="mt-2 max-w-lg text-sm leading-relaxed text-slate-400">
+            黑潮的每個策略都有歷史數據佐證。透明的勝率、期望值、最大回撤與 Sharpe 比率——自己跑、自己判斷。
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {["8 大策略", "12 標的", "4 時間框架", "12 項風險指標"].map((t) => (
+              <span key={t} className="rounded-full border border-blue-500/20 bg-blue-500/[0.06] px-3 py-1 text-[11px] text-blue-300">{t}</span>
+            ))}
+          </div>
         </div>
+      </section>
+
+      {/* Config */}
+      <Card className="p-4">
+        <div className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-slate-500">回測設定</div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div><div className="mb-1 text-xs text-slate-500">標的</div>
+            <select className={selCls} value={symbol} onChange={(e) => setSymbol(e.target.value)}>{SYMBOLS.map((s) => <option key={s}>{s}</option>)}</select></div>
+          <div><div className="mb-1 text-xs text-slate-500">時間框架</div>
+            <select className={selCls} value={tf} onChange={(e) => setTf(e.target.value)}>{TFS.map((s) => <option key={s}>{s}</option>)}</select></div>
+          <div><div className="mb-1 text-xs text-slate-500">策略</div>
+            <select className={selCls} value={strat} onChange={(e) => setStrat(e.target.value)}>{STRATS.map((s) => <option key={s}>{s}</option>)}</select></div>
+          <div><div className="mb-1 text-xs text-slate-500">回測期間（天）</div>
+            <select className={selCls} value={period} onChange={(e) => setPeriod(Number(e.target.value))}>{PERIODS.map((s) => <option key={s} value={s}>{s}</option>)}</select></div>
+          <div className="flex items-end">
+            <button onClick={run} disabled={loading}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-tide-500/15 py-2.5 text-sm font-semibold text-tide-300 hover:bg-tide-500/25 disabled:opacity-50">
+              <Play size={12} fill="currentColor" />{loading ? "計算中…" : "執行回測"}
+            </button>
+          </div>
+        </div>
+        <div className="mt-3 text-[10px] text-slate-600">以下為模擬資料，示範指標與介面；真實策略表現以 bot 歷史結算（SIGNAL_RESULTS）為準。</div>
       </Card>
+
+      {/* Empty state */}
+      {!res && !loading && (
+        <div className="flex flex-col items-center py-16 text-center">
+          <FlaskConical size={36} className="mb-3 text-slate-700" />
+          <div className="text-sm text-slate-500">選擇設定後點「執行回測」查看完整績效報告</div>
+          <div className="mt-1 text-[11px] text-slate-600">勝率 · 期望值 · Sharpe · 資金曲線 · 12 項指標</div>
+        </div>
+      )}
       {loading && <div className="h-56 animate-pulse rounded-xl bg-white/5" />}
+
+      {/* Results */}
       {res && !loading && (
         <div className="space-y-4">
+          {/* Summary 4-big-number row */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Card className="p-4 text-center">
+              <div className="text-[10px] uppercase tracking-wider text-slate-500">總報酬</div>
+              <div className={`mt-1 font-display text-3xl font-bold ${res.totalRet >= 0 ? "text-up" : "text-down"}`}>
+                {res.totalRet >= 0 ? "+" : ""}{res.totalRet}%
+              </div>
+              <div className="mt-0.5 text-[10px] text-slate-600">{period} 天 · {res.trades} 筆</div>
+            </Card>
+            <Card className="p-4 text-center">
+              <div className="text-[10px] uppercase tracking-wider text-slate-500">勝率</div>
+              <div className={`mt-1 font-display text-3xl font-bold ${res.winRate >= 50 ? "text-up" : "text-slate-300"}`}>{res.winRate}%</div>
+              <div className="mt-0.5 text-[10px] text-slate-600">賺賠比 {res.payoff}×</div>
+            </Card>
+            <Card className="p-4 text-center">
+              <div className="text-[10px] uppercase tracking-wider text-slate-500">Profit Factor</div>
+              <div className={`mt-1 font-display text-3xl font-bold ${res.pf >= 1.5 ? "text-up" : res.pf >= 1 ? "text-amber-400" : "text-down"}`}>{res.pf}</div>
+              <div className="mt-0.5 text-[10px] text-slate-600">≥ 1.5 為理想</div>
+            </Card>
+            <Card className="p-4 text-center">
+              <div className="text-[10px] uppercase tracking-wider text-slate-500">最大回撤</div>
+              <div className="mt-1 font-display text-3xl font-bold text-down">-{res.maxDD}%</div>
+              <div className="mt-0.5 text-[10px] text-slate-600">最長連虧 {res.maxConsecLoss} 筆</div>
+            </Card>
+          </div>
+
+          {/* Equity Curve */}
           <Card className="p-4">
-            <div className="mb-2 flex items-center justify-between text-sm">
-              <span className="font-semibold">資金曲線（初始 100）</span>
-              <span className={`font-mono ${res.totalRet >= 0 ? "text-up" : "text-down"}`}>{res.totalRet >= 0 ? "+" : ""}{res.totalRet}%</span>
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-sm font-semibold">資金曲線（初始 = 100）</span>
+              <span className={`font-mono text-sm ${res.totalRet >= 0 ? "text-up" : "text-down"}`}>
+                100 → {res.eq[res.eq.length - 1].toFixed(1)}
+              </span>
             </div>
             <EquityChart eq={res.eq} />
           </Card>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            <Stat label="總報酬" value={(res.totalRet >= 0 ? "+" : "") + res.totalRet + "%"} tone={res.totalRet >= 0 ? "up" : "down"} />
-            <Stat label="勝率" value={res.winRate + "%"} />
-            <Stat label="交易次數" value={String(res.trades)} />
-            <Stat label="最大回撤" value={"-" + res.maxDD + "%"} tone="down" />
-            <Stat label="期望值/筆" value={(res.expectancy >= 0 ? "+" : "") + res.expectancy + "%"} tone={res.expectancy >= 0 ? "up" : "down"} />
-            <Stat label="Profit Factor" value={String(res.pf)} tone={res.pf >= 1 ? "up" : "down"} />
-            <Stat label="平均盈" value={"+" + res.avgWin + "%"} tone="up" />
-            <Stat label="平均虧" value={res.avgLoss + "%"} tone="down" />
-            <Stat label="賺賠比" value={String(res.payoff)} sub="平均盈 ÷ 平均虧" />
-            <Stat label="最大連虧" value={res.maxConsecLoss + " 筆"} />
-            <Stat label="Sharpe" value={String(res.sharpe)} tone={res.sharpe >= 0 ? "up" : "down"} />
-            <Stat label="Sortino" value={String(res.sortino)} tone={res.sortino >= 0 ? "up" : "down"} />
-          </div>
-          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-[11px] leading-relaxed text-slate-400">
-            判讀重點：看「期望值/筆」是否穩定為正（且 ≥ 成本約 0.15–0.2%），而非只看勝率。高勝率配差賺賠比可能仍是負期望。
+
+          {/* Grouped stats 3-col */}
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Card className="p-3">
+              <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">核心績效</div>
+              <div className="space-y-2">
+                <Stat label="期望值/筆" value={(res.expectancy >= 0 ? "+" : "") + res.expectancy + "%"} tone={res.expectancy >= 0 ? "up" : "down"} />
+                <Stat label="賺賠比" value={res.payoff + "×"} sub="平均盈 ÷ 平均虧" />
+                <Stat label="平均盈利" value={"+" + res.avgWin + "%"} tone="up" />
+                <Stat label="平均虧損" value={res.avgLoss + "%"} tone="down" />
+              </div>
+            </Card>
+            <Card className="p-3">
+              <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">風險指標</div>
+              <div className="space-y-2">
+                <Stat label="Sharpe 比率" value={String(res.sharpe)} tone={res.sharpe >= 0 ? "up" : "down"} sub="≥ 1.0 良好" />
+                <Stat label="Sortino 比率" value={String(res.sortino)} tone={res.sortino >= 0 ? "up" : "down"} />
+                <Stat label="最大回撤" value={"-" + res.maxDD + "%"} tone="down" />
+                <Stat label="最大連虧筆數" value={res.maxConsecLoss + " 筆"} />
+              </div>
+            </Card>
+            <Card className="p-3">
+              <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">判讀指引</div>
+              <div className="space-y-1.5 text-[11px] leading-relaxed text-slate-500">
+                <p>· <b className="text-slate-300">期望值 &gt; 0.2%</b>：每筆平均貢獻為正，策略可持續</p>
+                <p>· <b className="text-slate-300">PF &gt; 1.5</b>：總盈利是總虧損 1.5 倍以上</p>
+                <p>· 勝率 &lt; 50% 不代表策略失敗，關鍵看賺賠比</p>
+                <p>· Sortino 高 = 虧損端控制好，比 Sharpe 更務實</p>
+              </div>
+            </Card>
           </div>
         </div>
       )}
