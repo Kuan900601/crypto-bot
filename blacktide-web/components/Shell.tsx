@@ -49,7 +49,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       )}
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar onMenu={() => setOpen(true)} />
-        <main className="relative flex-1 overflow-y-auto px-3 pb-24 pt-4 md:px-6 md:pb-6 md:pt-5">
+        <main className="relative flex-1 overflow-y-auto px-4 pb-24 pt-5 md:px-8 md:pb-8 md:pt-6">
           {!locked && status === "authenticated" && <ExpiryBanner />}
           <motion.div key={pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
             {children}

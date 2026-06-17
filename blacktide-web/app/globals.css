@@ -52,3 +52,6 @@ a:active { -webkit-tap-highlight-color: transparent; }
 /* 進場淡入（給卡片群用，可選）*/
 @keyframes riseIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .rise-in { animation: riseIn 0.35s cubic-bezier(0.22, 0.8, 0.26, 1) both; }
+/* v0.9：彈窗 iOS 彈入 */
+@keyframes popIn { 0% { opacity: 0; transform: scale(0.96); } 100% { opacity: 1; transform: none; } }
+.pop-in { animation: popIn 0.22s cubic-bezier(0.22, 0.8, 0.26, 1) both; }

@@ -3,18 +3,18 @@ import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Card, SectionTitle, Stat, Badge } from "@/components/ui";
 import { BadgeCheck } from "lucide-react";
-interface AdminUser { email: string; nickname?: string; name: string; phone: string; uid: string; tier: string; cycle?: string; subAmount?: number; planExpiry?: string; emailVerified?: boolean; referrals?: number; createdAt: string; }
+interface AdminUser { email: string; nickname?: string; name: string; phone: string; uid: string; tier: string; cycle?: string; subAmount?: number; planExpiry?: string; emailVerified?: boolean; referrals: number; invitedBy?: string; referralRewarded?: number; createdAt: string; }
 const tierUpper = (t: string) => (t === "air" ? "PLUS" : (t || "free").toUpperCase());
 interface Feedback { id: string; email: string; name: string; phone: string; uid: string; tier: string; content: string; createdAt: string; }
 interface Payment { id: string; email: string; tier: string; cycle: string; amount: number; payAmount?: number | null; payCurrency?: string | null; status: string; createdAt: string; }
-interface Stats { totalUsers: number; free: number; air: number; pro: number; mrr: number; recorded: number; signups7d: number; byDay: { date: string; count: number }[]; revenuePaid: number; conversion: number; arpu: number; }
+interface Stats { totalUsers: number; free: number; air: number; pro: number; mrr: number; recorded: number; signups7d: number; byDay: { date: string; count: number }[]; revenuePaid: number; conversion: number; arpu: number; referralsTotal: number; rewardsTotal: number; }
 interface Data { stats: Stats; users: AdminUser[]; feedback: Feedback[]; payments: Payment[]; }
 const fmtTime = (s: string) => { try { return new Date(s).toLocaleString("zh-TW", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch { return s; } };
 const payTone = (s: string): "up" | "down" | "amber" | "slate" => s === "finished" ? "up" : (s === "failed" || s === "expired") ? "down" : "amber";
 export default function AdminPage() {
   const { data: session, status } = useSession();
   const [data, setData] = useState<Data | null>(null);
-  const [tab, setTab] = useState<"users" | "payments" | "feedback">("users");
+  const [tab, setTab] = useState<"users" | "activity" | "payments" | "feedback">("users");
   const [err, setErr] = useState("");
   const load = useCallback(() => {
     fetch("/api/admin").then(async (r) => { if (!r.ok) { setErr(((await r.json()).error) || "讀取失敗"); return; } setData(await r.json()); }).catch(() => setErr("讀取失敗"));
@@ -59,12 +59,61 @@ export default function AdminPage() {
         </div>
       </Card>
       <div className="inline-flex rounded-lg bg-white/[0.04] p-1 text-xs font-semibold">
-        {(["users", "payments", "feedback"] as const).map((t) => (
+        {(["users", "activity", "payments", "feedback"] as const).map((t) => (
           <button key={t} onClick={() => setTab(t)} className={`rounded-md px-3 py-1.5 transition-colors ${tab === t ? "bg-tide-500/15 text-tide-300" : "text-slate-400"}`}>
-            {t === "users" ? "用戶（" + (data?.users.length ?? 0) + "）" : t === "payments" ? "付款（" + (data?.payments.length ?? 0) + "）" : "反饋（" + (data?.feedback.length ?? 0) + "）"}
+            {t === "users" ? "用戶（" + (data?.users.length ?? 0) + "）" : t === "activity" ? "活動" : t === "payments" ? "付款（" + (data?.payments.length ?? 0) + "）" : "反饋（" + (data?.feedback.length ?? 0) + "）"}
           </button>
         ))}
       </div>
+      {tab === "activity" && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            <Stat label="參與會員（有邀請）" value={String((data?.users || []).filter((u) => u.referrals > 0).length)} />
+            <Stat label="累計成功邀請" value={String(s?.referralsTotal ?? 0)} tone="up" />
+            <Stat label="已發放月數（Plus）" value={String(s?.rewardsTotal ?? 0)} />
+          </div>
+          <Card className="overflow-x-auto p-0">
+            <div className="border-b border-white/5 px-4 py-3 text-sm font-semibold">邀請好友 · 排行榜</div>
+            <table className="w-full min-w-[560px] text-left text-xs">
+              <thead className="border-b border-white/5 text-slate-500"><tr>
+                <th className="px-3 py-2">#</th><th className="px-3 py-2">會員</th><th className="px-3 py-2">UID</th><th className="px-3 py-2">成功邀請</th><th className="px-3 py-2">本輪</th><th className="px-3 py-2">已得月數</th>
+              </tr></thead>
+              <tbody>
+                {(data?.users || []).filter((u) => u.referrals > 0).sort((a, b) => b.referrals - a.referrals).map((u, i) => (
+                  <tr key={u.email} className="border-b border-white/5 last:border-0">
+                    <td className="px-3 py-2 text-slate-500">{i + 1}</td>
+                    <td className="px-3 py-2 text-slate-200">{u.nickname || u.name || "—"}</td>
+                    <td className="px-3 py-2 font-mono text-[10px] text-slate-500">{u.uid}</td>
+                    <td className="px-3 py-2 font-mono text-tide-200">{u.referrals}</td>
+                    <td className="px-3 py-2 text-slate-400">{u.referrals % 5}/5</td>
+                    <td className="px-3 py-2 font-mono text-up">{u.referralRewarded ?? 0}</td>
+                  </tr>
+                ))}
+                {(!data?.users || data.users.filter((u) => u.referrals > 0).length === 0) && <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-600">尚無邀請紀錄</td></tr>}
+              </tbody>
+            </table>
+          </Card>
+          <Card className="overflow-x-auto p-0">
+            <div className="border-b border-white/5 px-4 py-3 text-sm font-semibold">被邀請者 · 來源</div>
+            <table className="w-full min-w-[480px] text-left text-xs">
+              <thead className="border-b border-white/5 text-slate-500"><tr>
+                <th className="px-3 py-2">會員</th><th className="px-3 py-2">UID</th><th className="px-3 py-2">邀請人</th><th className="px-3 py-2">註冊</th>
+              </tr></thead>
+              <tbody>
+                {(data?.users || []).filter((u) => u.invitedBy).map((u) => (
+                  <tr key={u.email} className="border-b border-white/5 last:border-0">
+                    <td className="px-3 py-2 text-slate-200">{u.nickname || u.name || "—"}</td>
+                    <td className="px-3 py-2 font-mono text-[10px] text-slate-500">{u.uid}</td>
+                    <td className="px-3 py-2 font-mono text-amber-300">{u.invitedBy}</td>
+                    <td className="px-3 py-2 text-slate-500">{fmtTime(u.createdAt)}</td>
+                  </tr>
+                ))}
+                {(!data?.users || data.users.filter((u) => u.invitedBy).length === 0) && <tr><td colSpan={4} className="px-3 py-8 text-center text-slate-600">尚無被邀請紀錄</td></tr>}
+              </tbody>
+            </table>
+          </Card>
+        </div>
+      )}
       {tab === "users" && (
         <Card className="overflow-x-auto p-0">
           <table className="w-full min-w-[680px] text-left text-xs">

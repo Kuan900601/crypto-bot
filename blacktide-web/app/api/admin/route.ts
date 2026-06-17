@@ -12,11 +12,11 @@ async function requireAdmin() {
 export async function GET() {
   if (!(await requireAdmin())) return Response.json({ error: "無權限" }, { status: 403 });
   const emails = await redisSMembers(USERS_SET);
-  const users: { email: string; nickname: string; name: string; phone: string; uid: string; tier: string; cycle?: string; subAmount?: number; planExpiry?: string; emailVerified?: boolean; referrals?: number; createdAt: string }[] = [];
+  const users: { email: string; nickname: string; name: string; phone: string; uid: string; tier: string; cycle?: string; subAmount?: number; planExpiry?: string; emailVerified?: boolean; referrals: number; invitedBy: string; referralRewarded: number; createdAt: string }[] = [];
   for (const e of emails) {
     const u = await getUser(e);
     if (!u) continue;
-    users.push({ email: u.email, nickname: u.nickname || u.name, name: u.name, phone: u.phone || "", uid: u.uid, tier: tierOf(u), cycle: u.cycle, subAmount: u.subAmount, planExpiry: u.planExpiry, emailVerified: !!u.emailVerified, referrals: u.referrals || 0, createdAt: u.createdAt });
+    users.push({ email: u.email, nickname: u.nickname || u.name, name: u.name, phone: u.phone || "", uid: u.uid, tier: tierOf(u), cycle: u.cycle, subAmount: u.subAmount, planExpiry: u.planExpiry, emailVerified: !!u.emailVerified, referrals: u.referrals || 0, invitedBy: u.invitedBy || "", referralRewarded: u.referralRewarded || 0, createdAt: u.createdAt });
   }
   users.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   const air = users.filter((u) => u.tier === "air");
@@ -41,7 +41,7 @@ export async function GET() {
   const fbRaw = await redisLRange("web:feedback", 0, 499);
   const feedback = fbRaw.map((s) => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
   return Response.json({
-    stats: { totalUsers: users.length, free: users.length - subs.length, air: air.length, pro: pro.length, mrr, recorded, signups7d, byDay, revenuePaid, conversion, arpu },
+    stats: { totalUsers: users.length, free: users.length - subs.length, air: air.length, pro: pro.length, mrr, recorded, signups7d, byDay, revenuePaid, conversion, arpu, referralsTotal: users.reduce((s, u) => s + (u.referrals || 0), 0), rewardsTotal: users.reduce((s, u) => s + (u.referralRewarded || 0), 0) },
     users, feedback, payments,
   });
 }

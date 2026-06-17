@@ -41,7 +41,7 @@ export default function PricingModal() {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70" onClick={() => setPricingOpen(false)} />
-      <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-ink-800 p-5">
+      <div className="pop-in relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-ink-800 p-5">
         <div className="flex items-center">
           <div>
             <div className="text-base font-bold">選擇你的方案</div>

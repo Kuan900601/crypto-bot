@@ -3,11 +3,11 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
-import { Crown, LogOut, Camera, Send, Save, BadgeCheck, ShieldAlert, Gift, CheckCircle2 } from "lucide-react";
+import { Crown, LogOut, Camera, Send, Save, BadgeCheck, ShieldAlert, Gift, CheckCircle2, Bell } from "lucide-react";
 import { Card, SectionTitle, Badge } from "@/components/ui";
 import { useApp } from "@/lib/store";
 import { TIER_LABEL } from "@/lib/access";
-interface Me { uid: string; email: string; nickname: string; phone: string; avatar: string; tier: "free" | "air" | "pro"; cycle: string | null; subAmount: number; planExpiry: string | null; emailVerified: boolean; phoneVerified: boolean; invitedBy: string; referrals: number; referralRewarded: number; isAdmin: boolean; createdAt: string; }
+interface Me { uid: string; email: string; nickname: string; phone: string; avatar: string; tier: "free" | "air" | "pro"; cycle: string | null; subAmount: number; planExpiry: string | null; emailVerified: boolean; phoneVerified: boolean; invitedBy: string; referrals: number; referralRewarded: number; notifyEnabled: boolean; quietStart: string; quietEnd: string; isAdmin: boolean; createdAt: string; }
 const inp = "w-full rounded-lg border border-white/10 bg-ink-900 px-3 py-2.5 text-sm outline-none focus:border-tide-500/40";
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (<div><div className="mb-1 text-xs text-slate-500">{label}</div>{children}</div>);
@@ -31,6 +31,11 @@ export default function MemberPage() {
   const [vCode, setVCode] = useState("");
   const [vMsg, setVMsg] = useState("");
   const [vBusy, setVBusy] = useState(false);
+  const [notifyOn, setNotifyOn] = useState(true);
+  const [quietOn, setQuietOn] = useState(false);
+  const [quietStart, setQuietStart] = useState("23:00");
+  const [quietEnd, setQuietEnd] = useState("08:00");
+  const [notifyMsg, setNotifyMsg] = useState("");
   useEffect(() => { if (status === "unauthenticated") router.replace("/login"); }, [status, router]);
   useEffect(() => {
     try {
@@ -39,7 +44,11 @@ export default function MemberPage() {
     } catch {}
   }, []);
   const loadMe = () => fetch("/api/me").then((r) => r.json()).then((d) => {
-    if (d && !d.error) { setMe(d); setNickname(d.nickname || ""); setPhone(d.phone || ""); setAvatar(d.avatar || ""); }
+    if (d && !d.error) {
+      setMe(d); setNickname(d.nickname || ""); setPhone(d.phone || ""); setAvatar(d.avatar || "");
+      setNotifyOn(d.notifyEnabled !== false);
+      if (d.quietStart && d.quietEnd) { setQuietOn(true); setQuietStart(d.quietStart); setQuietEnd(d.quietEnd); }
+    }
   }).catch(() => {});
   useEffect(() => { if (status === "authenticated") loadMe(); }, [status]);
   const onAvatar = (file?: File) => {
@@ -65,6 +74,14 @@ export default function MemberPage() {
       setSaved(r.ok ? "已儲存" : "儲存失敗");
     } catch { setSaved("儲存失敗"); } finally { setBusy(false); }
   };
+  const saveNotify = async () => {
+    setBusy(true); setNotifyMsg("");
+    try {
+      const r = await fetch("/api/me", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notify: { enabled: notifyOn, quietStart: quietOn ? quietStart : "", quietEnd: quietOn ? quietEnd : "" } }) });
+      setNotifyMsg(r.ok ? "通知設定已儲存" : "儲存失敗");
+    } catch { setNotifyMsg("儲存失敗"); } finally { setBusy(false); }
+  };
   const sendFeedback = async () => {
     if (!fb.trim()) { setFbMsg("請先填寫反饋內容"); return; }
     setBusy(true); setFbMsg("");
@@ -78,9 +95,9 @@ export default function MemberPage() {
     try {
       const r = await fetch("/api/verify/email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "send" }) });
       const d = await r.json();
-      if (!d.configured) { setVMsg("寄信服務尚未設定（管理員需設定 RESEND_API_KEY）"); }
+      if (!d.configured) setVMsg("寄信服務尚未設定（管理員需設定 RESEND_API_KEY）");
       else if (d.sent) { setVSent(true); setVMsg("驗證碼已寄出，請查收信箱（含垃圾信匣）"); }
-      else { setVMsg("寄送失敗，請稍後再試"); }
+      else setVMsg("寄送失敗，請稍後再試");
     } catch { setVMsg("寄送失敗"); } finally { setVBusy(false); }
   };
   const checkCode = async () => {
@@ -94,8 +111,8 @@ export default function MemberPage() {
   if (status === "loading" || !me) return <div className="mx-auto mt-10 max-w-2xl"><Card className="h-40 animate-pulse" /></div>;
   const letter = (nickname || me.email || "?").slice(0, 1).toUpperCase();
   return (
-    <div className="mx-auto max-w-2xl space-y-5">
-      <SectionTitle title="會員中心" desc="個人資料、訂閱等級、帳號驗證與意見反饋" />
+    <div className="mx-auto max-w-2xl space-y-6">
+      <SectionTitle title="會員中心" desc="個人資料、訂閱等級、帳號驗證、通知與意見反饋" />
       {paid && (
         <div className="flex items-center gap-2 rounded-xl border border-up/25 bg-up/10 px-4 py-2.5 text-xs text-up">
           <CheckCircle2 size={18} className="shrink-0" />
@@ -134,9 +151,7 @@ export default function MemberPage() {
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-slate-500">信箱</span>
             <span className="text-sm text-slate-300">{me.email}</span>
-            {me.emailVerified
-              ? <Badge tone="up"><BadgeCheck size={12} /> 已驗證</Badge>
-              : <Badge tone="amber"><ShieldAlert size={12} /> 未驗證</Badge>}
+            {me.emailVerified ? <Badge tone="up"><BadgeCheck size={12} /> 已驗證</Badge> : <Badge tone="amber"><ShieldAlert size={12} /> 未驗證</Badge>}
             {!me.emailVerified && <button disabled={vBusy} onClick={sendCode} className="ml-auto rounded-lg bg-tide-500/15 px-3 py-1 text-xs font-semibold text-tide-300 hover:bg-tide-500/25 disabled:opacity-50">發送驗證碼</button>}
           </div>
           {!me.emailVerified && vSent && (
@@ -152,6 +167,36 @@ export default function MemberPage() {
             {me.phoneVerified ? <Badge tone="up"><BadgeCheck size={12} /> 已驗證</Badge> : <Badge tone="slate">未啟用</Badge>}
           </div>
         </div>
+      </Card>
+      <Card className="p-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm font-semibold"><Bell size={15} className="text-tide-300" /> 推播通知</div>
+          <label className="relative inline-flex cursor-pointer items-center">
+            <input type="checkbox" checked={notifyOn} onChange={(e) => setNotifyOn(e.target.checked)} className="peer sr-only" />
+            <div className="h-6 w-11 rounded-full bg-white/10 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-tide-500 peer-checked:after:translate-x-5" />
+          </label>
+        </div>
+        <p className="mt-1 text-xs text-slate-500">開啟後，新訊號與重要提醒會推播到你的裝置。</p>
+        {notifyOn && (
+          <div className="mt-3 space-y-3">
+            <label className="flex items-center gap-2 text-sm text-slate-300">
+              <input type="checkbox" checked={quietOn} onChange={(e) => setQuietOn(e.target.checked)} className="accent-tide-500" />
+              夜間勿擾（此時段不推播）
+            </label>
+            {quietOn && (
+              <div className="flex items-center gap-2 text-sm">
+                <input type="time" value={quietStart} onChange={(e) => setQuietStart(e.target.value)} className={inp + " w-auto"} />
+                <span className="text-slate-500">至</span>
+                <input type="time" value={quietEnd} onChange={(e) => setQuietEnd(e.target.value)} className={inp + " w-auto"} />
+              </div>
+            )}
+          </div>
+        )}
+        <div className="mt-4 flex items-center gap-3">
+          <button disabled={busy} onClick={saveNotify} className="flex items-center gap-1.5 rounded-lg bg-tide-500/20 px-4 py-2 text-sm font-semibold text-tide-300 hover:bg-tide-500/30 disabled:opacity-50"><Save size={14} /> 儲存通知設定</button>
+          {notifyMsg && <span className="text-xs text-slate-400">{notifyMsg}</span>}
+        </div>
+        <div className="mt-2 text-[10px] leading-relaxed text-slate-600">註：實際推播到手機需後續接通推播服務，此處先保存你的偏好。</div>
       </Card>
       <Card className="p-5">
         <div className="text-sm font-semibold">個人資料</div>

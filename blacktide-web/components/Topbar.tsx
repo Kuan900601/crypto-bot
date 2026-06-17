@@ -34,7 +34,7 @@ export default function Topbar({ onMenu }: { onMenu?: () => void }) {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/brand/logo.png" alt="黑潮" className="h-7 w-7 rounded-full ring-1 ring-tide-400/40" />
           </div>
-          <div ref={boxRef} className="relative ml-auto w-full max-w-md md:ml-0">
+          <div ref={boxRef} className="relative ml-1 min-w-0 flex-1 md:ml-0 md:max-w-md">
             <div className="flex items-center gap-2 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2">
               <Search size={15} className="text-slate-500" />
               <input value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)}

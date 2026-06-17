@@ -2,16 +2,19 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Radio, BrainCircuit, Newspaper, Activity, FlaskConical, Gift, Waves } from "lucide-react";
+import { LayoutDashboard, Radio, BrainCircuit, Newspaper, Activity, FlaskConical, Gift, UserCircle, Waves } from "lucide-react";
 import { requiredTier } from "@/lib/access";
-const NAV = [
+const NAV_MAIN = [
   { href: "/", label: "市場總覽", icon: LayoutDashboard },
   { href: "/signals", label: "黑潮船長", icon: Radio },
   { href: "/analysis", label: "AI 分析", icon: BrainCircuit },
   { href: "/news", label: "新聞中心", icon: Newspaper },
   { href: "/monitor", label: "異常監控", icon: Activity },
   { href: "/backtest", label: "策略回測", icon: FlaskConical },
+];
+const NAV_ME = [
   { href: "/activity", label: "活動", icon: Gift },
+  { href: "/member", label: "會員中心", icon: UserCircle },
 ];
 const LEGAL = [
   { href: "/legal/terms", label: "服務條款" },
@@ -23,7 +26,17 @@ function TierTag({ href }: { href: string }) {
   const t = requiredTier(href);
   if (!t) return null;
   const pro = t === "pro";
-  return <span className={`ml-auto rounded-md px-1.5 py-0.5 text-[9px] font-bold tracking-wide ${pro ? "bg-amber-500/15 text-amber-300" : "bg-tide-500/15 text-tide-300"}`}>{pro ? "PRO" : "AIR"}</span>;
+  return <span className={`ml-auto rounded-md px-1.5 py-0.5 text-[9px] font-bold tracking-wide ${pro ? "bg-amber-500/15 text-amber-300" : "bg-tide-500/15 text-tide-300"}`}>{pro ? "PRO" : "PLUS"}</span>;
+}
+function NavLink({ href, label, Icon, active, onNavigate }: { href: string; label: string; Icon: typeof LayoutDashboard; active: boolean; onNavigate?: () => void }) {
+  return (
+    <Link href={href} onClick={onNavigate}
+      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all duration-150 ${active ? "bg-tide-500/15 text-tide-300" : "text-slate-400 hover:bg-white/5 hover:text-slate-200"}`}>
+      <Icon size={17} className={active ? "text-tide-300" : ""} />
+      <span>{label}</span>
+      <TierTag href={href} />
+    </Link>
+  );
 }
 export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
@@ -33,7 +46,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       <div className="flex items-center gap-3 px-5 py-5">
         {logoOk ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src="/brand/logo.png" alt="黑潮 Signals" className="h-10 w-10 rounded-2xl object-cover ring-1 ring-tide-400/40" onError={() => setLogoOk(false)} />
+          <img src="/brand/logo.png" alt="黑潮 Signals" className="h-10 w-10 rounded-full object-cover ring-1 ring-tide-400/40" onError={() => setLogoOk(false)} />
         ) : (
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-tide-400 to-tide-600 text-ink-950"><Waves size={20} strokeWidth={2.5} /></div>
         )}
@@ -43,19 +56,10 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </div>
       <div className="hairline-gold mx-4" />
-      <nav className="mt-3 flex-1 space-y-1 overflow-y-auto px-3 scrollbar-none">
-        {NAV.map((n) => {
-          const active = pathname === n.href;
-          const Icon = n.icon;
-          return (
-            <Link key={n.href} href={n.href} onClick={onNavigate}
-              className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all ${active ? "bg-tide-500/15 text-tide-300" : "text-slate-400 hover:bg-white/5 hover:text-slate-200"}`}>
-              <Icon size={17} className={active ? "text-tide-300" : ""} />
-              <span>{n.label}</span>
-              <TierTag href={n.href} />
-            </Link>
-          );
-        })}
+      <nav className="mt-4 flex-1 space-y-1 overflow-y-auto px-3 scrollbar-none">
+        {NAV_MAIN.map((n) => <NavLink key={n.href} href={n.href} label={n.label} Icon={n.icon} active={pathname === n.href} onNavigate={onNavigate} />)}
+        <div className="px-3 pb-1 pt-4 text-[10px] font-semibold tracking-wider text-slate-600">我的</div>
+        {NAV_ME.map((n) => <NavLink key={n.href} href={n.href} label={n.label} Icon={n.icon} active={pathname === n.href} onNavigate={onNavigate} />)}
       </nav>
       <div className="px-4 pb-2 pt-3">
         <div className="mb-1.5 text-[10px] font-semibold tracking-wider text-slate-600">法律聲明</div>
