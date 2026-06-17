@@ -65,7 +65,7 @@ async function fetchFeed(f: { url: string; source: string }): Promise<Item[]> {
   try {
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort(), 6000);
-    const r = await fetch(f.url, { cache: "no-store", signal: ctrl.signal, headers: { "User-Agent": "Mozilla/5.0 (compatible; BlackTideBot/1.0)" } });
+    const r = await fetch(f.url, { cache: "no-store", signal: ctrl.signal, headers: { "User-Agent": "Mozilla/5.0 (compatible; BlackTideBot/v10)" } });
     clearTimeout(to);
     if (!r.ok) return [];
     return parseFeed(await r.text(), f.source);
