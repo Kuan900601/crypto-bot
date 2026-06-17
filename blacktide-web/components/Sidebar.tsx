@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Radio, BrainCircuit, Newspaper, Activity, FlaskConical, Gift, UserCircle, Waves, BookOpen } from "lucide-react";
+import { LayoutDashboard, Radio, BrainCircuit, Newspaper, Activity, FlaskConical, Gift, UserCircle, Waves, BookOpen, Send, ArrowRight } from "lucide-react";
 import { requiredTier } from "@/lib/access";
 const NAV_MAIN = [
   { href: "/", label: "市場總覽", icon: LayoutDashboard },
@@ -62,7 +62,15 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         <div className="px-3 pb-1 pt-4 text-[10px] font-semibold tracking-wider text-slate-600">我的</div>
         {NAV_ME.map((n) => <NavLink key={n.href} href={n.href} label={n.label} Icon={n.icon} active={pathname === n.href} onNavigate={onNavigate} />)}
       </nav>
-      <div className="px-4 pb-2 pt-3">
+      <div className="px-3 pb-3">
+        <a href="https://t.me/KuroshioSignal" target="_blank" rel="noopener noreferrer"
+          className="flex items-center gap-2 rounded-xl border border-tide-500/20 bg-tide-500/[0.06] px-3 py-2.5 text-xs text-tide-300 transition-colors hover:bg-tide-500/[0.12]">
+          <Send size={13} />
+          <span className="font-semibold">Telegram 社群頻道</span>
+          <ArrowRight size={11} className="ml-auto" />
+        </a>
+      </div>
+      <div className="px-4 pb-2 pt-0">
         <div className="mb-1.5 text-[10px] font-semibold tracking-wider text-slate-600">法律聲明</div>
         <div className="flex flex-col gap-1">
           {LEGAL.map((l) => (

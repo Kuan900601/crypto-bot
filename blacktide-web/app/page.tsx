@@ -1,147 +1,144 @@
 "use client";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { TrendingUp, Shield, Brain, Activity, ArrowRight, Crown, Layers, Gauge } from "lucide-react";
+import { Brain, Radio, ArrowRight, Crown } from "lucide-react";
 import { useMarket } from "@/lib/useMarket";
 import { useApp } from "@/lib/store";
-import { Card, SectionTitle, Badge } from "@/components/ui";
-import { fmtPrice, fmtPct } from "@/lib/format";
+import { Card } from "@/components/ui";
 import TickerTape from "@/components/TickerTape";
-import FearGauge from "@/components/FearGauge";
 import PriceCard from "@/components/PriceCard";
-import CandleChart from "@/components/CandleChart";
-const STRATS = ["趨勢追隨", "動量", "量價", "均線排列", "支撐阻力", "BOS 突破", "訂單流", "新聞情緒"];
-const STRENGTHS = [
-  { icon: Activity, t: "即時 Bybit 行情", d: "全永續合約即時報價、資金費率、未平倉" },
-  { icon: Layers, t: "三段止盈 40/35/25", d: "對齊實際成交，分批鎖利不貪心" },
-  { icon: Shield, t: "波動自適應止損", d: "依 ATR 動態調整，達 TP 自動上移保本" },
-  { icon: Gauge, t: "五維評分 + Kelly 倉位", d: "趨勢/動能/結構/量能/風險，倉位按品質縮放" },
-  { icon: Brain, t: "7+1 策略投票", d: "七技術指標 + 新聞情緒，至少兩票才出手" },
-  { icon: TrendingUp, t: "保護模式 / 大盤閘門", d: "連敗降檔、BTC 無趨勢高波動時暫停" },
-];
+
+interface BtcBias { bias: "long" | "short" | "neutral"; action: string; confidence: number; }
+
+function marketDir(upPct: number, fg: number) {
+  if (upPct >= 0.62 && fg >= 55) return { label: "偏多", tag: "BULLISH", cls: "text-up" };
+  if (upPct <= 0.38 && fg <= 45) return { label: "偏空", tag: "BEARISH", cls: "text-down" };
+  return { label: "中性震盪", tag: "NEUTRAL", cls: "text-slate-300" };
+}
+
 export default function Home() {
   const { tickers, stats } = useMarket();
-  const list = tickers;
-  const { selectedSymbol, setSymbol, watchlist, setPricingOpen } = useApp();
-  const crypto = list.filter((t) => t.class === "crypto");
-  const stocks = list.filter((t) => t.class === "stock");
-  const watched = list.filter((t) => watchlist.includes(t.symbol));
-  const breadthUp = list.filter((t) => t.changePct >= 0).length;
-  const breadthDown = list.length - breadthUp;
-  const avgVol = list.length ? list.reduce((a, t) => a + Math.abs(t.changePct), 0) / list.length : 0;
+  const { setPricingOpen } = useApp();
+  const [btc, setBtc] = useState<BtcBias | null>(null);
+
+  const crypto = tickers.filter((t) => t.class === "crypto");
+  const up = tickers.filter((t) => t.changePct >= 0).length;
+  const down = tickers.length - up;
+  const fg = Number(stats?.fearGreed ?? 50);
+  const dir = marketDir(tickers.length ? up / tickers.length : 0.5, fg);
+  const avgVol = tickers.length ? tickers.reduce((a, t) => a + Math.abs(t.changePct), 0) / tickers.length : 0;
+
+  useEffect(() => {
+    fetch("/api/coin?symbol=BTCUSDT")
+      .then((r) => r.json())
+      .then((d) => setBtc({ bias: d.bias ?? "neutral", action: d.action ?? "", confidence: d.confidence ?? 60 }))
+      .catch(() => {});
+  }, []);
+
   return (
     <div className="space-y-6">
-      <TickerTape tickers={list} />
-      {/* ===== 黑潮船長招牌卡 ===== */}
+      <TickerTape tickers={tickers} />
+
+      {/* ===== 三秒看懂市場 ===== */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {/* 今日方向 */}
+        <Card className="p-5">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">今日方向</div>
+          <div className={`font-display text-4xl font-bold ${dir.cls}`}>{dir.label}</div>
+          <div className="mt-0.5 text-[10px] tracking-[0.2em] text-slate-600">{dir.tag}</div>
+          <div className="mt-4 flex gap-4 text-sm">
+            <span><span className="font-bold text-up">{up}</span> <span className="text-xs text-slate-500">上漲</span></span>
+            <span><span className="font-bold text-down">{down}</span> <span className="text-xs text-slate-500">下跌</span></span>
+          </div>
+          <div className="mt-2 flex gap-4 text-xs text-slate-500">
+            <span>恐貪 <span className="text-slate-300">{Math.round(fg)}</span></span>
+            <span>波動 <span className="text-slate-300">{avgVol.toFixed(1)}%</span></span>
+          </div>
+        </Card>
+
+        {/* 最新信號 */}
+        <Link href="/signals" className="group">
+          <Card className="flex h-full flex-col justify-between p-5 transition-all hover:border-tide-500/30 hover:bg-tide-500/[0.04]">
+            <div>
+              <div className="mb-2 flex items-center gap-2">
+                <span className="pulse-dot h-2 w-2 rounded-full bg-tide-400" />
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">最新信號</span>
+              </div>
+              <div className="font-display text-2xl font-bold text-tide-300">黑潮船長</div>
+              <div className="mt-2 text-[12px] leading-relaxed text-slate-400">
+                掃描 52 幣種 · 7+1 策略投票<br />
+                五維評分 + 盈虧比硬門檻過濾
+              </div>
+            </div>
+            <div className="mt-4 flex items-center gap-1 text-xs font-semibold text-tide-300">
+              查看即時信號 <ArrowRight size={12} className="transition-transform group-hover:translate-x-0.5" />
+            </div>
+          </Card>
+        </Link>
+
+        {/* AI 觀點 */}
+        <Link href="/analysis" className="group">
+          <Card className="flex h-full flex-col justify-between p-5 transition-all hover:border-blue-500/30 hover:bg-blue-500/[0.04]">
+            <div>
+              <div className="mb-2 flex items-center gap-2">
+                <Brain size={13} className="text-blue-400" />
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">AI 觀點 · BTC</span>
+              </div>
+              {btc ? (
+                <>
+                  <div className={`font-display text-2xl font-bold ${btc.bias === "long" ? "text-up" : btc.bias === "short" ? "text-down" : "text-slate-300"}`}>
+                    {btc.bias === "long" ? "偏多看漲" : btc.bias === "short" ? "偏空看跌" : "無明確方向"}
+                  </div>
+                  <div className="mt-2 line-clamp-3 text-[12px] leading-relaxed text-slate-400">{btc.action}</div>
+                  <div className="mt-1.5 text-[10px] text-slate-600">AI 信心 {btc.confidence}%</div>
+                </>
+              ) : (
+                <div className="mt-1 space-y-2">
+                  <div className="h-6 w-32 animate-pulse rounded bg-white/5" />
+                  <div className="h-4 w-full animate-pulse rounded bg-white/5" />
+                  <div className="h-4 w-3/4 animate-pulse rounded bg-white/5" />
+                </div>
+              )}
+            </div>
+            <div className="mt-4 flex items-center gap-1 text-xs font-semibold text-blue-400">
+              深度 AI 分析 <ArrowRight size={12} className="transition-transform group-hover:translate-x-0.5" />
+            </div>
+          </Card>
+        </Link>
+      </div>
+
+      {/* ===== 黑潮 CTA ===== */}
       <section className="relative overflow-hidden rounded-2xl border border-tide-500/25 p-5 sm:p-6"
         style={{ background: "linear-gradient(135deg, rgba(212,175,55,0.10), rgba(10,12,18,0.4))" }}>
         <div className="pointer-events-none absolute -right-10 -top-10 h-48 w-48 rounded-full bg-tide-500/10 blur-3xl" />
-        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center">
-          <div className="flex-1">
-            <div className="mb-2 flex items-center gap-2">
-              <Crown size={18} className="text-tide-300" />
-              <span className="font-display text-xs font-semibold uppercase tracking-widest text-tide-300">BlackTide Captain</span>
-            </div>
-            <h1 className="font-display text-2xl font-bold text-gold glow-gold sm:text-3xl">黑潮船長 · 交易信號</h1>
-            <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-400">
-              掃描全市場、七大技術策略加新聞情緒投票，過五維評分與盈虧比硬門檻才出手。每筆信號附進場區、三段止盈與自適應止損。
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="font-display text-2xl font-bold text-gold glow-gold">黑潮 BLACKTIDE · 交易信號</h1>
+            <p className="mt-1.5 max-w-md text-sm leading-relaxed text-slate-400">
+              七大技術策略加新聞情緒投票，過五維評分與盈虧比硬門檻才出手。三段止盈 40/35/25，波動自適應止損。
             </p>
-            <div className="mt-4 flex flex-wrap gap-1.5">
-              {STRATS.map((s) => (
-                <span key={s} className="rounded-full border border-tide-500/20 bg-tide-500/[0.06] px-2.5 py-0.5 text-[11px] text-tide-300">{s}</span>
-              ))}
-            </div>
-            <div className="mt-5 flex flex-wrap items-center gap-3">
-              <button onClick={() => setPricingOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-tide-400 to-tide-600 px-4 py-2 text-sm font-bold text-ink-950 hover:opacity-90">
-                <Crown size={15} /> 加入船長艙
-              </button>
-              <Link href="/signals" className="inline-flex items-center gap-1 rounded-xl border border-white/10 px-4 py-2 text-sm text-slate-200 hover:bg-white/5">
-                查看即時信號 <ArrowRight size={14} />
-              </Link>
-              <span className="text-[11px] text-slate-500">驗證期 · 數據透明 · 不保證獲利</span>
-            </div>
           </div>
-          <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:w-[420px]">
-            {STRENGTHS.map((f) => (
-              <div key={f.t} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-                <f.icon size={16} className="text-tide-300" />
-                <div className="mt-1.5 text-sm font-semibold">{f.t}</div>
-                <div className="mt-0.5 text-[11px] leading-snug text-slate-500">{f.d}</div>
-              </div>
-            ))}
+          <div className="flex flex-shrink-0 flex-wrap items-center gap-3">
+            <button onClick={() => setPricingOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-tide-400 to-tide-600 px-5 py-2.5 text-sm font-bold text-ink-950 hover:opacity-90">
+              <Crown size={15} /> 加入船長艙
+            </button>
+            <Link href="/signals"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 px-4 py-2.5 text-sm text-slate-200 hover:bg-white/5">
+              <Radio size={14} /> 查看信號
+            </Link>
           </div>
         </div>
       </section>
-      {/* ===== 大盤狀態 ===== */}
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Card className="flex items-center gap-3 p-4">
-          <FearGauge value={Number(stats?.fearGreed ?? 50)} />
-          <div>
-            <div className="text-xs text-slate-500">恐懼貪婪</div>
-            <div className="font-display text-xl font-bold">{Math.round(Number(stats?.fearGreed ?? 50))}</div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-xs text-slate-500">BTC 主導率</div>
-          <div className="mt-1 font-display text-xl font-bold">{(Number(stats?.btcDominance ?? 0)).toFixed(1)}%</div>
-          <div className="mt-1 text-[11px] text-slate-600">市場資金集中度</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-xs text-slate-500">上漲 / 下跌</div>
-          <div className="mt-1 font-display text-xl font-bold"><span className="text-up">{breadthUp}</span> / <span className="text-down">{breadthDown}</span></div>
-          <div className="mt-1 text-[11px] text-slate-600">即時市場家數</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-xs text-slate-500">平均波動</div>
-          <div className="mt-1 font-display text-xl font-bold">{avgVol.toFixed(2)}%</div>
-          <div className="mt-1 text-[11px] text-slate-600">24h 平均振幅</div>
-        </Card>
-      </section>
+
       {/* ===== 主流幣 ===== */}
       <section>
-        <SectionTitle title="主流幣 · 即時" />
+        <div className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-slate-500">主流幣 · 即時</div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {crypto.length === 0
             ? Array.from({ length: 8 }).map((_, i) => <Card key={i} className="h-24 animate-pulse" />)
-            : crypto.slice(0, 12).map((t) => <PriceCard key={t.symbol} t={t} />)}
+            : crypto.slice(0, 8).map((t) => <PriceCard key={t.symbol} t={t} />)}
         </div>
-      </section>
-      {/* ===== 美股 ===== */}
-      {stocks.length > 0 && (
-        <section>
-          <SectionTitle title="美股 · 即時" />
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {stocks.slice(0, 8).map((t) => <PriceCard key={t.symbol} t={t} />)}
-          </div>
-        </section>
-      )}
-      {/* ===== 即時 K 線 + 觀察清單 ===== */}
-      <section className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        <Card className="p-3 lg:col-span-2">
-          <div className="mb-2 flex items-center gap-2 px-1">
-            <span className="font-display text-sm font-bold">{selectedSymbol}/USDT</span>
-            <Badge tone="tide">即時 K 線</Badge>
-          </div>
-          <CandleChart bybitSymbol={selectedSymbol + "USDT"} />
-        </Card>
-        <Card className="p-3">
-          <SectionTitle title="我的觀察" />
-          <div className="space-y-1">
-            {watched.length === 0 && <div className="px-1 py-2 text-xs text-slate-600">尚未加入觀察，點任一卡片右上角 ★。</div>}
-            {watched.map((t) => {
-              const up = t.changePct >= 0;
-              return (
-                <button key={t.symbol} onClick={() => setSymbol(t.symbol)}
-                  className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-white/5">
-                  <span className="font-mono text-sm font-semibold">{t.symbol}</span>
-                  <span className="ml-auto font-mono text-sm">${fmtPrice(t.price)}</span>
-                  <span className={`w-16 text-right text-xs ${up ? "text-up" : "text-down"}`}>{fmtPct(t.changePct)}</span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="mt-2 px-1 text-[10px] text-slate-600">點代號切換上方圖表 · 點主流幣卡看完整詳情</div>
-        </Card>
       </section>
     </div>
   );
