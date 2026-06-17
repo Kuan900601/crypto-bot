@@ -109,6 +109,8 @@ ADMIN_ID = 5947529357
 # ⭐ v30 推播歷史：避免短時間內重複推播相似信號
 # 格式：{symbol_direction: {"entry": price, "time": iso, "score": score}}
 RECENT_PUSHES = {}
+# ⭐ v62 P1：快速動能全體推播時間戳（小時級節流），記憶體即可
+_FAST_PUSH_TIMES = []
 
 # ⭐ v54 A 方案：Upstash Redis 雲端持久化（優先），本地檔案 fallback
 # 設了 UPSTASH 兩個環境變數 → 用 Redis（永久保存，不受部署/重啟/換平台影響）
@@ -2693,17 +2695,61 @@ def _build_fast_sig(sym, direction, price, df15m, strength, reason):
             "tp3": analyzer.px_round(tp3), "tp4": 0,
             "score": max(50, int(strength)),   # >26 避免被觀察單閘門擋掉
             "entry_grade": "B", "tier": "B", "order_type": "MARKET",
-            "timeframe": "短線", "tier_label": "⚡快速動能 B 級",
+            "timeframe": "短線", "tier_label": "⚡精選動能 B 級",
             "rr": 1.5, "fast_momentum": True,
         }
     except Exception:
         return None
 
 
+def _fast_rr(direction, entry, sl, df15m):
+    """v62 P1：到合理目標距離 ÷ 到合理止損距離。
+    目標用 swing_sr 的最近結構位；已突破無壓力時用 3×ATR 投射。讀不到回 0。"""
+    try:
+        risk = abs(float(entry) - float(sl))
+        if risk <= 0:
+            return 0.0
+        res, sup = analyzer.swing_sr(df15m)
+        atr15 = float(analyzer.atr(df15m).iloc[-1])
+        if direction == "LONG":
+            targets = [r for r in res if r > entry]
+            target = min(targets) if targets else entry + 3 * atr15
+        else:
+            targets = [s for s in sup if s < entry]
+            target = max(targets) if targets else entry - 3 * atr15
+        return abs(float(target) - float(entry)) / risk
+    except Exception:
+        return 0.0
+
+
+def _fast_trend_consistency(direction, df1h):
+    """v62 P1：1h 趨勢一致性。回傳 0~1（0 = 明確逆向，應否決）。"""
+    try:
+        if df1h is None or len(df1h) < 50:
+            return 0.7
+        ema20 = float(df1h["close"].ewm(span=20, adjust=False).mean().iloc[-1])
+        ema50 = float(df1h["close"].ewm(span=50, adjust=False).mean().iloc[-1])
+        px = float(df1h["close"].iloc[-1])
+        if direction == "LONG":
+            if px > ema20 > ema50:
+                return 1.0
+            if px < ema20 < ema50:   # 明確下行 → 否決
+                return 0.0
+            return 0.7
+        else:
+            if px < ema20 < ema50:
+                return 1.0
+            if px > ema20 > ema50:   # 明確上行 → 否決
+                return 0.0
+            return 0.7
+    except Exception:
+        return 0.7
+
+
 async def _push_fast_signal(ctx, sig, reason):
     sym_short = sig["symbol"].replace("/USDT", "")
     direction_zh = "做多" if sig["direction"] == "LONG" else "做空"
-    msg = "⚡ *" + sym_short + " 快速動能 — " + direction_zh + "*\n"
+    msg = "⚡ *" + sym_short + " 精選動能 — " + direction_zh + "*\n"
     msg += "━━━━━━━━━━━━━━━\n"
     msg += "進場 `" + str(sig["entry"]) + "`　止損 `" + str(sig["sl"]) + "`\n"
     msg += "TP1 `" + str(sig["tp1"]) + "` · TP2 `" + str(sig["tp2"]) + "` · TP3 `" + str(sig["tp3"]) + "`\n"
@@ -2720,9 +2766,10 @@ async def _push_fast_signal(ctx, sig, reason):
 
 
 async def fast_momentum_scan(ctx: ContextTypes.DEFAULT_TYPE):
-    """v61 P3-2：快速動能搶先偵測（輕量，不動主掃描）。
-    只掃 24h 漲跌幅前 12，抓 5m+15m，命中放量突破即立即推播 + 進 Redis 佇列。
-    受連虧暫停／熔斷管制（沿用 auto_protection_mode / SYMBOL_LOSSES）。"""
+    """v62 P1：快速動能「精選」搶先偵測（輕量，不動主掃描）。
+    掃 24h 漲跌幅前 12，抓 5m+15m+1h；候選需同時滿足 強度≥FAST_MIN_STRENGTH、RR≥FAST_MIN_RR、
+    1h 趨勢不逆向、無活躍信號；綜合分（強度×量能×RR×趨勢）排序後每輪只推 FAST_TOP_N 個。
+    頻率閘門：同幣 2h 不重複；全體每小時上限 FAST_MAX_PER_HOUR。受連虧/熔斷管制。"""
     if not HUNTER_WATCHERS and not BLACK_HUNTER_CHANNEL:
         return
     try:
@@ -2731,6 +2778,23 @@ async def fast_momentum_scan(ctx: ContextTypes.DEFAULT_TYPE):
         protection_mode = "NORMAL"
     if protection_mode == "CIRCUIT_BREAK":
         return
+
+    min_strength = int(os.getenv("FAST_MIN_STRENGTH", "70"))
+    if protection_mode == "DEFENSIVE":
+        min_strength += 15
+    min_rr = float(os.getenv("FAST_MIN_RR", "1.8"))
+    top_n = int(os.getenv("FAST_TOP_N", "1"))
+    max_per_hour = int(os.getenv("FAST_MAX_PER_HOUR", "2"))
+
+    # 全體每小時上限（記憶體節流）
+    now = datetime.now(timezone.utc)
+    global _FAST_PUSH_TIMES
+    _FAST_PUSH_TIMES = [t for t in _FAST_PUSH_TIMES if (now - t).total_seconds() < 3600]
+    budget = max_per_hour - len(_FAST_PUSH_TIMES)
+    if budget <= 0:
+        logger.info("⚡精選動能：本小時已達上限 " + str(max_per_hour) + " 個，本輪不推")
+        return
+
     try:
         async with aiohttp.ClientSession() as session:
             # 1) 只抓 ticker 選候選（不重抓全 52 幣 K 線）
@@ -2751,18 +2815,20 @@ async def fast_momentum_scan(ctx: ContextTypes.DEFAULT_TYPE):
             cand = cand[:12]
             if not cand:
                 return
-            # 2) 只對候選抓 5m + 15m
+            # 2) 只對候選抓 5m + 15m + 1h
             k_tasks = []
             for s, _, _ in cand:
                 k_tasks.append(analyzer.fetch_ohlcv(session, s, "5m", 60))
                 k_tasks.append(analyzer.fetch_ohlcv(session, s, "15m", 60))
+                k_tasks.append(analyzer.fetch_ohlcv(session, s, "1h", 80))
             kdata = await asyncio.gather(*k_tasks, return_exceptions=True)
-        min_strength = int(os.getenv("FAST_MOMENTUM_MIN_STRENGTH", "55"))
+
         cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-        pushed = 0
+        scored = []   # (composite, sym, direction, price, df15m, strength, reason)
         for idx, (sym, _, price) in enumerate(cand):
-            df5m = kdata[idx * 2]
-            df15m = kdata[idx * 2 + 1]
+            df5m = kdata[idx * 3]
+            df15m = kdata[idx * 3 + 1]
+            df1h = kdata[idx * 3 + 2]
             if isinstance(df5m, Exception) or isinstance(df15m, Exception):
                 continue
             if sym in ACTIVE_SIGNALS:   # 已有活躍信號 → 不疊
@@ -2770,30 +2836,60 @@ async def fast_momentum_scan(ctx: ContextTypes.DEFAULT_TYPE):
             direction, strength, reason = analyzer.fast_breakout_check(df5m, df15m)
             if not direction:
                 continue
+            if strength < min_strength:
+                logger.info("⚡精選動能：" + sym + " 強度不足(" + str(strength) + ")，只記錄不推")
+                continue
             # 連虧暫停過濾（24h 內 ≥2 筆虧損）
             recent_losses = [x for x in SYMBOL_LOSSES.get(sym, []) if _safe_after(x, cutoff)]
             if len(recent_losses) >= 2:
                 continue
-            # 最近推播冷卻（同向 1h）
+            # 同幣 2h 不重複（同向）
             key = sym + "_" + direction
             rp = RECENT_PUSHES.get(key)
-            if rp and _safe_after(rp.get("time", ""), datetime.now(timezone.utc) - timedelta(hours=1)):
+            if rp and _safe_after(rp.get("time", ""), now - timedelta(hours=2)):
                 continue
-            if strength < min_strength or (protection_mode == "DEFENSIVE" and strength < min_strength + 15):
-                logger.info("⚡快速動能：" + sym + " 強度不足(" + str(strength) + ")，只記錄不推")
-                continue
+            # RR 門檻
             sig = _build_fast_sig(sym, direction, price, df15m, strength, reason)
             if not sig:
                 continue
+            rr = _fast_rr(direction, sig["entry"], sig["sl"], df15m)
+            if rr < min_rr:
+                logger.info("⚡精選動能：" + sym + " RR 不足(" + str(round(rr, 2)) + ")，跳過")
+                continue
+            # 1h 趨勢不逆向
+            df1h_ok = None if isinstance(df1h, Exception) else df1h
+            tc = _fast_trend_consistency(direction, df1h_ok)
+            if tc <= 0:
+                logger.info("⚡精選動能：" + sym + " 1h 趨勢逆向，跳過")
+                continue
+            # 量能倍數
+            try:
+                vols5 = df5m["volume"].astype(float)
+                avg_vol = float(vols5.iloc[-20:].mean()) if len(vols5) >= 20 else float(vols5.mean())
+                vol_ratio = float(vols5.iloc[-1]) / avg_vol if avg_vol > 0 else 1.0
+            except Exception:
+                vol_ratio = 1.0
+            composite = strength * vol_ratio * rr * tc
+            scored.append((composite, sym, direction, sig, reason, strength, round(rr, 2)))
+
+        if not scored:
+            return
+        scored.sort(key=lambda x: x[0], reverse=True)
+        limit = min(top_n, budget)
+        pushed = 0
+        for composite, sym, direction, sig, reason, strength, rr in scored[:limit]:
+            key = sym + "_" + direction
             register_signal(sig, list(HUNTER_WATCHERS))   # 內含 Redis 佇列橋接
             RECENT_PUSHES[key] = {"entry": sig["entry"],
                                   "time": datetime.now(timezone.utc).isoformat(),
                                   "score": sig["score"]}
+            _FAST_PUSH_TIMES.append(datetime.now(timezone.utc))
             await _push_fast_signal(ctx, sig, reason)
-            logger.info("⚡快速動能推播: " + sym + " " + direction + " 強度 " + str(strength))
+            logger.info("⚡精選動能推播: " + sym + " " + direction + " 強度 " + str(strength)
+                        + " RR " + str(rr) + " 綜合 " + str(round(composite, 1)))
             pushed += 1
-            if pushed >= 3:
-                break
+        if pushed:
+            logger.info("⚡精選動能：本輪候選 " + str(len(scored)) + " 個，推 " + str(pushed) + " 個")
     except Exception as e:
         logger.error("快速動能掃描失敗: " + str(e))
 
