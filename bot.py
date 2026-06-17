@@ -38,7 +38,7 @@ _C_TIER_GATE = {"last_high_tier_push": 0, "circuit_break_until": 0}
 C_TIER_DELAY_MIN = float(os.getenv("C_TIER_DELAY_MIN", "30"))
 
 # ⭐ v54 版本標識
-BOT_VERSION = "v61"
+BOT_VERSION = "v62"
 
 # ⭐ v54 進場品質顯示：內部值 S/A/B/C/D 不變（邏輯依賴），僅在顯示層翻譯成三級中文
 def entry_grade_display(grade):
@@ -831,16 +831,13 @@ async def cmd_at_status(update, context):
     except Exception:
         mode = "未知（trader 模組載入失敗）"
 
-    sizing_mode = os.getenv("SIZING_MODE", "fixed")
-    text = "🤖 *自動交易狀態（v59）*\n"
+    text = "🤖 *自動交易狀態（v62）*\n"
     text += "━━━━━━━━━━━━━━━━━━━━\n"
     text += "AUTO_TRADE_ENABLED: " + ("✅ 開啟" if enabled else "❌ 關閉（不會下單）") + "\n"
     text += "模式: " + mode + "\n\n"
 
     text += "*倉位設定*\n"
-    text += "SIZING_MODE: " + sizing_mode + "\n"
-    if sizing_mode == "risk":
-        text += "RISK_PER_TRADE_PCT: " + os.getenv("RISK_PER_TRADE_PCT", "0.03") + "\n"
+    text += "本金: 固定等額 = 淨值 ÷ 倉數（v62；SIZING_MODE/RISK 已不影響下單）\n"
     text += "槓桿: " + os.getenv("AT_LEVERAGE", "20") + "x\n"
     text += "最大倉數: " + os.getenv("AT_MAX_POSITIONS", "4") + "\n"
     text += "止損上限: " + os.getenv("AT_MAX_SL_PCT", "0.035") + "\n"
