@@ -33,6 +33,7 @@ async function analyzeSym(sym: string) {
     const td = await tr.json();
     const t = td?.result?.list?.[0] || {};
     const fund = t.fundingRate ? +t.fundingRate * 100 : 0;
+    const oi = t.openInterestValue ? +t.openInterestValue : null;
     const chg = t.price24hPcnt ? +t.price24hPcnt * 100 : mom;
     const sup = [Math.min(...lows.slice(-20)), Math.min(...lows.slice(-50))].map(rnd);
     const res = [Math.max(...highs.slice(-20)), Math.max(...highs.slice(-50))].map(rnd);
@@ -60,7 +61,7 @@ async function analyzeSym(sym: string) {
       : "區間整理：" + sup[0] + " – " + res[0] + " 之間不追單，等帶量突破方向再進場。";
     return { symbol: sym.replace(/USDT$/, ""), price: rnd(price), change24h: +chg.toFixed(2), rsi: Math.round(r), ma20: rnd(ma20), ma50: rnd(ma50),
       atrPct: +atr.toFixed(2), momentum: +mom.toFixed(1), fundingPct: +fund.toFixed(4), trend, bias, confidence, risk, sentiment,
-      support: sup, resistance: res, basis, action };
+      oi, support: sup, resistance: res, basis, action };
   } catch { return null; }
 }
 export async function GET(req: Request) {
