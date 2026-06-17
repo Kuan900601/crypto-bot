@@ -994,6 +994,26 @@ async def cmd_at_debug(update, context):
     else:
         text += "無資料\n"
 
+    # ⑤c 滿倉候補（v62 P2b）
+    waitlist_raw = _redis_lrange_raw("at:waitlist")
+    text += "\n*⑤c at:waitlist 候補*（" + str(len(waitlist_raw)) + "）\n"
+    if waitlist_raw:
+        oldest_age = None
+        for it in waitlist_raw:
+            try:
+                w = json.loads(it)
+                cdt = datetime.fromisoformat(w.get("created"))
+                if cdt.tzinfo is None:
+                    cdt = cdt.replace(tzinfo=timezone.utc)
+                age = (datetime.now(timezone.utc) - cdt).total_seconds() / 60.0
+                if oldest_age is None or age > oldest_age:
+                    oldest_age = age
+            except Exception:
+                continue
+        text += "最舊一筆年齡: " + (str(round(oldest_age, 1)) + " 分" if oldest_age is not None else "?") + "\n"
+    else:
+        text += "無\n"
+
     # ⑥ 限價單 / 熔斷
     pending = _redis_get_json_key("at:pending", [])
     breaker = _redis_get_json_key("at:breaker_tripped", None)

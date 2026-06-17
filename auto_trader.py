@@ -24,6 +24,7 @@ TRADES_FILE = "auto_trades.json"
 PENDING_FILE = "pending_orders.json"
 REDIS_QUEUE_KEY = "signal_queue"
 REDIS_CLOSE_KEY = "close_queue"
+REDIS_WAITLIST_KEY = "at:waitlist"   # v62 P2b：滿倉時暫存信號，有空位再補單
 
 
 def log(*a):
@@ -318,21 +319,8 @@ def open_batch_tp_position(ex, signal, equity, free_usdt=None):
         "tp1": signal.get("tp1"), "tp2": signal.get("tp2"),
     }
 
-    # E1：止損距離（夾完 MAX_SL_PCT 之後），供風險定額計算用
-    sl = signal.get("sl")
-    if sl:
-        raw_dist = abs(price - sl) / price
-        sl_dist_pct = min(raw_dist, MAX_SL_PCT) if raw_dist > 0 else MAX_SL_PCT
-    else:
-        sl_dist_pct = MAX_SL_PCT
-
-    sizing_mode = os.getenv("SIZING_MODE", "fixed")
-    if sizing_mode == "risk":
-        risk_pct = float(os.getenv("RISK_PER_TRADE_PCT", "0.03"))
-        margin = equity * risk_pct / (sl_dist_pct * LEVERAGE)
-    else:
-        margin = equity / 4.0
-    margin = min(margin, equity / 4.0)
+    # v62 P2a：倉位本金固定等額 = 淨值 ÷ MAX_POSITIONS（移除 SIZING_MODE=risk 風險定額殘留）
+    margin = equity / MAX_POSITIONS
     if free_usdt is not None:
         margin = min(margin, free_usdt * 0.95)
     if margin <= 0:
@@ -498,13 +486,51 @@ def _save_last_cycle(queue, pending, open_positions, skipped, last_error):
     }, ensure_ascii=False)])
 
 
+def _commit_open_record(record, signal, sig_id, trades, pending, open_symbols):
+    """把 open_batch_tp_position 的 record 落地到 pending/trades，回傳 'pending'|'ok'|'fail'。
+    （主佇列開倉與候補補單共用，避免重複那段落地邏輯。）"""
+    csym = to_ccxt_symbol(signal.get("symbol", ""))
+    if record.get("pending"):
+        pending.append({
+            "sig_id": sig_id, "symbol": record["symbol"], "side": record["side"],
+            "order_id": record.get("order_id"), "entry": record.get("entry"),
+            "sl": signal.get("sl"), "tp1": signal.get("tp1"), "tp2": signal.get("tp2"),
+            "tp3": signal.get("tp3"), "tp4": signal.get("tp4"),
+            "amount": record.get("total_amount"), "margin_usdt": record.get("margin_usdt", 0),
+            "created_ts": time.time(),
+            "expire_ts": time.time() + float(signal.get("order_valid_hours", 8)) * 3600,
+            "tier": signal.get("tier"),
+        })
+        open_symbols.add(csym)
+        log("    🕐 限價單已掛:", record["symbol"], "@", record.get("entry"))
+        push_event("🕐 限價單已掛｜" + record["symbol"] + " @ " + str(record.get("entry")))
+        return "pending"
+    trades.append(record)
+    if record["ok"]:
+        open_symbols.add(csym)
+        log("    ✅ 下單成功:", record["symbol"],
+            "本金", record.get("margin_usdt"), "×", LEVERAGE, "倍",
+            "TP單:", len([t for t in record["tp_orders"] if t.get("ok")]),
+            "止損:", record["sl_ok"])
+        push_event("✅ 開倉成功｜" + record["symbol"] + " " + record["side"] +
+                   "｜本金 " + str(record.get("margin_usdt")) + "｜止損 " + ("OK" if record["sl_ok"] else "失敗"))
+        if record["msg"]:
+            log("    ⚠️", record["msg"])
+        return "ok"
+    log("    🔴 下單失敗:", record["msg"])
+    push_event("🔴 開倉失敗｜" + signal.get("symbol", "") + "｜" + record["msg"])
+    return "fail"
+
+
 def process_once(ex):
     queue = read_redis_list(REDIS_QUEUE_KEY)
     processed = load_json(PROCESSED_FILE, [])
     trades = load_json(TRADES_FILE, [])
     pending = load_json(PENDING_FILE, [])
+    waitlist = read_redis_list(REDIS_WAITLIST_KEY)   # v62 P2b：滿倉候補
+    waitlist_changed = False
     skipped = {"tier": 0, "same_symbol": 0, "max_pos": 0, "expired": 0, "drift": 0, "breaker": 0}
-    if not queue:
+    if not queue and not waitlist:
         _save_last_cycle(queue, pending, None, skipped, None)
         return
     try:
@@ -569,9 +595,14 @@ def process_once(ex):
             skipped["same_symbol"] += 1
             continue
         if pos_count >= MAX_POSITIONS:
-            log("  已達最大持倉數", MAX_POSITIONS, "，跳過剩餘")
+            # v62 P2b：滿倉 → 進候補（不丟棄、不 mark processed），有空位再補單；bot 端照推 TG
+            wl_ids = {(w.get("id") or (w.get("symbol", "") + str(w.get("created", "")))) for w in waitlist}
+            if sig_id not in wl_ids:
+                waitlist.append(signal)
+                waitlist_changed = True
+                log("  🪧 滿倉，信號進候補:", signal.get("symbol"))
             skipped["max_pos"] += 1
-            break
+            continue
         log("  處理新信號:", sig_id)
         record = open_batch_tp_position(ex, signal, equity, free_usdt)
         record["sig_id"] = sig_id
@@ -579,42 +610,92 @@ def process_once(ex):
         _changed = True
         if "現價偏離信號進場價過多" in (record.get("msg") or ""):
             skipped["drift"] += 1
-
-        if record.get("pending"):
-            pending.append({
-                "sig_id": sig_id, "symbol": record["symbol"], "side": record["side"],
-                "order_id": record.get("order_id"), "entry": record.get("entry"),
-                "sl": signal.get("sl"), "tp1": signal.get("tp1"), "tp2": signal.get("tp2"),
-                "tp3": signal.get("tp3"), "tp4": signal.get("tp4"),
-                "amount": record.get("total_amount"), "margin_usdt": record.get("margin_usdt", 0),
-                "created_ts": time.time(),
-                "expire_ts": time.time() + float(signal.get("order_valid_hours", 8)) * 3600,
-                "tier": signal.get("tier"),
-            })
+        outcome = _commit_open_record(record, signal, sig_id, trades, pending, open_symbols)
+        if outcome == "pending":
             new_pending += 1
-            open_symbols.add(csym)
             pos_count += 1
-            log("    🕐 限價單已掛:", record["symbol"], "@", record.get("entry"))
-            push_event("🕐 限價單已掛｜" + record["symbol"] + " @ " + str(record.get("entry")))
-            continue
-
-        trades.append(record)
-        new_count += 1
-        if record["ok"]:
-            open_symbols.add(csym)
-            pos_count += 1
-            log("    ✅ 下單成功:", record["symbol"],
-                  "本金", record.get("margin_usdt"), "×", LEVERAGE, "倍",
-                  "TP單:", len([t for t in record["tp_orders"] if t.get("ok")]),
-                  "止損:", record["sl_ok"])
-            push_event("✅ 開倉成功｜" + record["symbol"] + " " + record["side"] +
-                       "｜本金 " + str(record.get("margin_usdt")) + "｜止損 " + ("OK" if record["sl_ok"] else "失敗"))
-            if record["msg"]:
-                log("    ⚠️", record["msg"])
         else:
-            log("    🔴 下單失敗:", record["msg"])
-            push_event("🔴 開倉失敗｜" + signal.get("symbol", "") + "｜" + record["msg"])
-            last_error = signal.get("symbol", "") + "：" + record["msg"]
+            new_count += 1
+            if outcome == "ok":
+                pos_count += 1
+            else:
+                last_error = signal.get("symbol", "") + "：" + record["msg"]
+
+    # v62 P2b：有空位 → 從候補「由新到舊」補單；超時/漂移過大則放棄
+    if pos_count < MAX_POSITIONS and waitlist:
+        wl_max_age = float(os.getenv("WAITLIST_MAX_AGE_MIN", "60"))
+        max_drift = float(os.getenv("MAX_ENTRY_DRIFT_PCT", "1.5"))
+        kept = []
+        for w in reversed(waitlist):   # newest 在尾端 → reversed 即由新到舊
+            w_id = w.get("id") or (w.get("symbol", "") + str(w.get("created", "")))
+            wsym = to_ccxt_symbol(w.get("symbol", ""))
+            # 已被主佇列處理過（開倉或過期）→ 候補副本作廢，丟棄不重開
+            if w_id in processed:
+                waitlist_changed = True
+                continue
+            # 年齡
+            age_min = None
+            if w.get("created"):
+                try:
+                    cdt = datetime.fromisoformat(w["created"])
+                    if cdt.tzinfo is None:
+                        cdt = cdt.replace(tzinfo=timezone.utc)
+                    age_min = (datetime.now(timezone.utc) - cdt).total_seconds() / 60.0
+                except Exception:
+                    age_min = None
+            if age_min is not None and age_min > wl_max_age:
+                if w_id not in processed:
+                    processed.append(w_id); _changed = True
+                waitlist_changed = True
+                log("  🪧 候補超時放棄:", w.get("symbol"), round(age_min, 1), "分")
+                continue
+            # 沒空位 / 同幣已持倉 → 留到下輪
+            if pos_count >= MAX_POSITIONS or wsym in open_symbols:
+                kept.append(w); continue
+            # 現價偏離信號 entry 過大 → 放棄不追高
+            try:
+                cur_px = float(ex.fetch_ticker(wsym)["last"])
+                w_entry = w.get("entry")
+                if w_entry and abs(cur_px - float(w_entry)) / float(w_entry) * 100 > max_drift:
+                    if w_id not in processed:
+                        processed.append(w_id); _changed = True
+                    waitlist_changed = True
+                    log("  🪧 候補漂移過大放棄:", w.get("symbol"))
+                    continue
+            except Exception:
+                kept.append(w); continue   # 取價失敗 → 留著下輪再試
+            # 補單
+            log("  🪧 候補補單:", w.get("symbol"))
+            record = open_batch_tp_position(ex, w, equity, free_usdt)
+            record["sig_id"] = w_id
+            record["from_waitlist"] = True
+            if w_id not in processed:
+                processed.append(w_id)
+            _changed = True
+            waitlist_changed = True
+            outcome = _commit_open_record(record, w, w_id, trades, pending, open_symbols)
+            if outcome == "pending":
+                new_pending += 1
+                pos_count += 1
+            else:
+                new_count += 1
+                if outcome == "ok":
+                    pos_count += 1
+                else:
+                    last_error = w.get("symbol", "") + "：" + record["msg"]
+        # 重建候補（kept 是反序蒐集，還原成 oldest→newest）
+        if waitlist_changed:
+            new_waitlist = list(reversed(kept))[-20:]
+            redis_cmd(["DEL", REDIS_WAITLIST_KEY])
+            for w in new_waitlist:
+                redis_cmd(["RPUSH", REDIS_WAITLIST_KEY, json.dumps(w, ensure_ascii=False)])
+            waitlist_changed = False
+    # 滿倉這輪只新增候補、沒補單 → 寫回（含去重後的新候補）
+    if waitlist_changed:
+        redis_cmd(["DEL", REDIS_WAITLIST_KEY])
+        for w in waitlist[-20:]:
+            redis_cmd(["RPUSH", REDIS_WAITLIST_KEY, json.dumps(w, ensure_ascii=False)])
+
     if _changed:
         save_json(PROCESSED_FILE, processed[-2000:])
     if new_pending > 0:
