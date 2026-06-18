@@ -6299,24 +6299,29 @@ class CryptoAnalyzer:
                             continue
                         sig1h = self.generate_signal(df1h, fg_val, current_price)
                         if sig1h["direction_en"] == "NEUTRAL":
+                            reject_stats["neutral"] += 1
                             continue
                         vol24 = float(ticker.get("quoteVolume", 0)) / 1e6
                         if vol24 < 25:  # v46 平衡：25 萬是合理流動性
+                            reject_stats["low_volume"] += 1
                             continue
 
                         # ⭐ v40 Pre-filter 放寬：只擋明顯垃圾，其餘交給後續評分判斷
                         # 1. ADX 極低 = 完全無趨勢
                         adx_v = sig1h.get("adx", 0)
                         if adx_v < 12:  # v46 平衡：Pre-filter 較寬，讓更多進入評分
+                            reject_stats["pre_filter"] += 1
                             continue
                         # 2. RSI 極端 + MACD 反向（明顯衰竭）
                         rsi_v = sig1h.get("rsi", 50)
                         macd_h = sig1h.get("macd_hist", 0)
                         if sig1h["direction_en"] == "LONG":
                             if rsi_v > 78 and macd_h <= 0:  # v45 職業：RSI 78+MACD轉弱 = 衰竭
+                                reject_stats["pre_filter"] += 1
                                 continue
                         else:
                             if rsi_v < 22 and macd_h >= 0:  # v45 職業：RSI 22+MACD轉強 = 衰竭
+                                reject_stats["pre_filter"] += 1
                                 continue
 
                         sig15m = self.generate_signal(df15m, fg_val, current_price)
@@ -6367,11 +6372,14 @@ class CryptoAnalyzer:
                             oi_data=oi_data
                         )
                         if result[0] is None:
+                            reject_stats["setup_reject"] += 1
                             continue
                         score, plan = result
                         # 套用最低分過濾
                         if score < min_score:
+                            reject_stats["score_low"] += 1
                             continue
+                        reject_stats["passed"] += 1
                         chg = float(ticker.get("priceChangePercent", 0))
                         # ⭐ BTC 相關性
                         btc_corr = None
@@ -6593,7 +6601,12 @@ class CryptoAnalyzer:
             logger.info("🌊 黑潮掃描統計: ok=" + str(ok_count)
                         + "/" + str(len(self.SCAN_POOL))
                         + " | 通過=" + str(len(candidates))
-                        + " | min_score=" + str(min_score))
+                        + " | min_score=" + str(min_score)
+                        + " | 中立=" + str(reject_stats["neutral"])
+                        + " 低流=" + str(reject_stats["low_volume"])
+                        + " 預篩=" + str(reject_stats["pre_filter"])
+                        + " 閘門=" + str(reject_stats["setup_reject"])
+                        + " 低分=" + str(reject_stats["score_low"]))
 
             # ⭐ v41 修：若 ok_count = 0（全部 API 失敗）直接回診斷訊息
             if ok_count == 0:

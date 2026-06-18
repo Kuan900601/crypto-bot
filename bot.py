@@ -347,8 +347,9 @@ def main_menu():
         # 第三排：信號管理
         [InlineKeyboardButton("📡 追蹤中信號", callback_data="active_signals"),
          InlineKeyboardButton("📊 歷史戰績", callback_data="stats")],
-        # 第四排：個別分析（v61 P4-3：移除「即時動能」按鈕，與「異動掃描」重複；callback momentum 仍保留可用）
-        [InlineKeyboardButton("📊 異動掃描", callback_data="movers")],
+        # 第四排：個別分析
+        [InlineKeyboardButton("⚡ 即時動能", callback_data="momentum"),
+         InlineKeyboardButton("📊 異動掃描", callback_data="movers")],
         [InlineKeyboardButton("🌐 市場情緒", callback_data="sentiment"),
          InlineKeyboardButton("📰 加密快訊", callback_data="news_only")],
         [InlineKeyboardButton("🔭 趨勢總覽", callback_data="trend"),
