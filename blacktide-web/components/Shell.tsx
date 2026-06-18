@@ -81,10 +81,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               <main> is overflow-hidden when partialLocked to prevent ANY scrolling. */}
           {partialLocked && (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 rounded-t-3xl overflow-hidden" style={{ top: "28%" }}>
-              {/* gradient fade: transparent → frosted glass */}
-              <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-transparent via-white/[0.005] to-white/[0.015]" />
-              {/* 毛玻璃遮罩 — 更透、圓潤上緣 */}
-              <div className="absolute inset-0 top-28 backdrop-blur-xl bg-white/[0.015]" />
+              {/* gradient fade: transparent → frosted glass (短，毛玻璃盡快出現) */}
+              <div className="absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-transparent to-white/[0.01]" />
+              {/* 毛玻璃遮罩 — 從 top-8 開始，確保蓋過解鎖按鈕 */}
+              <div className="absolute inset-0 top-8 backdrop-blur-xl bg-white/[0.015]" />
               {/* clickable area — entire locked zone redirects to login */}
               <div
                 className="pointer-events-auto absolute inset-0 flex flex-col items-center justify-start pt-16 cursor-pointer"
@@ -121,8 +121,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           {/* Sidebar tier-lock (for authenticated users who need to upgrade) */}
           {!partialLocked && status === "authenticated" && !!req && !canAccess(pathname, tier) && (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 rounded-t-3xl overflow-hidden" style={{ top: "28%" }}>
-              <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-transparent via-white/[0.005] to-white/[0.015]" />
-              <div className="absolute inset-0 top-28 backdrop-blur-xl bg-white/[0.015]" />
+              <div className="absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-transparent to-white/[0.01]" />
+              <div className="absolute inset-0 top-8 backdrop-blur-xl bg-white/[0.015]" />
               <div
                 className="pointer-events-auto absolute inset-0 flex flex-col items-center justify-start pt-16 cursor-pointer"
                 onClick={() => setPricingOpen(true)}
