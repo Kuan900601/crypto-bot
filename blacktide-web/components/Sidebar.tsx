@@ -2,19 +2,22 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Radio, BrainCircuit, Newspaper, Activity, FlaskConical, Gift, UserCircle, Waves, BookOpen, Send, ArrowRight } from "lucide-react";
+import { LayoutDashboard, Radio, BrainCircuit, Newspaper, Activity, FlaskConical, Gift, UserCircle, Waves, BookOpen, Send, ArrowRight, HelpCircle, CalendarDays, LineChart } from "lucide-react";
 import { requiredTier } from "@/lib/access";
 const NAV_MAIN = [
   { href: "/", label: "市場總覽", icon: LayoutDashboard },
   { href: "/signals", label: "黑潮船長", icon: Radio },
   { href: "/analysis", label: "AI 分析", icon: BrainCircuit },
   { href: "/news", label: "新聞中心", icon: Newspaper },
+  { href: "/calendar", label: "事件行事曆", icon: CalendarDays },
+  { href: "/stocks", label: "美股分析", icon: LineChart },
   { href: "/monitor", label: "異常監控", icon: Activity },
   { href: "/backtest", label: "策略回測", icon: FlaskConical },
 ];
 const NAV_ME = [
   { href: "/activity", label: "活動", icon: Gift },
   { href: "/guide", label: "使用教學", icon: BookOpen },
+  { href: "/faq", label: "常見問題", icon: HelpCircle },
   { href: "/member", label: "會員中心", icon: UserCircle },
 ];
 const LEGAL = [
@@ -44,6 +47,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const [logoOk, setLogoOk] = useState(true);
   return (
     <aside className="flex h-full w-60 flex-col border-r border-white/5 bg-ink-900/80 backdrop-blur-xl">
+      <div className="shrink-0" style={{ height: "env(safe-area-inset-top, 0px)" }} />
       <div className="flex items-center gap-3 px-5 py-5">
         {logoOk ? (
           // eslint-disable-next-line @next/next/no-img-element

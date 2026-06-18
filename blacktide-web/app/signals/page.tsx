@@ -4,6 +4,9 @@ import { Signal } from "@/lib/types";
 import SignalCard from "@/components/SignalCard";
 import SignalModal from "@/components/SignalModal";
 import { SectionTitle, Chip, Stat, Badge } from "@/components/ui";
+import { Crown, Radio } from "lucide-react";
+import { useApp } from "@/lib/store";
+import { useSession } from "next-auth/react";
 export default function SignalsPage() {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [source, setSource] = useState("mock");
@@ -20,10 +23,36 @@ export default function SignalsPage() {
     (tier === "all" || s.tier === tier) &&
     (!q || s.symbol.toLowerCase().includes(q.toLowerCase()))
   ), [signals, dir, tier, q]);
+  const { setPricingOpen } = useApp();
+  const { data: session } = useSession();
+  const userTier = (session?.user?.tier as string) || "free";
   const longN = signals.filter((s) => s.direction === "long").length;
   const shortN = signals.filter((s) => s.direction === "short").length;
   return (
     <div className="space-y-5">
+      {/* 黑潮船長 CTA */}
+      {userTier === "free" && (
+        <section className="relative overflow-hidden rounded-2xl border border-tide-500/25 p-5 sm:p-6"
+          style={{ background: "linear-gradient(135deg, rgba(212,175,55,0.10), rgba(10,12,18,0.4))" }}>
+          <div className="pointer-events-none absolute -right-10 -top-10 h-48 w-48 rounded-full bg-tide-500/10 blur-3xl" />
+          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="mb-1 flex items-center gap-2">
+                <Radio size={13} className="text-tide-400" />
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-tide-400">黑潮船長 · 信號中心</span>
+              </div>
+              <h2 className="font-display text-xl font-bold text-gold glow-gold">七策略投票 · 五維評分 · 自動止盈</h2>
+              <p className="mt-1 max-w-md text-sm leading-relaxed text-slate-400">
+                三段止盈 40/35/25，ATR 自適應止損，盈虧比硬門檻過濾。訂閱 Pro 解鎖完整進出場計畫與 AI 分析。
+              </p>
+            </div>
+            <button onClick={() => setPricingOpen(true)}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-gradient-to-r from-tide-400 to-tide-600 px-5 py-3 text-sm font-bold text-ink-950 hover:opacity-90">
+              <Crown size={14} /> 訂閱解鎖
+            </button>
+          </div>
+        </section>
+      )}
       <SectionTitle title="黑潮船長 · 信號中心" desc="進出場計畫、分批止盈與動態止損"
         right={source === "redis" ? <Badge tone="up">Bot 即時資料</Badge> : <Badge tone="amber">展示資料</Badge>} />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

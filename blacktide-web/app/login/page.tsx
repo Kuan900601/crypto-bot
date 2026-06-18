@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { signIn, getProviders } from "next-auth/react";
-import { Waves, Camera } from "lucide-react";
+import { Waves, Camera, Mail, CheckCircle } from "lucide-react";
 const input = "w-full rounded-lg border border-white/10 bg-ink-900 px-3 py-2.5 text-sm outline-none focus:border-tide-500/40";
 export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -12,10 +12,13 @@ export default function LoginPage() {
   const [phone, setPhone] = useState("");
   const [inviter, setInviter] = useState("");
   const [avatar, setAvatar] = useState("");
+  const [remember, setRemember] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [hasGoogle, setHasGoogle] = useState(false);
   const [logoOk, setLogoOk] = useState(true);
+  const [emailPending, setEmailPending] = useState(false);
+  const [notice, setNotice] = useState("");
   const router = useRouter();
   useEffect(() => {
     getProviders().then((p) => setHasGoogle(!!p?.google)).catch(() => {});
@@ -24,6 +27,11 @@ export default function LoginPage() {
       if (sp.get("register") === "1") setMode("register");
       const inv = sp.get("inviter") || sp.get("ref");
       if (inv) { setInviter(inv.toUpperCase()); setMode("register"); }
+      if (sp.get("verified") === "1") setNotice("✓ Email 驗證成功，請登入");
+      if (sp.get("verifyError") === "1") setErr("驗證連結無效或已過期，請重新發送驗證信");
+      // Restore remembered email
+      const saved = localStorage.getItem("bt:remember_email");
+      if (saved) { setEmail(saved); setRemember(true); }
     } catch {}
   }, []);
   const nextUrl = () => { try { return new URLSearchParams(window.location.search).get("next") || ""; } catch { return ""; } };
@@ -51,9 +59,21 @@ export default function LoginPage() {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, password: pw, nickname, phone, avatar, inviterUid: inviter }),
         });
-        if (!r.ok) { setErr((await r.json()).error || "註冊失敗"); return; }
+        const d = await r.json();
+        if (!r.ok) { setErr(d.error || "註冊失敗"); return; }
+        if (d.emailPending) {
+          if (remember) { try { localStorage.setItem("bt:remember_email", email); } catch {} }
+          setEmailPending(true);
+          return;
+        }
       }
+      if (remember) { try { localStorage.setItem("bt:remember_email", email); } catch {} }
+      else { try { localStorage.removeItem("bt:remember_email"); } catch {} }
       const res = await signIn("credentials", { email, password: pw, redirect: false });
+      if (res?.error === "EmailNotVerified") {
+        setEmailPending(true);
+        return;
+      }
       if (res?.error) { setErr("Email 或密碼錯誤"); return; }
       const nx = nextUrl();
       router.push(nx || (mode === "register" ? "/member" : "/"));
@@ -63,6 +83,22 @@ export default function LoginPage() {
   const canSubmit = mode === "login"
     ? !!email && !!pw
     : !!email && !!pw && !!nickname.trim() && !!phone.trim();
+  // Email pending verification screen
+  if (emailPending) {
+    return (
+      <div className="mx-auto mt-[8vh] w-full max-w-sm text-center">
+        <div className="rounded-2xl border border-white/10 bg-ink-800/80 p-6">
+          <Mail className="mx-auto mb-4 text-tide-400" size={36} />
+          <div className="text-base font-bold">請驗證您的 Email</div>
+          <p className="mt-2 text-sm leading-relaxed text-slate-400">
+            驗證信已寄送至 <b className="text-slate-200">{email}</b>，請點擊信中的連結完成驗證後再登入。
+          </p>
+          <div className="mt-4 text-[11px] text-slate-600">沒收到？請檢查垃圾郵件，或聯絡客服。連結 24 小時內有效。</div>
+          <button onClick={() => setEmailPending(false)} className="mt-4 text-xs text-tide-400 hover:underline">返回登入</button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="mx-auto mt-[6vh] w-full max-w-sm">
       <div className="flex flex-col items-center">
@@ -76,6 +112,11 @@ export default function LoginPage() {
         <div className="text-[11px] tracking-widest text-slate-500">SIGNALS · PRO TERMINAL</div>
       </div>
       <div className="mt-6 rounded-2xl border border-white/10 bg-ink-800/80 p-5">
+        {notice && (
+          <div className="mb-3 flex items-center gap-2 rounded-lg border border-up/20 bg-up/10 px-3 py-2 text-xs text-up">
+            <CheckCircle size={13} /> {notice}
+          </div>
+        )}
         <div className="mb-4 grid grid-cols-2 gap-1 rounded-lg bg-white/[0.04] p-1 text-xs font-semibold">
           {(["login", "register"] as const).map((m) => (
             <button key={m} onClick={() => { setMode(m); setErr(""); }}
@@ -104,9 +145,17 @@ export default function LoginPage() {
               <input className={input} placeholder="邀請人 UID（選填，例：BT12345678）" value={inviter} onChange={(e) => setInviter(e.target.value.toUpperCase())} />
             </>
           )}
-          <input className={input} type="email" placeholder="Email（必填）" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input className={input} type="email" placeholder="Email（必填）" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
           <input className={input} type="password" placeholder={mode === "register" ? "密碼（至少 8 碼）" : "密碼"}
-            value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") submit(); }} />
+            value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+            autoComplete={mode === "login" ? "current-password" : "new-password"} />
+          {mode === "login" && (
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-400">
+              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)}
+                className="h-3.5 w-3.5 rounded accent-tide-500" />
+              記住帳號（Email）
+            </label>
+          )}
         </div>
         {err && <div className="mt-3 rounded-lg border border-down/20 bg-down/10 px-3 py-2 text-xs text-down">{err}</div>}
         <button disabled={busy || !canSubmit} onClick={submit}
@@ -120,7 +169,8 @@ export default function LoginPage() {
           </button>
         )}
         <div className="mt-4 text-[10px] leading-relaxed text-slate-600">
-          註冊即表示同意服務條款、隱私權政策與風險揭露聲明。信箱可於會員中心收驗證碼完成驗證。
+          {mode === "register" ? "註冊後需驗證 Email 才可登入。" : ""}
+          註冊即表示同意服務條款、隱私權政策與風險揭露聲明。
         </div>
       </div>
     </div>

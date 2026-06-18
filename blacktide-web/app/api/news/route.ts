@@ -2,11 +2,13 @@ import { NEWS as MOCK } from "@/lib/mock";
 import { redisGet } from "@/lib/redis";
 export const dynamic = "force-dynamic";
 const FEEDS: { url: string; source: string }[] = [
+  { url: "https://www.odaily.news/rss", source: "Odaily 星球日報" },
+  { url: "https://www.theblockbeats.info/rss", source: "律動 BlockBeats" },
+  { url: "https://panewslab.com/zh/rss/index.xml", source: "PANews" },
   { url: "https://cointelegraph.com/rss", source: "Cointelegraph" },
   { url: "https://decrypt.co/feed", source: "Decrypt" },
   { url: "https://www.coindesk.com/arc/outboundfeeds/rss/", source: "CoinDesk" },
   { url: "https://cryptoslate.com/feed/", source: "CryptoSlate" },
-  { url: "https://bitcoinmagazine.com/feed", source: "Bitcoin Magazine" },
 ];
 const TICKERS = ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "AVAX", "LINK", "SUI", "TON", "TRX", "DOT", "NEAR", "PEPE", "SHIB", "LTC", "BCH", "ARB", "OP", "APT", "SEI"];
 function decode(s: string) {
@@ -73,7 +75,7 @@ async function fetchFeed(f: { url: string; source: string }): Promise<Item[]> {
 }
 let cache: { ts: number; body: unknown } | null = null;
 export async function GET() {
-  if (cache && Date.now() - cache.ts < 120000) return Response.json(cache.body);
+  if (cache && Date.now() - cache.ts < 30000) return Response.json(cache.body);
   // 1) RSS 即時（主來源）
   const settled = await Promise.allSettled(FEEDS.map(fetchFeed));
   let all: Item[] = [];

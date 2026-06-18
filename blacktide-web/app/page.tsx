@@ -9,11 +9,17 @@ import { Card } from "@/components/ui";
 import TickerTape from "@/components/TickerTape";
 import PriceCard from "@/components/PriceCard";
 
-interface BtcBias { bias: "long" | "short" | "neutral"; action: string; confidence: number; }
+interface BtcBias { bias: "long" | "short" | "neutral"; action: string; confidence: number; rsi?: number; }
 
-function marketDir(upPct: number, fg: number) {
-  if (upPct >= 0.62 && fg >= 55) return { label: "偏多", tag: "BULLISH", cls: "text-up" };
-  if (upPct <= 0.38 && fg <= 45) return { label: "偏空", tag: "BEARISH", cls: "text-down" };
+function marketDir(upPct: number, fg: number, btcBias?: string) {
+  let score = 0;
+  if (upPct >= 0.55) score++; else if (upPct <= 0.45) score--;
+  if (fg >= 55) score++;     else if (fg <= 45) score--;
+  if (btcBias === "long") score++; else if (btcBias === "short") score--;
+  if (score >= 2) return { label: "偏多", tag: "BULLISH", cls: "text-up" };
+  if (score <= -2) return { label: "偏空", tag: "BEARISH", cls: "text-down" };
+  if (score === 1) return { label: "略偏多", tag: "MILD BULL", cls: "text-up" };
+  if (score === -1) return { label: "略偏空", tag: "MILD BEAR", cls: "text-down" };
   return { label: "中性震盪", tag: "NEUTRAL", cls: "text-slate-300" };
 }
 
@@ -28,13 +34,13 @@ export default function Home() {
   const up = tickers.filter((t) => t.changePct >= 0).length;
   const down = tickers.length - up;
   const fg = Number(stats?.fearGreed ?? 50);
-  const dir = marketDir(tickers.length ? up / tickers.length : 0.5, fg);
+  const dir = marketDir(tickers.length ? up / tickers.length : 0.5, fg, btc?.bias);
   const avgVol = tickers.length ? tickers.reduce((a, t) => a + Math.abs(t.changePct), 0) / tickers.length : 0;
 
   useEffect(() => {
     fetch("/api/coin?symbol=BTCUSDT")
       .then((r) => r.json())
-      .then((d) => setBtc({ bias: d.bias ?? "neutral", action: d.action ?? "", confidence: d.confidence ?? 60 }))
+      .then((d) => setBtc({ bias: d.bias ?? "neutral", action: d.action ?? "", confidence: d.confidence ?? 60, rsi: d.rsi }))
       .catch(() => {});
   }, []);
 
@@ -89,11 +95,14 @@ export default function Home() {
               </div>
               {btc ? (
                 <>
-                  <div className={`font-display text-2xl font-bold ${btc.bias === "long" ? "text-up" : btc.bias === "short" ? "text-down" : "text-slate-300"}`}>
-                    {btc.bias === "long" ? "偏多看漲" : btc.bias === "short" ? "偏空看跌" : "無明確方向"}
+                  <div className={`font-display text-xl font-bold ${btc.bias === "long" ? "text-up" : btc.bias === "short" ? "text-down" : "text-amber-400"}`}>
+                    {btc.bias === "long" ? "偏多看漲" : btc.bias === "short" ? "偏空看跌" : "震盪待方向"}
                   </div>
-                  <div className="mt-2 line-clamp-3 text-[12px] leading-relaxed text-slate-400">{btc.action}</div>
-                  <div className="mt-1.5 text-[10px] text-slate-600">AI 信心 {btc.confidence}%</div>
+                  <div className="mt-1.5 line-clamp-3 text-[12px] leading-relaxed text-slate-400">{btc.action}</div>
+                  <div className="mt-2 flex gap-3 text-[11px] text-slate-500">
+                    <span>RSI <span className="text-slate-300">{btc.rsi ?? "—"}</span></span>
+                    <span>信心 <span className="text-slate-300">{btc.confidence}%</span></span>
+                  </div>
                 </>
               ) : (
                 <div className="mt-1 space-y-2">

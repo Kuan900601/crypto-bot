@@ -25,17 +25,30 @@ export default function PricingModal() {
     finally { setBusy(false); }
   };
   const price = (t: "air" | "pro") => (cycle === "yearly" ? PRICING[t].yearly : PRICING[t].monthly);
-  const unit = cycle === "yearly" ? "USD / 年" : "USD / 月";
+  const monthlyEq = (t: "air" | "pro") => Math.round(PRICING[t].yearly / 12);
+  const dailyEq = (t: "air" | "pro") => (PRICING[t].yearly / 365).toFixed(2);
   const Plan = ({ t, accent }: { t: "air" | "pro"; accent: string }) => (
     <div className={`rounded-xl border p-4 ${t === "pro" ? "border-amber-500/30 bg-amber-500/5" : "border-tide-500/30 bg-tide-500/5"}`}>
       <div className="flex items-center gap-2">
         <span className={`text-sm font-bold ${t === "pro" ? "text-amber-200" : "text-tide-200"}`}>{t === "pro" ? "Pro 會員" : "Plus 會員"}</span>
         {cycle === "yearly" && <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] text-slate-300">省 {PRICING[t].off}%</span>}
       </div>
-      <div className="mt-2 font-mono text-2xl font-bold">{price(t)} <span className="text-sm font-normal text-slate-500">{unit}</span></div>
-      <div className="mt-0.5 text-[11px] text-slate-500">{cycle === "yearly" ? "平均約 " + Math.round(PRICING[t].yearly / 12) + " USD / 月" : ""}</div>
-      <div className="mt-1 text-[11px] text-slate-400">{t === "pro" ? "全部功能，含黑潮船長訊號與回測" : "解鎖分析、新聞、監控與全站圖表"}</div>
-      <button disabled={busy} onClick={() => buy(t)} className={`mt-3 w-full rounded-lg py-2.5 text-sm font-semibold disabled:opacity-50 ${accent}`}>{busy ? "處理中…" : "選擇 " + (t === "pro" ? "Pro" : "Air")}</button>
+      {cycle === "yearly" ? (
+        <div className="mt-2">
+          <div className="flex items-baseline gap-1">
+            <span className="font-mono text-3xl font-bold">${monthlyEq(t)}</span>
+            <span className="text-sm text-slate-500">/ 月</span>
+          </div>
+          <div className="mt-0.5 text-[11px] text-slate-500">年繳 <span className="font-mono">${price(t)}</span>，每天只要 <span className="text-slate-300 font-mono">${dailyEq(t)}</span></div>
+        </div>
+      ) : (
+        <div className="mt-2 flex items-baseline gap-1">
+          <span className="font-mono text-3xl font-bold">${price(t)}</span>
+          <span className="text-sm text-slate-500">/ 月</span>
+        </div>
+      )}
+      <div className="mt-1.5 text-[11px] text-slate-400">{t === "pro" ? "全部功能，含黑潮船長訊號與回測" : "解鎖分析、新聞、監控與全站圖表"}</div>
+      <button disabled={busy} onClick={() => buy(t)} className={`mt-3 w-full rounded-lg py-2.5 text-sm font-semibold disabled:opacity-50 ${accent}`}>{busy ? "處理中…" : "訂閱 " + (t === "pro" ? "Pro" : "Plus")}</button>
     </div>
   );
   return (

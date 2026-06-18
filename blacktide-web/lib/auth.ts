@@ -8,7 +8,7 @@ export interface WebUser {
   uid: string; email: string; nickname: string; name: string; phone?: string; avatar?: string; hash?: string;
   plan: "free" | "premium"; planExpiry?: string;
   tier: Tier; cycle?: "monthly" | "yearly"; subAmount?: number; subStartedAt?: string;
-  emailVerified?: boolean; phoneVerified?: boolean;
+  emailVerified?: boolean; phoneVerified?: boolean; requiresEmailVerification?: boolean;
   invitedBy?: string; referrals?: number; referralRewarded?: number;
   isAdmin: boolean; isLifetime: boolean; createdAt: string;
 }
@@ -91,6 +91,7 @@ export const authOptions: NextAuthOptions = {
         if (!u || !u.hash) return null;
         const ok = await bcrypt.compare(cred.password, u.hash);
         if (!ok) return null;
+        if (u.requiresEmailVerification && !u.emailVerified) throw new Error("EmailNotVerified");
         return { id: u.uid, email: u.email, name: u.name };
       },
     }),
