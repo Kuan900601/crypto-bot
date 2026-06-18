@@ -10,6 +10,7 @@ import Topbar from "./Topbar";
 import MobileNav from "./MobileNav";
 import PricingModal from "./PricingModal";
 import Footer from "./Footer";
+import Analytics from "./Analytics";
 import { useApp } from "@/lib/store";
 import { canAccess, requiredTier, TIER_LABEL, Tier } from "@/lib/access";
 function ExpiryBanner() {
@@ -93,6 +94,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         <MobileNav />
       </div>
       <PricingModal />
+      <Analytics />
     </div>
   );
 }
