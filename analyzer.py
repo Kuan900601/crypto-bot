@@ -902,6 +902,7 @@ class CryptoAnalyzer:
         self._funding_cache = {}  # {symbol: (value, timestamp)}
         self._lsr_cache = {}  # {symbol: (value, timestamp)}
         self._cache_ttl_sec = 300  # 5 分鐘
+        self._oi_cache = {}      # v63：OI 變化率快取 {symbol: (change_pct, timestamp)}
         self._external_results = []  # v53：真實勝率校準用的歷史，由 bot.py 注入
         self._last_plans = {}  # v54：結構化 plan，golden_hunter 每輪填充
         self._last_plans_ready = False  # v54：本輪掛載是否正常完成
@@ -932,6 +933,41 @@ class CryptoAnalyzer:
             val = await self.fetch_long_short_ratio(session, symbol)
             if val is not None and not isinstance(val, Exception):
                 self._lsr_cache[symbol] = (val, now_ts)
+            return val
+        except Exception:
+            return None
+
+    async def fetch_open_interest(self, session, symbol):
+        """取 Bybit V5 OI 近兩筆（5min interval），回傳 % 變化率"""
+        try:
+            bsym = symbol.replace("/", "")
+            url = ("https://api.bybit.com/v5/market/open-interest"
+                   "?category=linear&symbol=" + bsym + "&intervalTime=5min&limit=3")
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+            lst = data.get("result", {}).get("list", [])
+            if len(lst) < 2:
+                return None
+            oi_now = float(lst[0]["openInterest"])
+            oi_prev = float(lst[1]["openInterest"])
+            if oi_prev == 0:
+                return None
+            return round((oi_now - oi_prev) / oi_prev * 100, 4)
+        except Exception:
+            return None
+
+    async def fetch_oi_cached(self, session, symbol):
+        """v63 帶快取的 OI 變化率取得（5 分鐘 TTL）"""
+        now_ts = datetime.now(timezone.utc).timestamp()
+        cached = self._oi_cache.get(symbol)
+        if cached and (now_ts - cached[1]) < self._cache_ttl_sec:
+            return cached[0]
+        try:
+            val = await self.fetch_open_interest(session, symbol)
+            if val is not None and not isinstance(val, Exception):
+                self._oi_cache[symbol] = (val, now_ts)
             return val
         except Exception:
             return None
@@ -2862,13 +2898,13 @@ class CryptoAnalyzer:
                 return 0, "BALANCED", 0
             imbalance = (total_buy - total_sell) / total  # -1 ~ +1
             if imbalance > 0.4:
-                return imbalance, "STRONG_BUY_FLOW", 12
+                return imbalance, "STRONG_BUY_FLOW", 15
             elif imbalance > 0.2:
-                return imbalance, "BUY_FLOW", 6
+                return imbalance, "BUY_FLOW", 8
             elif imbalance < -0.4:
-                return imbalance, "STRONG_SELL_FLOW", -12
+                return imbalance, "STRONG_SELL_FLOW", -15
             elif imbalance < -0.2:
-                return imbalance, "SELL_FLOW", -6
+                return imbalance, "SELL_FLOW", -8
             return imbalance, "BALANCED", 0
         except Exception:
             return 0, "UNKNOWN", 0
@@ -3262,6 +3298,55 @@ class CryptoAnalyzer:
             elif fr_pct < -0.04:
                 return "SHORT_CROWDED", "空單偏擁擠", 5
             return "BALANCED", "資金費率平衡", 0
+        except Exception:
+            return None, "", 0
+
+    def ls_ratio_signal(self, ls_ratio):
+        """多空比極端值訊號（散戶逆向，鏡像 funding_extreme 邏輯）"""
+        try:
+            if ls_ratio is None:
+                return None, "", 0
+            r = float(ls_ratio)
+            if r > 2.5:
+                return "EXTREME_LONG_CROWDED", "散戶大量看多（反向警示）", 10
+            elif r > 1.8:
+                return "LONG_CROWDED", "散戶偏多擁擠", 5
+            elif r < 0.7:
+                return "EXTREME_SHORT_CROWDED", "散戶大量看空（反向訊號）", 10
+            elif r < 1.0:
+                return "SHORT_CROWDED", "散戶偏空擁擠", 5
+            return "BALANCED", "多空比平衡", 0
+        except Exception:
+            return None, "", 0
+
+    def oi_signal(self, oi_change_pct, direction):
+        """OI 變化率 + 價格方向一致性訊號
+        OI 上升 + 方向一致 = 真實建倉確認（加分）
+        OI 下降 + 方向一致 = 了結/回補（減分）
+        """
+        try:
+            if oi_change_pct is None or direction not in ("LONG", "SHORT"):
+                return None, "", 0
+            c = float(oi_change_pct)
+            if direction == "LONG":
+                if c > 3:
+                    return "OI_LONG_CONFIRM", "OI 強勁增加（多頭建倉確認）", 12
+                elif c > 1:
+                    return "OI_LONG_MILD", "OI 溫和增加（多頭入場）", 6
+                elif c < -3:
+                    return "OI_LONG_WARN", "OI 大幅減少（多頭了結警示）", -8
+                elif c < -1:
+                    return "OI_LONG_CAUTION", "OI 微幅減少（注意獲利了結）", -3
+            else:  # SHORT
+                if c > 3:
+                    return "OI_SHORT_CONFIRM", "OI 強勁增加（空頭建倉確認）", 12
+                elif c > 1:
+                    return "OI_SHORT_MILD", "OI 溫和增加（空頭入場）", 6
+                elif c < -3:
+                    return "OI_SHORT_WARN", "OI 大幅減少（空頭回補警示）", -8
+                elif c < -1:
+                    return "OI_SHORT_CAUTION", "OI 微幅減少（注意空頭回補）", -3
+            return "OI_NEUTRAL", "OI 無顯著變化", 0
         except Exception:
             return None, "", 0
 
@@ -4907,7 +4992,7 @@ class CryptoAnalyzer:
                             vol_ratio, funding, ls_ratio, fg_val, current_price,
                             rs_btc=None, upside_liq=None, downside_liq=None,
                             btc_df=None, btc_ticker=None, symbol="",
-                            historical_results=None):
+                            historical_results=None, oi_data=None):
         direction = sig1h["direction_en"]
         if direction == "NEUTRAL":
             return None, "信號中性"
@@ -5076,14 +5161,21 @@ class CryptoAnalyzer:
                 score -= 5
                 risks.append("⚠️ 空頭過冷")
 
-        # 多空比反向
+        # 多空比（v63：改用 ls_ratio_signal，補全逆向加分 + 擁擠懲罰）
         if ls_ratio is not None:
-            if direction == "LONG" and ls_ratio < 0.7:
-                score += 5
-                factors.append("✅ 散戶看空逆向")
-            elif direction == "SHORT" and ls_ratio > 2.5:
-                score += 5
-                factors.append("✅ 散戶看多逆向")
+            lsr_state, lsr_label, lsr_bonus = self.ls_ratio_signal(ls_ratio)
+            if lsr_state in ("EXTREME_LONG_CROWDED", "LONG_CROWDED") and direction == "SHORT":
+                score += lsr_bonus
+                factors.append("⚖️ " + lsr_label)
+            elif lsr_state in ("EXTREME_SHORT_CROWDED", "SHORT_CROWDED") and direction == "LONG":
+                score += lsr_bonus
+                factors.append("⚖️ " + lsr_label)
+            elif lsr_state == "EXTREME_LONG_CROWDED" and direction == "LONG":
+                score -= lsr_bonus
+                risks.append("⚠️ 散戶擁擠做多（反轉風險）")
+            elif lsr_state == "EXTREME_SHORT_CROWDED" and direction == "SHORT":
+                score -= lsr_bonus
+                risks.append("⚠️ 散戶擁擠做空（反轉風險）")
 
         # 恐懼貪婪
         if direction == "LONG" and fg_val <= 30:
@@ -5283,11 +5375,22 @@ class CryptoAnalyzer:
             score += abs(ofi_bonus)
             factors.append("✅ " + ("強勁主動賣盤" if ofi_state == "STRONG_SELL_FLOW" else "主動賣盤偏多"))
         elif direction == "LONG" and ofi_state in ("STRONG_SELL_FLOW",):
-            score -= 8
+            score -= 10
             risks.append("⚠️ 主動賣盤強勢")
         elif direction == "SHORT" and ofi_state in ("STRONG_BUY_FLOW",):
-            score -= 8
+            score -= 10
             risks.append("⚠️ 主動買盤強勢")
+
+        # ⭐ v63 OI 變化率 + 價格方向一致性
+        if oi_data is not None:
+            oi_state, oi_label, oi_bonus = self.oi_signal(oi_data, direction)
+            if oi_state is not None and oi_bonus != 0:
+                if oi_bonus > 0:
+                    score += oi_bonus
+                    factors.append("📊 " + oi_label)
+                else:
+                    score += oi_bonus
+                    risks.append("⚠️ " + oi_label)
 
         # ⭐ v32 流動性掃蕩偵測（機構掃止損）
         sweep_type, sweep_msg = self.liquidity_sweep(df1h)
@@ -5350,6 +5453,13 @@ class CryptoAnalyzer:
                         consensus_count += 1
                         news_vote = True
                         voting_strategies = list(voting_strategies) + ["📰新聞情緒"]
+                        # v63 加強：高強度新聞額外直接加分
+                        if _strength >= 5:
+                            score += 8
+                            factors.append("📰 新聞情緒強力支持（強度 5/5）")
+                        elif _strength >= 4:
+                            score += 4
+                            factors.append("📰 新聞情緒支持（強度 " + str(_strength) + "/5）")
         except Exception:
             pass
         # 至少 3 個策略同意才高品質
@@ -5901,6 +6011,7 @@ class CryptoAnalyzer:
                     self.fetch_fear_greed(session),
                     self.fetch_funding_rate(session, symbol),
                     self.fetch_long_short_ratio(session, symbol),
+                    self.fetch_open_interest(session, symbol),   # v63
                     return_exceptions=True
                 )
             if isinstance(results[1], Exception):
@@ -5913,6 +6024,7 @@ class CryptoAnalyzer:
             fgl, fgv = results[5] if not isinstance(results[5], Exception) else ("⚪", 50)
             funding = results[6] if not isinstance(results[6], Exception) else None
             ls_ratio = results[7] if not isinstance(results[7], Exception) else None
+            oi_data = results[8] if not isinstance(results[8], Exception) else None   # v63
             current_price = float(ticker.get("lastPrice", 0)) if ticker else float(df1h["close"].iloc[-1])
             sig15m = self.generate_signal(df15m, fgv, current_price)
             sig = self.generate_signal(df1h, fgv, current_price)
@@ -5947,6 +6059,9 @@ class CryptoAnalyzer:
             if ls_ratio is not None:
                 ls_emoji = "🟠 多擁擠" if ls_ratio > 2 else ("🔵 空擁擠" if ls_ratio < 0.5 else "⚪")
                 r += "⚖️ 多空比 `" + str(round(ls_ratio, 2)) + "` " + ls_emoji + "\n"
+            if oi_data is not None:
+                oi_emoji = "📈" if oi_data > 0 else "📉"
+                r += "🔓 OI 5m " + oi_emoji + " `" + ("+" if oi_data > 0 else "") + str(round(oi_data, 2)) + "%`\n"
             if breakout_msg or near_alerts:
                 r += "\n*━━ 🚨 即時警示 ━━*\n"
                 if breakout_msg:
@@ -6024,7 +6139,7 @@ class CryptoAnalyzer:
 
                 # ⭐ v30 批次掃描：分批處理，避免被限流（每批 10 個幣）
                 BATCH_SIZE = 10
-                stride = 6
+                stride = 7
                 all_results = []
                 total_batches = (len(self.SCAN_POOL) + BATCH_SIZE - 1) // BATCH_SIZE
 
@@ -6041,6 +6156,7 @@ class CryptoAnalyzer:
                         # ⭐ v38 用快取版本（5 分鐘 TTL，節省 API 配額）
                         tasks.append(self.fetch_funding_cached(session, sym))
                         tasks.append(self.fetch_lsr_cached(session, sym))
+                        tasks.append(self.fetch_oi_cached(session, sym))   # v63
                     batch_results = await asyncio.gather(*tasks, return_exceptions=True)
                     all_results.extend(batch_results)
                     # v61：批次間隔 0.5→0.3 秒，縮短整輪掃描時間（仍避免被限流）
@@ -6066,6 +6182,7 @@ class CryptoAnalyzer:
                         retry_tasks.append(self.fetch_ticker(session, sym))
                         retry_tasks.append(self.fetch_funding_cached(session, sym))
                         retry_tasks.append(self.fetch_lsr_cached(session, sym))
+                        retry_tasks.append(self.fetch_oi_cached(session, sym))   # v63
                     retry_results = await asyncio.gather(*retry_tasks, return_exceptions=True)
                     for k, ri in enumerate(retry_indices):
                         for j in range(stride):
@@ -6084,7 +6201,7 @@ class CryptoAnalyzer:
                     "score_low": 0,
                     "passed": 0,
                 }
-                stride = 6
+                stride = 7
                 # ⭐ BTC 數據緩存（用於相關性 + 健康度檢查）
                 btc_df_cache = None
                 btc_ticker_cache = None
@@ -6121,6 +6238,7 @@ class CryptoAnalyzer:
                     ticker = results[i*stride+3]
                     funding = results[i*stride+4]
                     ls_ratio = results[i*stride+5]
+                    oi_data = results[i*stride+6]   # v63 OI 變化率
                     df_d = df1h  # 移除 daily，用 1h 替代
                     if isinstance(df1h, Exception):
                         continue
@@ -6137,6 +6255,8 @@ class CryptoAnalyzer:
                         funding = None
                     if isinstance(ls_ratio, Exception):
                         ls_ratio = None
+                    if isinstance(oi_data, Exception):
+                        oi_data = None
                     try:
                         current_price = float(ticker.get("lastPrice", 0)) if ticker else float(df1h["close"].iloc[-1])
                         if current_price == 0:
@@ -6207,7 +6327,8 @@ class CryptoAnalyzer:
                             rs_btc=rs_btc, upside_liq=upside_liq, downside_liq=downside_liq,
                             btc_df=btc_df_cache, btc_ticker=btc_ticker_cache,
                             symbol=sym,
-                            historical_results=historical_results
+                            historical_results=historical_results,
+                            oi_data=oi_data
                         )
                         if result[0] is None:
                             continue
