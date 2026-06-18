@@ -421,6 +421,7 @@ def push_event(text):
 
 def check_circuit_breaker(equity):
     """日內熔斷：淨值跌破當日起始 ×(1-MAX_DAILY_DD) 就熔斷，當日不再開新倉。回傳 True=已熔斷。"""
+    return False  # 暫時停用 — 恢復時移除此行
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     state = load_json("day_equity.json", None)
     if not state or state.get("date") != today:

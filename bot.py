@@ -2273,8 +2273,8 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
         # ⭐ v38 自動保護模式（在階梯之上微調）
         protection_mode, protection_reason = analyzer.auto_protection_mode(SIGNAL_RESULTS)
 
-        # ⭐ v53 熔斷：連虧 8+ 暫停 6 小時，到點自動恢復
-        if protection_mode == "CIRCUIT_BREAK":
+        # ⭐ v53 熔斷：連虧 8+ 暫停 6 小時，到點自動恢復（暫時停用）
+        if False and protection_mode == "CIRCUIT_BREAK":
             cb_until = _C_TIER_GATE.get("circuit_break_until", 0)
             if cb_until == 0:
                 _C_TIER_GATE["circuit_break_until"] = now_ts + 6 * 3600
@@ -2464,23 +2464,23 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
             logger.info("✅ C 級冷卻完成（" + str(round(hours_since_high, 1)) + "h），推 " +
                         str(len(c_tier_signals)) + " 個 C 級信號")
 
-        # ⭐ 連虧暫停過濾
-        loss_filtered = []
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-        for sig in filtered_signals:
-            sym = sig.get("symbol", "")
-            losses = SYMBOL_LOSSES.get(sym, [])
-            # ⭐ v40.3 加保護避免壞資料
-            def _check_loss_time(t):
-                try:
-                    return datetime.fromisoformat(t) > cutoff
-                except Exception:
-                    return False
-            recent_losses = [t for t in losses if _check_loss_time(t)]
-            if len(recent_losses) >= 2:
-                skipped_reasons.append(sym + " 連虧暫停中(24h)")
-                continue
-            loss_filtered.append(sig)
+        # ⭐ 連虧暫停過濾（暫時停用）
+        loss_filtered = filtered_signals  # 暫時停用 — 恢復時還原下方迴圈
+        # loss_filtered = []
+        # cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        # for sig in filtered_signals:
+        #     sym = sig.get("symbol", "")
+        #     losses = SYMBOL_LOSSES.get(sym, [])
+        #     def _check_loss_time(t):
+        #         try:
+        #             return datetime.fromisoformat(t) > cutoff
+        #         except Exception:
+        #             return False
+        #     recent_losses = [t for t in losses if _check_loss_time(t)]
+        #     if len(recent_losses) >= 2:
+        #         skipped_reasons.append(sym + " 連虧暫停中(24h)")
+        #         continue
+        #     loss_filtered.append(sig)
 
         if not loss_filtered:
             logger.info("3分推播：全部被連虧過濾，跳過")
