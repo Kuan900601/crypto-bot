@@ -82,9 +82,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           {partialLocked && (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20" style={{ top: "28%" }}>
               {/* gradient fade: transparent → frosted glass */}
-              <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-transparent via-ink-950/40 to-ink-950/60" />
-              {/* frosted glass (毛玻璃) — NOT solid black */}
-              <div className="absolute inset-0 top-24 backdrop-blur-2xl bg-ink-900/50" />
+              <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-transparent via-white/[0.01] to-white/[0.04]" />
+              {/* 毛玻璃遮罩 — 半透明，可見模糊內容 */}
+              <div className="absolute inset-0 top-24 backdrop-blur-2xl bg-white/[0.03] border-t border-white/[0.06]" />
               {/* clickable area — entire locked zone redirects to login */}
               <div
                 className="pointer-events-auto absolute inset-0 flex flex-col items-center justify-start pt-16 cursor-pointer"
@@ -121,8 +121,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           {/* Sidebar tier-lock (for authenticated users who need to upgrade) */}
           {!partialLocked && status === "authenticated" && !!req && !canAccess(pathname, tier) && (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20" style={{ top: "28%" }}>
-              <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-transparent via-ink-950/40 to-ink-950/60" />
-              <div className="absolute inset-0 top-24 backdrop-blur-2xl bg-ink-900/50" />
+              <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-transparent via-white/[0.01] to-white/[0.04]" />
+              <div className="absolute inset-0 top-24 backdrop-blur-2xl bg-white/[0.03] border-t border-white/[0.06]" />
               <div
                 className="pointer-events-auto absolute inset-0 flex flex-col items-center justify-start pt-16 cursor-pointer"
                 onClick={() => setPricingOpen(true)}

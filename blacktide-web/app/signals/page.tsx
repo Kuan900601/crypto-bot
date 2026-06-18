@@ -1,12 +1,123 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Signal } from "@/lib/types";
 import SignalCard from "@/components/SignalCard";
 import SignalModal from "@/components/SignalModal";
 import { SectionTitle, Chip, Stat, Badge } from "@/components/ui";
-import { Crown, Radio } from "lucide-react";
+import { Crown, Radio, Send, Bell, ArrowRight, ExternalLink } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useSession } from "next-auth/react";
+
+const TG_CHANNEL = "https://t.me/KuroshioSignal";
+const TG_VIP = "https://t.me/+G1wwlviXQaE2NDRl";
+
+function LiveFeed({ userTier }: { userTier: string }) {
+  const [latest, setLatest] = useState<Signal | null>(null);
+  const [liveSource, setLiveSource] = useState("");
+  const [lastUpdate, setLastUpdate] = useState(0);
+
+  const refresh = useCallback(() => {
+    fetch("/api/signals")
+      .then((r) => r.json())
+      .then((d) => {
+        const active: Signal[] = (d.signals ?? []).filter((s: Signal) => s.status === "active");
+        if (active.length > 0) setLatest(active[0]);
+        setLiveSource(d.source ?? "");
+        setLastUpdate(Date.now());
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const iv = setInterval(refresh, 15000);
+    return () => clearInterval(iv);
+  }, [refresh]);
+
+  const relTime = (ts: number) => {
+    if (!ts) return "";
+    const s = Math.floor((Date.now() - ts) / 1000);
+    if (s < 60) return s + "s 前";
+    const m = Math.floor(s / 60);
+    return m + "m 前";
+  };
+
+  const isLive = liveSource === "redis";
+
+  return (
+    <section className="relative overflow-hidden rounded-2xl border border-tide-500/30 p-5"
+      style={{ background: "linear-gradient(135deg, rgba(0,180,180,0.07), rgba(10,12,18,0.5))" }}>
+      <div className="pointer-events-none absolute -right-8 -top-8 h-40 w-40 rounded-full bg-tide-400/10 blur-3xl" />
+      <div className="relative">
+        {/* 標題列 */}
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2">
+            <span className={`h-2 w-2 rounded-full ${isLive ? "bg-up animate-pulse" : "bg-slate-600"}`} />
+            <span className={`text-[10px] font-bold uppercase tracking-widest ${isLive ? "text-up" : "text-slate-500"}`}>
+              {isLive ? "LIVE · 即時推播" : "DEMO · 展示模式"}
+            </span>
+          </div>
+          {lastUpdate > 0 && <span className="text-[10px] text-slate-600">更新 {relTime(lastUpdate)}</span>}
+          <div className="ml-auto flex items-center gap-2">
+            <a href={TG_CHANNEL} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1.5 rounded-lg border border-tide-500/25 bg-tide-500/10 px-2.5 py-1 text-[11px] font-semibold text-tide-300 hover:bg-tide-500/20">
+              <Send size={11} /> 公開頻道
+            </a>
+            {userTier === "pro" ? (
+              <a href={TG_VIP} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-500/20">
+                <Crown size={11} /> VIP 群
+              </a>
+            ) : (
+              <span className="flex items-center gap-1 rounded-lg border border-white/5 bg-white/[0.03] px-2.5 py-1 text-[11px] text-slate-600">
+                <Crown size={10} /> VIP 群（Pro）
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* 最新信號預覽 */}
+        {latest ? (
+          <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`text-xs font-bold ${latest.direction === "long" ? "text-up" : "text-down"}`}>
+                {latest.direction === "long" ? "▲ LONG" : "▼ SHORT"}
+              </span>
+              <span className="font-mono text-sm font-bold text-slate-100">{latest.symbol}</span>
+              <Badge tone={latest.tier === "S" ? "up" : latest.tier === "A" ? "amber" : "slate"}>Tier {latest.tier}</Badge>
+              {isLive && <span className="ml-auto text-[10px] text-up">● 即時</span>}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-3 text-[11px]">
+              <span className="text-slate-500">進場 <span className="font-mono text-slate-200">{latest.entryLow} – {latest.entryHigh}</span></span>
+              {latest.tps[0] && <span className="text-slate-500">TP1 <span className="font-mono text-up">{latest.tps[0].price}</span></span>}
+              {latest.tps[1] && <span className="text-slate-500">TP2 <span className="font-mono text-up">{latest.tps[1].price}</span></span>}
+              <span className="text-slate-500">SL <span className="font-mono text-down">{latest.stopLoss}</span></span>
+            </div>
+          </div>
+        ) : (
+          <div className="h-16 animate-pulse rounded-xl bg-white/5" />
+        )}
+
+        {/* Telegram 入口 */}
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          <a href={TG_CHANNEL} target="_blank" rel="noopener noreferrer"
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-tide-500/20 bg-tide-500/[0.05] px-3 py-2.5 font-semibold text-tide-300 hover:bg-tide-500/[0.12]">
+            <Bell size={13} /> 訂閱 Telegram 推播通知
+            <ArrowRight size={11} className="ml-auto" />
+          </a>
+          {userTier === "pro" && (
+            <a href={TG_VIP} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1.5 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] px-4 py-2.5 font-semibold text-amber-300 hover:bg-amber-500/[0.14]">
+              <Crown size={13} /> 進入 VIP 群
+              <ExternalLink size={11} className="ml-1" />
+            </a>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function SignalsPage() {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [source, setSource] = useState("mock");
@@ -60,6 +171,10 @@ export default function SignalsPage() {
           </div>
         </div>
       </section>
+
+      {/* 即時推播區塊 */}
+      <LiveFeed userTier={userTier} />
+
       <SectionTitle title="黑潮船長 · 信號中心" desc="進出場計畫、分批止盈與動態止損"
         right={source === "redis" ? <Badge tone="up">Bot 即時資料</Badge> : <Badge tone="amber">展示資料</Badge>} />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

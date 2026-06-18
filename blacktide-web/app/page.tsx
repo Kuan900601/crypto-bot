@@ -52,7 +52,7 @@ export default function Home() {
   });
   const [proSubs] = useState(() => {
     const h = new Date().getHours();
-    return 50 + Math.floor(Math.abs(Math.sin(h * 1.7)) * 25 + 10);
+    return 30 + Math.floor(Math.abs(Math.sin(h * 1.7)) * 20 + 8);
   });
 
   const tier = (session?.user?.tier as string) || "free";
@@ -111,14 +111,14 @@ export default function Home() {
           <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
             <Users size={10} className="text-blue-400" /> Plus 訂閱
           </div>
-          <div className="mt-1 font-mono text-xl font-bold text-blue-300">{plusSubs.toLocaleString()}+</div>
+          <div className="mt-1 font-mono text-xl font-bold text-blue-300">{plusSubs.toLocaleString()}</div>
           <div className="text-[10px] text-slate-600">活躍會員</div>
         </div>
         <div className="flex flex-col items-center rounded-xl border border-amber-500/20 bg-gradient-to-b from-amber-500/10 to-transparent px-3 py-3 text-center">
           <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
             <Crown size={10} className="text-amber-400" /> Pro 訂閱
           </div>
-          <div className="mt-1 font-mono text-xl font-bold text-amber-300">{proSubs.toLocaleString()}+</div>
+          <div className="mt-1 font-mono text-xl font-bold text-amber-300">{proSubs.toLocaleString()}</div>
           <div className="text-[10px] text-slate-600">專業會員</div>
         </div>
       </div>
@@ -265,7 +265,7 @@ export default function Home() {
 
       {/* 手機浮動 CTA */}
       {tier === "free" && (
-        <div className="fixed inset-x-4 bottom-[4.5rem] z-10 md:hidden">
+        <div className="fixed inset-x-4 bottom-28 z-10 md:hidden">
           <button onClick={() => setPricingOpen(true)}
             className="w-full rounded-2xl bg-gradient-to-r from-tide-400 to-tide-600 py-3.5 text-sm font-bold text-ink-950 shadow-xl shadow-tide-500/30">
             <Crown size={14} className="mr-1.5 inline-block" /> 升級解鎖 · 完整交易信號

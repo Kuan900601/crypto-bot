@@ -7,7 +7,6 @@ import { requiredTier } from "@/lib/access";
 const NAV_MAIN = [
   { href: "/", label: "市場總覽", icon: LayoutDashboard },
   { href: "/signals", label: "黑潮船長", icon: Radio },
-  { href: "/member", label: "會員中心", icon: UserCircle },
   { href: "/analysis", label: "AI 分析", icon: BrainCircuit },
   { href: "/news", label: "新聞中心", icon: Newspaper },
   { href: "/calendar", label: "事件行事曆", icon: CalendarDays },
@@ -16,6 +15,7 @@ const NAV_MAIN = [
   { href: "/backtest", label: "策略回測", icon: FlaskConical },
 ];
 const NAV_ME = [
+  { href: "/member", label: "會員中心", icon: UserCircle },
   { href: "/activity", label: "福利中心", icon: Gift },
   { href: "/guide", label: "使用教學", icon: BookOpen },
   { href: "/faq", label: "常見問題", icon: HelpCircle },

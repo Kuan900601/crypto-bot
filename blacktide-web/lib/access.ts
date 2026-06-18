@@ -39,4 +39,5 @@ export const FEATURES: FeatureRow[] = [
   { name: "黑潮船長即時訊號", air: false, pro: true },
   { name: "策略回測", air: false, pro: true },
   { name: "Telegram 即時推播", air: false, pro: true },
+  { name: "黑潮 VIP 私密群（Pro 專屬）", air: false, pro: true },
 ];

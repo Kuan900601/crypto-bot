@@ -85,6 +85,10 @@ export default function PricingModal() {
             <div className="flex items-center gap-2"><Check size={13} className="text-amber-400 shrink-0" /> AI 深度分析 + OI + 資金費率</div>
             <div className="flex items-center gap-2"><Check size={13} className="text-amber-400 shrink-0" /> 即時新聞中心 + 事件行事曆</div>
             <div className="flex items-center gap-2"><Check size={13} className="text-amber-400 shrink-0" /> 異常監控 + 美股分析</div>
+            <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 px-2 py-1">
+              <Check size={13} className="text-amber-300 shrink-0" />
+              <span className="text-amber-200 font-semibold">黑潮 VIP 私密群（Telegram Pro 專屬）</span>
+            </div>
           </>
         ) : (
           <>
@@ -93,6 +97,7 @@ export default function PricingModal() {
             <div className="flex items-center gap-2"><Check size={13} className="text-tide-400 shrink-0" /> 異常監控 + 美股分析</div>
             <div className="flex items-center gap-2"><Check size={13} className="text-tide-400 shrink-0" /> 事件行事曆 + 全站圖表</div>
             <div className="flex items-center gap-2"><Minus size={13} className="text-slate-600 shrink-0" /> 不含黑潮船長訊號（需 Pro）</div>
+            <div className="flex items-center gap-2"><Minus size={13} className="text-slate-600 shrink-0" /> 不含 VIP 私密群（需 Pro）</div>
           </>
         )}
       </div>
@@ -109,7 +114,7 @@ export default function PricingModal() {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/75" onClick={() => setPricingOpen(false)} />
+      <div className="absolute inset-0 backdrop-blur-md bg-ink-950/60" onClick={() => setPricingOpen(false)} />
       <div className="pop-in relative max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-ink-800 p-5 shadow-2xl">
         {/* Header */}
         <div className="flex items-center">
