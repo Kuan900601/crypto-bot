@@ -67,7 +67,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
         {/* Content wrapper — relative so lock overlay can be anchored here, NOT inside scroll */}
         <div className="relative flex-1 overflow-hidden">
-          <main className="h-full overflow-y-auto px-4 pb-24 pt-5 md:px-8 md:pb-8 md:pt-6">
+          <main className={`h-full px-4 pb-24 pt-5 md:px-8 md:pb-8 md:pt-6 ${partialLocked ? "overflow-hidden" : "overflow-y-auto"}`}>
             {status === "authenticated" && <ExpiryBanner />}
             <motion.div key={pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
               {children}
@@ -77,13 +77,14 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
           {/* ── Partial lock overlay ──
               Positioned outside <main> so it does NOT scroll with content.
-              Shows 30% of content; covers the bottom 70% with blur + gradient. */}
+              Shows 30% of content; covers the bottom 70% with blur + gradient.
+              <main> is overflow-hidden when partialLocked to prevent ANY scrolling. */}
           {partialLocked && (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20" style={{ top: "28%" }}>
-              {/* gradient fade from transparent → solid at the entry edge */}
-              <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-transparent to-ink-950/90" />
-              {/* blur + dim below gradient */}
-              <div className="absolute inset-0 top-20 bg-ink-950/80 backdrop-blur-lg" />
+              {/* gradient fade: transparent → frosted glass */}
+              <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-transparent via-ink-950/40 to-ink-950/60" />
+              {/* frosted glass (毛玻璃) — NOT solid black */}
+              <div className="absolute inset-0 top-24 backdrop-blur-2xl bg-ink-900/50" />
               {/* clickable area — entire locked zone redirects to login */}
               <div
                 className="pointer-events-auto absolute inset-0 flex flex-col items-center justify-start pt-16 cursor-pointer"
@@ -120,8 +121,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           {/* Sidebar tier-lock (for authenticated users who need to upgrade) */}
           {!partialLocked && status === "authenticated" && !!req && !canAccess(pathname, tier) && (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20" style={{ top: "28%" }}>
-              <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-transparent to-ink-950/90" />
-              <div className="absolute inset-0 top-20 bg-ink-950/80 backdrop-blur-lg" />
+              <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-transparent via-ink-950/40 to-ink-950/60" />
+              <div className="absolute inset-0 top-24 backdrop-blur-2xl bg-ink-900/50" />
               <div
                 className="pointer-events-auto absolute inset-0 flex flex-col items-center justify-start pt-16 cursor-pointer"
                 onClick={() => setPricingOpen(true)}

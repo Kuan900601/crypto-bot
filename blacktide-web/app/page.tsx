@@ -46,6 +46,14 @@ export default function Home() {
   const [btc, setBtc] = useState<BtcBias | null>(null);
   const [online] = useState(() => fakeOnline());
   const [signals24h] = useState(() => 3 + Math.floor(Math.random() * 9));
+  const [plusSubs] = useState(() => {
+    const h = new Date().getHours();
+    return 200 + Math.floor(Math.abs(Math.sin(h * 2.1)) * 60 + 30);
+  });
+  const [proSubs] = useState(() => {
+    const h = new Date().getHours();
+    return 50 + Math.floor(Math.abs(Math.sin(h * 1.7)) * 25 + 10);
+  });
 
   const tier = (session?.user?.tier as string) || "free";
   const crypto = tickers.filter((t) => t.class === "crypto");
@@ -83,20 +91,35 @@ export default function Home() {
     <div className="space-y-6">
       <TickerTape tickers={tickers} />
 
-      {/* ── 在線統計欄 ── */}
-      <div className="flex flex-wrap items-center gap-4 rounded-xl border border-white/5 bg-ink-800/50 px-4 py-2.5 text-xs">
-        <div className="flex items-center gap-1.5">
-          <span className="pulse-dot h-2 w-2 rounded-full bg-up" />
-          <span className="text-slate-500">在線人數</span>
-          <span className="font-mono font-bold text-up">{online.toLocaleString()}</span>
+      {/* ── 在線統計欄（醒目版） ── */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="flex flex-col items-center rounded-xl border border-up/20 bg-gradient-to-b from-up/10 to-transparent px-3 py-3 text-center">
+          <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+            <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-up" /> 即時在線
+          </div>
+          <div className="mt-1 font-mono text-xl font-bold text-up">{online.toLocaleString()}</div>
+          <div className="text-[10px] text-slate-600">位用戶</div>
         </div>
-        <div className="flex items-center gap-1.5">
-          <Radio size={11} className="text-tide-400" />
-          <span className="text-slate-500">近 24h 信號</span>
-          <span className="font-mono font-bold text-tide-300">{signals24h} 筆</span>
+        <div className="flex flex-col items-center rounded-xl border border-tide-500/20 bg-gradient-to-b from-tide-500/10 to-transparent px-3 py-3 text-center">
+          <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+            <Radio size={10} className="text-tide-400" /> 近 24h 信號
+          </div>
+          <div className="mt-1 font-mono text-xl font-bold text-tide-300">{signals24h}</div>
+          <div className="text-[10px] text-slate-600">筆新信號</div>
         </div>
-        <div className="ml-auto hidden items-center gap-1.5 text-slate-600 sm:flex">
-          掃描 52 幣 · 7+1 策略投票
+        <div className="flex flex-col items-center rounded-xl border border-blue-500/20 bg-gradient-to-b from-blue-500/8 to-transparent px-3 py-3 text-center">
+          <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+            <Users size={10} className="text-blue-400" /> Plus 訂閱
+          </div>
+          <div className="mt-1 font-mono text-xl font-bold text-blue-300">{plusSubs.toLocaleString()}+</div>
+          <div className="text-[10px] text-slate-600">活躍會員</div>
+        </div>
+        <div className="flex flex-col items-center rounded-xl border border-amber-500/20 bg-gradient-to-b from-amber-500/10 to-transparent px-3 py-3 text-center">
+          <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+            <Crown size={10} className="text-amber-400" /> Pro 訂閱
+          </div>
+          <div className="mt-1 font-mono text-xl font-bold text-amber-300">{proSubs.toLocaleString()}+</div>
+          <div className="text-[10px] text-slate-600">專業會員</div>
         </div>
       </div>
 
@@ -227,30 +250,6 @@ export default function Home() {
             className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-5 py-2.5 text-sm font-semibold text-amber-300 hover:bg-amber-500/20">
             <Users size={14} /> {session ? "查看邀請連結" : "立即加入"}
           </Link>
-        </div>
-      </section>
-
-      {/* ── 黑潮船長 CTA ── */}
-      <section className="relative overflow-hidden rounded-2xl border border-tide-500/25 p-5 sm:p-6"
-        style={{ background: "linear-gradient(135deg, rgba(212,175,55,0.10), rgba(10,12,18,0.4))" }}>
-        <div className="pointer-events-none absolute -right-10 -top-10 h-48 w-48 rounded-full bg-tide-500/10 blur-3xl" />
-        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="font-display text-2xl font-bold text-gold glow-gold">黑潮 BLACKTIDE · 交易信號</h1>
-            <p className="mt-1.5 max-w-md text-sm leading-relaxed text-slate-400">
-              七大技術策略加新聞情緒投票，過五維評分與盈虧比硬門檻才出手。三段止盈 40/35/25，波動自適應止損。
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 sm:shrink-0 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-            <button onClick={() => setPricingOpen(true)}
-              className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-tide-400 to-tide-600 px-5 py-3 text-sm font-bold text-ink-950 hover:opacity-90 sm:w-auto sm:py-2.5">
-              <Crown size={15} /> 加入船長艙
-            </button>
-            <Link href="/signals"
-              className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-white/10 px-4 py-3 text-sm text-slate-200 hover:bg-white/5 sm:w-auto sm:py-2.5">
-              <Radio size={14} /> 查看信號
-            </Link>
-          </div>
         </div>
       </section>
 

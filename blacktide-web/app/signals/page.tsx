@@ -30,29 +30,36 @@ export default function SignalsPage() {
   const shortN = signals.filter((s) => s.direction === "short").length;
   return (
     <div className="space-y-5">
-      {/* 黑潮船長 CTA */}
-      {userTier === "free" && (
-        <section className="relative overflow-hidden rounded-2xl border border-tide-500/25 p-5 sm:p-6"
-          style={{ background: "linear-gradient(135deg, rgba(212,175,55,0.10), rgba(10,12,18,0.4))" }}>
-          <div className="pointer-events-none absolute -right-10 -top-10 h-48 w-48 rounded-full bg-tide-500/10 blur-3xl" />
-          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="mb-1 flex items-center gap-2">
-                <Radio size={13} className="text-tide-400" />
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-tide-400">黑潮船長 · 信號中心</span>
-              </div>
-              <h2 className="font-display text-xl font-bold text-gold glow-gold">七策略投票 · 五維評分 · 自動止盈</h2>
-              <p className="mt-1 max-w-md text-sm leading-relaxed text-slate-400">
-                三段止盈 40/35/25，ATR 自適應止損，盈虧比硬門檻過濾。訂閱 Pro 解鎖完整進出場計畫與 AI 分析。
-              </p>
+      {/* 黑潮船長 CTA — 金色卡片，置頂 */}
+      <section className="relative overflow-hidden rounded-2xl border border-amber-500/25 p-5 sm:p-6"
+        style={{ background: "linear-gradient(135deg, rgba(212,175,55,0.12), rgba(10,12,18,0.5))" }}>
+        <div className="pointer-events-none absolute -right-10 -top-10 h-48 w-48 rounded-full bg-amber-500/10 blur-3xl" />
+        <div className="pointer-events-none absolute -left-6 bottom-0 h-32 w-32 rounded-full bg-tide-400/10 blur-2xl" />
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="mb-1.5 flex items-center gap-2">
+              <Radio size={14} className="text-amber-400" />
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-amber-400/80">黑潮船長 · 信號中心</span>
             </div>
-            <button onClick={() => setPricingOpen(true)}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-gradient-to-r from-tide-400 to-tide-600 px-5 py-3 text-sm font-bold text-ink-950 hover:opacity-90">
-              <Crown size={14} /> 訂閱解鎖
-            </button>
+            <h1 className="font-display text-2xl font-bold text-gold glow-gold">黑潮 BLACKTIDE · 交易信號</h1>
+            <p className="mt-1.5 max-w-md text-sm leading-relaxed text-slate-400">
+              七大技術策略加新聞情緒投票，過五維評分與盈虧比硬門檻才出手。三段止盈 40/35/25，波動自適應止損。
+            </p>
           </div>
-        </section>
-      )}
+          <div className="flex flex-col gap-2 sm:shrink-0 sm:flex-row sm:items-center sm:gap-3">
+            {userTier === "free" ? (
+              <button onClick={() => setPricingOpen(true)}
+                className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-tide-400 to-tide-600 px-6 py-3 text-sm font-bold text-ink-950 shadow-lg shadow-tide-500/25 hover:opacity-90">
+                <Crown size={15} /> 加入船長艙
+              </button>
+            ) : (
+              <div className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm font-semibold text-amber-300">
+                <Crown size={14} /> 已訂閱 · 完整信號解鎖
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
       <SectionTitle title="黑潮船長 · 信號中心" desc="進出場計畫、分批止盈與動態止損"
         right={source === "redis" ? <Badge tone="up">Bot 即時資料</Badge> : <Badge tone="amber">展示資料</Badge>} />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

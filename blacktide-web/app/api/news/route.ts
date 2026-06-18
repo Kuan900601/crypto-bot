@@ -2,13 +2,18 @@ import { NEWS as MOCK } from "@/lib/mock";
 import { redisGet } from "@/lib/redis";
 export const dynamic = "force-dynamic";
 
+// Google News 繁體中文 RSS — 最穩定，直接走 Google 搜尋結果，Vercel 全球可達
+const GNEWS: { url: string; source: string; lang: "zh" }[] = [
+  { url: "https://news.google.com/rss/search?q=%E6%AF%94%E7%89%B9%E5%B9%A3+%E5%8A%A0%E5%AF%86%E8%B2%A8%E5%B9%A3&hl=zh-TW&gl=TW&ceid=TW:zh-Hant", source: "Google 新聞", lang: "zh" },
+  { url: "https://news.google.com/rss/search?q=BTC+ETH+%E8%99%9B%E6%93%AC%E8%B2%A8%E5%B9%A3+%E5%8A%A0%E5%AF%86&hl=zh-TW&gl=TW&ceid=TW:zh-Hant", source: "Google 新聞", lang: "zh" },
+  { url: "https://news.google.com/rss/search?q=%E4%BB%A5%E5%A4%AA%E5%9D%8A+%E5%8D%80%E5%A1%8A%E9%8F%88+NFT+DeFi&hl=zh-TW&gl=TW&ceid=TW:zh-Hant", source: "Google 新聞", lang: "zh" },
+];
 // Chinese-first feeds; English as fallback
 const FEEDS: { url: string; source: string; lang: "zh" | "en" }[] = [
+  ...GNEWS,
   { url: "https://www.8btc.com/feed", source: "巴比特", lang: "zh" },
   { url: "https://jinse.cn/rss.xml", source: "金色財經", lang: "zh" },
-  { url: "https://www.odaily.news/rss", source: "Odaily 星球日報", lang: "zh" },
   { url: "https://www.theblockbeats.info/rss", source: "律動 BlockBeats", lang: "zh" },
-  { url: "https://panewslab.com/zh/rss/index.xml", source: "PANews", lang: "zh" },
   { url: "https://cointelegraph.com/rss", source: "Cointelegraph", lang: "en" },
   { url: "https://www.coindesk.com/arc/outboundfeeds/rss/", source: "CoinDesk", lang: "en" },
 ];

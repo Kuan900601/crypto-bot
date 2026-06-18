@@ -7,6 +7,7 @@ import { requiredTier } from "@/lib/access";
 const NAV_MAIN = [
   { href: "/", label: "市場總覽", icon: LayoutDashboard },
   { href: "/signals", label: "黑潮船長", icon: Radio },
+  { href: "/member", label: "會員中心", icon: UserCircle },
   { href: "/analysis", label: "AI 分析", icon: BrainCircuit },
   { href: "/news", label: "新聞中心", icon: Newspaper },
   { href: "/calendar", label: "事件行事曆", icon: CalendarDays },
@@ -15,16 +16,9 @@ const NAV_MAIN = [
   { href: "/backtest", label: "策略回測", icon: FlaskConical },
 ];
 const NAV_ME = [
-  { href: "/activity", label: "活動", icon: Gift },
+  { href: "/activity", label: "福利中心", icon: Gift },
   { href: "/guide", label: "使用教學", icon: BookOpen },
   { href: "/faq", label: "常見問題", icon: HelpCircle },
-  { href: "/member", label: "會員中心", icon: UserCircle },
-];
-const LEGAL = [
-  { href: "/legal/terms", label: "服務條款" },
-  { href: "/legal/disclaimer", label: "免責聲明" },
-  { href: "/legal/privacy", label: "隱私權政策" },
-  { href: "/legal/risk", label: "風險揭露聲明" },
 ];
 function TierTag({ href }: { href: string }) {
   const t = requiredTier(href);
@@ -61,30 +55,22 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </div>
       <div className="hairline-gold mx-4" />
-      <nav className="mt-4 flex-1 space-y-1 overflow-y-auto px-3 scrollbar-none">
+      <nav className="mt-3 flex-1 space-y-0.5 overflow-hidden px-3">
         {NAV_MAIN.map((n) => <NavLink key={n.href} href={n.href} label={n.label} Icon={n.icon} active={pathname === n.href} onNavigate={onNavigate} />)}
-        <div className="px-3 pb-1 pt-4 text-[10px] font-semibold tracking-wider text-slate-600">我的</div>
+        <div className="px-3 pb-0.5 pt-3 text-[10px] font-semibold tracking-wider text-slate-600">其他</div>
         {NAV_ME.map((n) => <NavLink key={n.href} href={n.href} label={n.label} Icon={n.icon} active={pathname === n.href} onNavigate={onNavigate} />)}
       </nav>
-      <div className="px-3 pb-3">
+      <div className="px-3 py-2">
         <a href="https://t.me/KuroshioSignal" target="_blank" rel="noopener noreferrer"
-          className="flex items-center gap-2 rounded-xl border border-tide-500/20 bg-tide-500/[0.06] px-3 py-2.5 text-xs text-tide-300 transition-colors hover:bg-tide-500/[0.12]">
+          className="flex items-center gap-2 rounded-xl border border-tide-500/20 bg-tide-500/[0.06] px-3 py-2 text-xs text-tide-300 transition-colors hover:bg-tide-500/[0.12]">
           <Send size={13} />
           <span className="font-semibold">Telegram 社群頻道</span>
           <ArrowRight size={11} className="ml-auto" />
         </a>
       </div>
-      <div className="px-4 pb-2 pt-0">
-        <div className="mb-1.5 text-[10px] font-semibold tracking-wider text-slate-600">法律聲明</div>
-        <div className="flex flex-col gap-1">
-          {LEGAL.map((l) => (
-            <Link key={l.href} href={l.href} onClick={onNavigate} className="text-[11px] text-slate-500 hover:text-tide-300">{l.label}</Link>
-          ))}
-        </div>
-      </div>
-      <div className="border-t border-white/5 p-4 text-xs text-slate-500">
+      <div className="border-t border-white/5 px-4 py-2.5 text-xs text-slate-500">
         <div className="flex items-center gap-2"><span className="pulse-dot h-2 w-2 rounded-full bg-up" /> 行情：Bybit 即時</div>
-        <div className="mt-1 text-[10px]">© {new Date().getFullYear()} 黑潮 BLACKTIDE</div>
+        <div className="mt-0.5 text-[10px]">© {new Date().getFullYear()} 黑潮 BLACKTIDE</div>
       </div>
     </aside>
   );
