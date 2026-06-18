@@ -15,6 +15,16 @@ export default function PricingModal() {
   const [busy, setBusy] = useState(false);
   const [founderSold, setFounderSold] = useState(0);
   const [founderLoaded, setFounderLoaded] = useState(false);
+
+  // Must be before early return — hooks cannot be called conditionally
+  useEffect(() => {
+    if (!pricingOpen) return;
+    if (!founderLoaded || cycle === "founder") {
+      fetch("/api/founder-slots").then(r => r.json()).then(d => { setFounderSold(d.sold ?? 0); setFounderLoaded(true); }).catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cycle, pricingOpen]);
+
   if (!pricingOpen) return null;
 
   const soldOut = founderSold >= FOUNDER.slots;
@@ -34,14 +44,6 @@ export default function PricingModal() {
 
   const yearlySave = (t: "air" | "pro") => (PRICING[t].monthly * 12 - PRICING[t].yearly).toFixed(2);
   const monthlyEq = (t: "air" | "pro") => (PRICING[t].yearly / 12).toFixed(2);
-
-  // Load founder slots when modal opens or founder tab selected
-  useEffect(() => {
-    if (!founderLoaded || cycle === "founder") {
-      fetch("/api/founder-slots").then(r => r.json()).then(d => { setFounderSold(d.sold ?? 0); setFounderLoaded(true); }).catch(() => {});
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cycle, pricingOpen]);
 
   const Plan = ({ t, highlight }: { t: "air" | "pro"; highlight?: boolean }) => (
     <div className={`relative rounded-2xl border p-5 transition-all ${highlight ? "border-amber-500/40 bg-gradient-to-b from-amber-500/[0.08] to-transparent shadow-xl shadow-amber-500/10 scale-[1.02]" : "border-tide-500/25 bg-tide-500/[0.04]"}`}>
