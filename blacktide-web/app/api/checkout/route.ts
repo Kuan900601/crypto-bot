@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { priceOf } from "@/lib/access";
-import { redisSet } from "@/lib/redis";
+import { priceOf, FOUNDER } from "@/lib/access";
+import { redisGet, redisSet } from "@/lib/redis";
 const NP = "https://api.nowpayments.io/v1";
 function baseUrl() { return process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_SITE_URL || ""; }
 export async function POST(req: Request) {
@@ -9,13 +9,22 @@ export async function POST(req: Request) {
   const email = session?.user?.email;
   if (!email) return Response.json({ error: "請先登入" }, { status: 401 });
   const { tier, cycle } = await req.json().catch(() => ({ tier: "air", cycle: "monthly" }));
-  const t: "air" | "pro" = tier === "pro" ? "pro" : "air";
-  const c: "monthly" | "yearly" = cycle === "yearly" ? "yearly" : "monthly";
-  const amount = priceOf(t, c);
+  const isFounder = tier === "founder";
+  const t: "air" | "pro" | "founder" = isFounder ? "founder" : tier === "pro" ? "pro" : "air";
+  const c: "monthly" | "yearly" = isFounder ? "yearly" : cycle === "yearly" ? "yearly" : "monthly";
+
+  // 創始會員名額檢查
+  if (isFounder) {
+    const sold = parseInt(await redisGet("founder:slots:sold") || "0", 10);
+    if (sold >= FOUNDER.slots) return Response.json({ error: "創始會員名額已售完" }, { status: 400 });
+  }
+
+  const amount = isFounder ? FOUNDER.price : priceOf(t as "air" | "pro", c);
+  const tierLabel = isFounder ? "創始會員" : (t === "pro" ? "Pro" : "Plus");
   const key = process.env.NOWPAYMENTS_API_KEY;
   if (!key) {
     return Response.json({ todo: true, manual: true, tier: t, cycle: c, amount,
-      message: "已選擇 " + (t === "pro" ? "Pro" : "Air") + " · " + (c === "yearly" ? "年繳" : "月繳") + " " + amount + " USD。線上金流尚未設定（NOWPAYMENTS_API_KEY），目前可由管理員手動開通。" });
+      message: "已選擇 " + tierLabel + (isFounder ? "" : " · " + (c === "yearly" ? "年繳" : "月繳")) + " " + amount + " USDT。線上金流尚未設定（NOWPAYMENTS_API_KEY），目前可由管理員手動開通。" });
   }
   const orderId = "bt_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
   await redisSet("web:order:" + orderId, JSON.stringify({ orderId, email, tier: t, cycle: c, amount, status: "pending", createdAt: new Date().toISOString() }));
@@ -27,7 +36,7 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         price_amount: amount, price_currency: "usd",
         order_id: orderId,
-        order_description: "黑潮 BLACKTIDE " + t.toUpperCase() + " " + (c === "yearly" ? "年繳" : "月繳"),
+        order_description: "黑潮 BLACKTIDE " + tierLabel,
         ipn_callback_url: base ? base + "/api/webhooks/nowpayments" : undefined,
         success_url: base ? base + "/member?paid=1" : undefined,
         cancel_url: base ? base + "/member" : undefined,

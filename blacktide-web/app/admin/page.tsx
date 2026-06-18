@@ -5,7 +5,7 @@ import { Card, SectionTitle, Stat, Badge } from "@/components/ui";
 import SignalPerf from "@/components/SignalPerf";
 import { BadgeCheck, Eye, Clock } from "lucide-react";
 interface AnalyticsData { totalPV: number; todayPV: number; yesterdayPV: number; avgSessionSec: number; sampleCount: number; pvByDay: { date: string; count: number }[]; }
-interface AdminUser { email: string; nickname?: string; name: string; phone: string; uid: string; tier: string; cycle?: string; subAmount?: number; planExpiry?: string; emailVerified?: boolean; referrals: number; invitedBy?: string; referralRewarded?: number; createdAt: string; }
+interface AdminUser { email: string; nickname?: string; name: string; phone: string; uid: string; tier: string; cycle?: string; subAmount?: number; planExpiry?: string; emailVerified?: boolean; referrals: number; invitedBy?: string; referralRewarded?: number; createdAt: string; isFounder?: boolean; isTrial?: boolean; }
 const tierUpper = (t: string) => (t === "air" ? "PLUS" : (t || "free").toUpperCase());
 interface Feedback { id: string; email: string; name: string; phone: string; uid: string; tier: string; content: string; createdAt: string; }
 interface Payment { id: string; email: string; tier: string; cycle: string; amount: number; payAmount?: number | null; payCurrency?: string | null; status: string; createdAt: string; }
@@ -52,6 +52,7 @@ export default function AdminPage() {
         <Stat label="Plus 訂閱數" value={String(s?.air ?? 0)} />
         <Stat label="Pro 訂閱數" value={String(s?.pro ?? 0)} />
         <Stat label="付款筆數" value={String(data?.payments.length ?? 0)} />
+        <Stat label="創始會員數" value={String((data?.users || []).filter((u) => u.isFounder).length)} sub="Founder" />
       </div>
       {/* 流量統計 */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -199,7 +200,13 @@ export default function AdminPage() {
                 <tr key={u.email} className="border-b border-white/5 last:border-0">
                   <td className="px-3 py-2"><div className="flex items-center gap-1 font-medium text-slate-200">{u.nickname || u.name || "—"}{u.emailVerified && <BadgeCheck size={11} className="text-up" />}</div><div className="font-mono text-[10px] text-slate-600">{u.uid} · 邀 {u.referrals ?? 0}</div></td>
                   <td className="px-3 py-2"><div className="text-slate-300">{u.email}</div><div className="text-slate-600">{u.phone || "—"}</div></td>
-                  <td className="px-3 py-2"><Badge tone={u.tier === "pro" ? "amber" : u.tier === "air" ? "tide" : "slate"}>{tierUpper(u.tier)}</Badge></td>
+                  <td className="px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-1">
+                      <Badge tone={u.tier === "pro" ? "amber" : u.tier === "air" ? "tide" : "slate"}>{tierUpper(u.tier)}</Badge>
+                      {u.isFounder && <Badge tone="amber">🔥 創始</Badge>}
+                      {u.isTrial && u.tier !== "free" && <Badge tone="slate">試用</Badge>}
+                    </div>
+                  </td>
                   <td className="px-3 py-2 text-slate-500">{u.planExpiry ? fmtTime(u.planExpiry) : "—"}</td>
                   <td className="px-3 py-2 text-slate-500">{fmtTime(u.createdAt)}</td>
                   <td className="px-3 py-2">

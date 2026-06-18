@@ -17,7 +17,17 @@ export default function ActivityPage() {
   };
   return (
     <div className="mx-auto max-w-2xl space-y-5">
-      <SectionTitle title="活動" desc="參加活動賺取訂閱與好康，更多活動陸續推出" />
+      <SectionTitle title="福利中心" desc="參加活動賺取訂閱與好康，更多活動陸續推出" />
+      {/* 3 日試用卡 */}
+      <div className="flex items-start gap-3 rounded-2xl border border-amber-500/25 bg-gradient-to-r from-amber-500/8 to-transparent p-4">
+        <span className="shrink-0 text-2xl">🎁</span>
+        <div>
+          <div className="font-bold text-amber-200">新用戶 3 日 Plus 免費體驗</div>
+          <div className="mt-0.5 text-xs leading-relaxed text-slate-400">
+            所有新用戶完成註冊後自動獲得 3 天 Plus 訂閱試用，完整體驗 AI 分析、即時新聞與美股功能。試用到期後自動回歸免費方案，無需任何付款資訊。
+          </div>
+        </div>
+      </div>
       <Card className="overflow-hidden p-0">
         <div className="flex items-center gap-3 border-b border-white/5 bg-gradient-to-r from-amber-500/10 to-transparent px-5 py-4">
           <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-300"><Gift size={22} /></span>

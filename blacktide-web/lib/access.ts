@@ -20,8 +20,16 @@ export function canAccess(path: string, tier: Tier): boolean {
   return RANK[tier] >= RANK[req];
 }
 export const PRICING = {
-  air: { monthly: 199, yearly: 1910, off: 20 },
-  pro: { monthly: 399, yearly: 3350, off: 30 },
+  air: { monthly: 9.99, yearly: 99.99, off: 17 },
+  pro: { monthly: 29.99, yearly: 299.99, off: 17 },
+} as const;
+export const FOUNDER = {
+  price: 199.99,
+  slots: 100,
+  originalPrice: 359.88,   // pro monthly × 12
+  save: 159.89,
+  offPct: 44,
+  monthlyEq: 16.67,
 } as const;
 export function priceOf(tier: "air" | "pro", cycle: "monthly" | "yearly"): number {
   return cycle === "yearly" ? PRICING[tier].yearly : PRICING[tier].monthly;

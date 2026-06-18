@@ -1,7 +1,35 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Brain, ArrowRight, Crown, Gift, Users, Radio } from "lucide-react";
+import { Brain, ArrowRight, Crown, Gift, Users, Radio, X } from "lucide-react";
+
+function TrialFloatCard() {
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => {
+    try { if (localStorage.getItem("bt:trial_card_dismissed") === "1") setDismissed(true); } catch {}
+  }, []);
+  if (dismissed) return null;
+  const dismiss = () => {
+    setDismissed(true);
+    try { localStorage.setItem("bt:trial_card_dismissed", "1"); } catch {}
+  };
+  return (
+    <div className="fixed bottom-6 right-4 z-20 hidden max-w-[280px] md:block">
+      <div className="relative overflow-hidden rounded-2xl border border-amber-500/30 bg-ink-800 p-4 shadow-2xl shadow-amber-500/10">
+        <div className="pointer-events-none absolute -right-4 -top-4 h-24 w-24 rounded-full bg-amber-500/10 blur-2xl" />
+        <button onClick={dismiss} className="absolute right-2 top-2 rounded-md p-1 text-slate-500 hover:text-slate-300"><X size={13} /></button>
+        <div className="relative">
+          <div className="text-base">🎁</div>
+          <div className="mt-1 text-sm font-bold text-amber-200">新用戶限定</div>
+          <div className="mt-0.5 text-[11px] leading-relaxed text-slate-400">完成免費註冊即獲得 <b className="text-amber-300">3 日 Plus 體驗</b>，無需付款</div>
+          <Link href="/login?register=1" className="mt-3 flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-600 py-2 text-xs font-bold text-ink-950 hover:opacity-90">
+            免費註冊 <ArrowRight size={11} />
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
 import { useSession } from "next-auth/react";
 import { useMarket } from "@/lib/useMarket";
 import { useApp } from "@/lib/store";
@@ -272,6 +300,9 @@ export default function Home() {
           </button>
         </div>
       )}
+
+      {/* 未登入試用浮動卡 */}
+      {!session && <TrialFloatCard />}
     </div>
   );
 }

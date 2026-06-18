@@ -10,7 +10,7 @@ export interface WebUser {
   tier: Tier; cycle?: "monthly" | "yearly"; subAmount?: number; subStartedAt?: string;
   emailVerified?: boolean; phoneVerified?: boolean; requiresEmailVerification?: boolean;
   invitedBy?: string; referrals?: number; referralRewarded?: number;
-  isAdmin: boolean; isLifetime: boolean; createdAt: string;
+  isAdmin: boolean; isLifetime: boolean; isFounder?: boolean; isTrial?: boolean; createdAt: string;
 }
 const mem = new Map<string, WebUser>();
 const KEY = (email: string) => "web:user:" + email.trim().toLowerCase();

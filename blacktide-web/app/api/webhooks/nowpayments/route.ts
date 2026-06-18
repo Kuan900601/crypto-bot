@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   if (!orderId) return new Response("ok", { status: 200 });
   const orderRaw = await redisGet("web:order:" + orderId);
   if (!orderRaw) return new Response("ok", { status: 200 });
-  const order = JSON.parse(orderRaw) as { email: string; tier: "air" | "pro"; cycle: "monthly" | "yearly"; amount: number; status: string };
+  const order = JSON.parse(orderRaw) as { email: string; tier: "air" | "pro" | "founder"; cycle: "monthly" | "yearly"; amount: number; status: string };
   await redisLPush("web:payments", JSON.stringify({
     id: "pay_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
     orderId, email: order.email, tier: order.tier, cycle: order.cycle, amount: order.amount,
@@ -31,10 +31,24 @@ export async function POST(req: Request) {
   if (status === "finished" && order.status !== "paid") {
     const u = await getUser(order.email);
     if (u) {
-      u.tier = order.tier; u.plan = "premium"; u.cycle = order.cycle;
-      u.subAmount = priceOf(order.tier, order.cycle); u.subStartedAt = new Date().toISOString();
-      const days = order.cycle === "yearly" ? 365 : 30;
-      u.planExpiry = new Date(Date.now() + days * 86400000).toISOString();
+      if (order.tier === "founder") {
+        u.isFounder = true;
+        u.tier = "pro"; u.plan = "premium"; u.cycle = "yearly";
+        u.subAmount = order.amount; u.subStartedAt = new Date().toISOString();
+        u.isTrial = false;
+        u.planExpiry = new Date(Date.now() + 365 * 86400000).toISOString();
+        // 累計創始名額
+        try {
+          const sold = parseInt(await redisGet("founder:slots:sold") || "0", 10);
+          await redisSet("founder:slots:sold", String(sold + 1));
+        } catch {}
+      } else {
+        u.tier = order.tier; u.plan = "premium"; u.cycle = order.cycle;
+        u.subAmount = priceOf(order.tier, order.cycle); u.subStartedAt = new Date().toISOString();
+        u.isTrial = false;
+        const days = order.cycle === "yearly" ? 365 : 30;
+        u.planExpiry = new Date(Date.now() + days * 86400000).toISOString();
+      }
       await saveUser(u);
     }
     order.status = "paid";

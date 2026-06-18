@@ -127,6 +127,12 @@ export default function LoginPage() {
         </div>
         <div className="space-y-3">
           {mode === "register" && (
+            <div className="flex items-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/8 px-3 py-2.5 text-xs text-amber-200">
+              <span className="text-base shrink-0">🎁</span>
+              <span><b>新用戶限定</b>：完成註冊自動獲得 <b>3 日 Plus 體驗</b>，即刻解鎖完整功能，無需付款。</span>
+            </div>
+          )}
+          {mode === "register" && (
             <>
               <div className="flex items-center gap-3">
                 <label className="relative h-14 w-14 shrink-0 cursor-pointer overflow-hidden rounded-full ring-1 ring-white/10">

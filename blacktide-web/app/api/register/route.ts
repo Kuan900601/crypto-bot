@@ -35,10 +35,15 @@ export async function POST(req: Request) {
     const av = typeof avatar === "string" && avatar.length < 200000 ? avatar : "";
     const inv = typeof inviterUid === "string" ? inviterUid.trim().toUpperCase() : "";
     const u = newUser(email, String(nickname), await bcrypt.hash(String(password), 10), String(phone), av, inv);
-    // Mark new users as requiring email verification
     if (!u.isAdmin) {
+      // Email verification
       u.requiresEmailVerification = true;
       u.emailVerified = false;
+      // 自動送 3 日 Plus 試用
+      u.tier = "air";
+      u.plan = "premium";
+      u.planExpiry = new Date(Date.now() + 3 * 86400000).toISOString();
+      u.isTrial = true;
     }
     await saveUser(u);
     if (inv && inv !== u.uid) {
