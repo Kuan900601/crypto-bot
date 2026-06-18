@@ -3731,11 +3731,11 @@ class CryptoAnalyzer:
         - 連虧 8+  → CIRCUIT_BREAK：暫停 6 小時後自動恢復（真的很糟才全停）
         - 連勝 3+  → AGGRESSIVE
         """
+        return "NORMAL", "正常模式"  # 暫時停用保護模式 — 恢復時移除此行
         try:
             if not signal_results or len(signal_results) < 5:
                 return "NORMAL", "正常模式"
             recent = signal_results[-lookback:]
-            # 連虧檢查（從最新往回）
             consecutive_loss = 0
             consecutive_win = 0
             for r in reversed(recent):
@@ -3750,7 +3750,7 @@ class CryptoAnalyzer:
                     else:
                         break
             if consecutive_loss >= 8:
-                return "DEFENSIVE", "連虧 " + str(consecutive_loss) + " 次（熔斷暫停，以防守模式運作）"  # 暫時停用 CIRCUIT_BREAK — 恢復時改回上一行
+                return "DEFENSIVE", "連虧 " + str(consecutive_loss) + " 次（熔斷暫停，以防守模式運作）"
             if consecutive_loss >= 4:
                 return "DEFENSIVE", "連虧 " + str(consecutive_loss) + " 次，僅推 B 級以上、倉位減半"
             if consecutive_win >= 3:
