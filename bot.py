@@ -2793,7 +2793,7 @@ async def fast_momentum_scan(ctx: ContextTypes.DEFAULT_TYPE):
         protection_mode, _ = analyzer.auto_protection_mode(SIGNAL_RESULTS)
     except Exception:
         protection_mode = "NORMAL"
-    if protection_mode == "CIRCUIT_BREAK":
+    if False and protection_mode == "CIRCUIT_BREAK":  # 暫時停用
         return
 
     min_strength = int(os.getenv("FAST_MIN_STRENGTH", "70"))
@@ -2856,10 +2856,10 @@ async def fast_momentum_scan(ctx: ContextTypes.DEFAULT_TYPE):
             if strength < min_strength:
                 logger.info("⚡精選動能：" + sym + " 強度不足(" + str(strength) + ")，只記錄不推")
                 continue
-            # 連虧暫停過濾（24h 內 ≥2 筆虧損）
-            recent_losses = [x for x in SYMBOL_LOSSES.get(sym, []) if _safe_after(x, cutoff)]
-            if len(recent_losses) >= 2:
-                continue
+            # 連虧暫停過濾（24h 內 ≥2 筆虧損）— 暫時停用
+            # recent_losses = [x for x in SYMBOL_LOSSES.get(sym, []) if _safe_after(x, cutoff)]
+            # if len(recent_losses) >= 2:
+            #     continue
             # 同幣 2h 不重複（同向）
             key = sym + "_" + direction
             rp = RECENT_PUSHES.get(key)

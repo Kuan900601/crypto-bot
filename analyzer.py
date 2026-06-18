@@ -3750,7 +3750,7 @@ class CryptoAnalyzer:
                     else:
                         break
             if consecutive_loss >= 8:
-                return "CIRCUIT_BREAK", "連虧 " + str(consecutive_loss) + " 次，暫停 6 小時後自動恢復"
+                return "DEFENSIVE", "連虧 " + str(consecutive_loss) + " 次（熔斷暫停，以防守模式運作）"  # 暫時停用 CIRCUIT_BREAK — 恢復時改回上一行
             if consecutive_loss >= 4:
                 return "DEFENSIVE", "連虧 " + str(consecutive_loss) + " 次，僅推 B 級以上、倉位減半"
             if consecutive_win >= 3:
