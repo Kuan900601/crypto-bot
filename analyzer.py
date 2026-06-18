@@ -26,22 +26,58 @@ _NEWS_ENABLED = bool(_ANTHROPIC_KEY)  # 至少要有 Claude key 才啟用
 
 
 async def _fetch_crypto_news(session, limit=10):
-    """抓最近的加密新聞標題。失敗回傳空列表，不拋錯。"""
+    """抓最近的加密新聞標題。失敗回傳空列表，不拋錯。
+    來源優先順序：CryptoPanic → CryptoCompare → PA News RSS
+    """
+    # 1. CryptoPanic（有 token 優先，無 token 用公開端點）
     try:
-        # CryptoPanic 免費 API（有 token 用 token，沒有用公開端點）
         if _CRYPTOPANIC_TOKEN:
             url = "https://cryptopanic.com/api/v1/posts/?auth_token=" + _CRYPTOPANIC_TOKEN + "&public=true&kind=news"
         else:
             url = "https://cryptopanic.com/api/v1/posts/?public=true&kind=news"
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-            if resp.status != 200:
-                return []
-            data = await resp.json()
-            posts = data.get("results", [])[:limit]
-            return [p.get("title", "") for p in posts if p.get("title")]
+            if resp.status == 200:
+                data = await resp.json()
+                titles = [p.get("title", "") for p in data.get("results", [])[:limit] if p.get("title")]
+                if titles:
+                    return titles
     except Exception as e:
-        logger.error("新聞抓取失敗: " + str(e))
-        return []
+        logger.warning("CryptoPanic 新聞失敗，嘗試備援: " + str(e))
+
+    # 2. CryptoCompare fallback
+    try:
+        url = "https://min-api.cryptocompare.com/data/v2/news/?lang=EN&sortOrder=latest&categories=Regulation,Trading,Market"
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                titles = [x.get("title", "") for x in data.get("Data", [])[:limit] if x.get("title")]
+                if titles:
+                    return titles
+    except Exception as e:
+        logger.warning("CryptoCompare 新聞失敗，嘗試備援: " + str(e))
+
+    # 3. PA News RSS fallback
+    try:
+        url = "https://www.panewslab.com/zh/rss/index.xml"
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=8),
+                               headers={"User-Agent": "Mozilla/5.0"}) as resp:
+            if resp.status == 200:
+                text = await resp.text()
+                titles = []
+                for item in re.findall(r"<item>(.*?)</item>", text, re.DOTALL)[:limit]:
+                    m = re.search(r"<title><!\[CDATA\[(.*?)\]\]></title>|<title>(.*?)</title>",
+                                  item, re.DOTALL)
+                    if m:
+                        t = (m.group(1) or m.group(2) or "").strip()
+                        if t:
+                            titles.append(t)
+                if titles:
+                    return titles
+    except Exception as e:
+        logger.warning("PA News 新聞失敗: " + str(e))
+
+    logger.error("所有新聞來源均失敗")
+    return []
 
 
 async def _analyze_news_with_claude(session, headlines):
