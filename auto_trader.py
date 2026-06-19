@@ -871,16 +871,18 @@ def check_trailing_stop(ex):
         buf = max(min_buf_env, 0.6 * atr_pct)
         min_gap = max(0.8 * atr_pct, 0.006)   # 止損離現價至少這麼遠（比例）
 
+        SEND_BUFFER = 0.003   # 送 API 前額外保護，抵消 mark price 微幅波動導致的競爭條件
         if side == "buy":
             if target_stage == 1:
                 new_sl = entry * (1 - buf)
                 if swing_low:
                     new_sl = min(new_sl, swing_low - 0.3 * atr_abs)   # 取較低者→更多空間
             elif target_stage == 2:
-                new_sl = entry
+                new_sl = entry * 0.997   # 不貼在 entry 上，留 0.3% buffer 避免 race condition
             else:
                 new_sl = tp1
             new_sl = min(new_sl, cur_px * (1 - min_gap))   # 強制離現價夠遠
+            new_sl = min(new_sl, cur_px * (1 - SEND_BUFFER))   # 送 API 前再收緊，抵消行情微動
             if new_sl >= cur_px:
                 log("  ⚠️ 止損上移計算 ≥ 現價，跳過:", sym)
                 continue
@@ -893,10 +895,11 @@ def check_trailing_stop(ex):
                 if swing_high:
                     new_sl = max(new_sl, swing_high + 0.3 * atr_abs)
             elif target_stage == 2:
-                new_sl = entry
+                new_sl = entry * 1.003   # 同理，不貼 entry，留 buffer（SHORT 止損在上方）
             else:
                 new_sl = tp1
             new_sl = max(new_sl, cur_px * (1 + min_gap))
+            new_sl = max(new_sl, cur_px * (1 + SEND_BUFFER))   # 送 API 前再收緊
             if new_sl <= cur_px:
                 log("  ⚠️ 止損上移計算 ≤ 現價，跳過:", sym)
                 continue
