@@ -5777,20 +5777,24 @@ class CryptoAnalyzer:
         # ⭐ v53 真實勝率校準：理論值整體下修，並用歷史實績覆蓋
         # 理由：v52 理論勝率系統性高估（理論 51% vs 實際 10%）
         win_rate = round(win_rate * 0.82)          # 理論值統一打 82 折（消除樂觀偏差）
-        try:
-            _hist = getattr(self, "_external_results", None)  # bot.py 會在呼叫前注入
-            if _hist:
-                # 先看「同進場 grade」的真實勝率（樣本要求較低）
-                _g = entry_grade["grade"]
-                _grade_hist = [r for r in _hist[-100:] if r.get("entry_grade") == _g]
-                if len(_grade_hist) >= 10:
-                    _gw = sum(1 for r in _grade_hist if r.get("final_pct", 0) > 0)
-                    _real_g = _gw / len(_grade_hist) * 100
-                    # 真實值權重 0.7，理論值 0.3（樣本越多越信真實）
-                    _w = min(0.7, 0.4 + len(_grade_hist) * 0.01)
-                    win_rate = round(win_rate * (1 - _w) + _real_g * _w)
-        except Exception:
-            pass
+        # v63 P0 B3：小樣本連虧會把 win_rate 砸到 <51% 全面鎖死信號，
+        # 提高覆蓋門檻並開總開關，緊急時可整個關掉真實覆蓋退回純公式值
+        if os.getenv("WINRATE_OVERRIDE_ENABLED", "true").lower() == "true":
+            try:
+                _hist = getattr(self, "_external_results", None)  # bot.py 會在呼叫前注入
+                if _hist:
+                    # 先看「同進場 grade」的真實勝率
+                    _g = entry_grade["grade"]
+                    _grade_hist = [r for r in _hist[-100:] if r.get("entry_grade") == _g]
+                    _min_sample = int(os.getenv("WINRATE_OVERRIDE_MIN_SAMPLE", "30"))
+                    if len(_grade_hist) >= _min_sample:
+                        _gw = sum(1 for r in _grade_hist if r.get("final_pct", 0) > 0)
+                        _real_g = _gw / len(_grade_hist) * 100
+                        # 真實值權重 0.7，理論值 0.3（樣本越多越信真實）
+                        _w = min(0.7, 0.4 + len(_grade_hist) * 0.01)
+                        win_rate = round(win_rate * (1 - _w) + _real_g * _w)
+            except Exception:
+                pass
         win_rate = round(min(75, max(20, win_rate)))   # 下限放寬到 20（誠實反映可能很低）
 
         # ⭐ v49 用更新後的 win_rate 重算 Kelly 倉位
@@ -6024,6 +6028,14 @@ class CryptoAnalyzer:
               and win_rate >= 51):
             tier = "C"
             tier_label = "🥉 C 級 — 試水單 (勝率 ≥ 51%)"
+            tier_emoji = "🥉"
+        elif (avg_rr >= float(os.getenv("WINRATE_FLOOR_MIN_RR", "2.5"))
+              and cons_score >= 2
+              and entry_grade["grade"] in ("S", "A", "B", "C")):
+            # v63 P0 B3：win_rate/EV 被歷史連虧覆蓋砸低時的地板——
+            # 盈虧比夠好（預設 RR≥2.5）仍放行 C 級，避免「連虧期間完全不出單→永遠無法翻身」死結
+            tier = "C"
+            tier_label = "🥉 C 級 — 試水單（盈虧比地板放行，RR " + str(round(avg_rr, 2)) + "）"
             tier_emoji = "🥉"
         else:
             # v49 嚴格：勝率 < 51% 或 EV < 1.0 → 完全拒絕
@@ -6303,7 +6315,7 @@ class CryptoAnalyzer:
                             reject_stats["neutral"] += 1
                             continue
                         vol24 = float(ticker.get("quoteVolume", 0)) / 1e6
-                        if vol24 < 25:  # v46 平衡：25 萬是合理流動性
+                        if vol24 < 0.25:  # v63 修正單位 bug：25萬(0.25M) 才是合理流動性門檻，原寫成 25(=2500萬) 誤差100倍
                             reject_stats["low_volume"] += 1
                             continue
 
