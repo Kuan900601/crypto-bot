@@ -349,12 +349,17 @@ def open_batch_tp_position(ex, signal, equity, free_usdt=None):
         except Exception:
             use_limit = False
 
-    # S2c：現價偏離信號進場價過多就放棄（僅市價單路徑；限價單路徑見 E2）
+    # S2c：現價「往不利方向」偏離進場價過多才放棄（僅市價單路徑；限價單路徑見 E2）
+    # BUY：現價比進場高（追高）才擋；現價更低（更好入場點）放行。SHORT 鏡像。
     if not use_limit and sig_entry:
         try:
-            drift_pct = abs(price - float(sig_entry)) / float(sig_entry) * 100
-            if drift_pct > float(os.getenv("MAX_ENTRY_DRIFT_PCT", "1.5")):
-                record["msg"] = "現價偏離信號進場價過多，放棄"
+            sig_entry_f = float(sig_entry)
+            max_drift = float(os.getenv("MAX_ENTRY_DRIFT_PCT", "1.5")) / 100
+            if side == "buy" and price > sig_entry_f * (1 + max_drift):
+                record["msg"] = "現價已高於進場價 >" + str(round(max_drift * 100, 1)) + "%，放棄追高"
+                return record
+            elif side == "sell" and price < sig_entry_f * (1 - max_drift):
+                record["msg"] = "現價已低於進場價 >" + str(round(max_drift * 100, 1)) + "%，放棄追空"
                 return record
         except Exception:
             pass
@@ -567,6 +572,7 @@ def process_once(ex):
         sig_id = signal.get("id") or (signal.get("symbol", "") + str(signal.get("created", "")))
         if sig_id in processed:
             continue
+        sym_label = signal.get("symbol", "?")
         # S2b：信號太舊就不追了
         created_str = signal.get("created")
         if created_str:
@@ -576,7 +582,8 @@ def process_once(ex):
                     created_dt = created_dt.replace(tzinfo=timezone.utc)
                 age_min = (datetime.now(timezone.utc) - created_dt).total_seconds() / 60.0
                 if age_min > float(os.getenv("SIGNAL_MAX_AGE_MIN", "10")):
-                    log("  ⏭ 跳過", signal.get("symbol"), "：信號過舊（", round(age_min, 1), "分鐘）")
+                    log("  ⏭ 跳過", sym_label, "：信號過舊（", round(age_min, 1), "分鐘）")
+                    push_event("⏭ 跳過未下單｜" + sym_label + "｜信號過舊 " + str(round(age_min, 1)) + " 分鐘（上限 " + os.getenv("SIGNAL_MAX_AGE_MIN", "10") + " 分）")
                     processed.append(sig_id)
                     _changed = True
                     skipped["expired"] += 1
@@ -584,13 +591,15 @@ def process_once(ex):
             except Exception:
                 pass
         if signal.get("tier", "B") not in ALLOWED_TIERS:
+            push_event("⏭ 跳過未下單｜" + sym_label + "｜等級 " + str(signal.get("tier")) + " 不在允許清單 " + str(ALLOWED_TIERS))
             processed.append(sig_id)
             _changed = True
             skipped["tier"] += 1
             continue
         csym = to_ccxt_symbol(signal.get("symbol", ""))
         if csym in open_symbols:
-            log("  ⏭ 跳過", signal.get("symbol"), "：同幣已有持倉（不疊倉）")
+            log("  ⏭ 跳過", sym_label, "：同幣已有持倉（不疊倉）")
+            push_event("⏭ 跳過未下單｜" + sym_label + "｜同幣已有持倉或掛單")
             processed.append(sig_id)
             _changed = True
             skipped["same_symbol"] += 1
@@ -601,7 +610,8 @@ def process_once(ex):
             if sig_id not in wl_ids:
                 waitlist.append(signal)
                 waitlist_changed = True
-                log("  🪧 滿倉，信號進候補:", signal.get("symbol"))
+                log("  🪧 滿倉，信號進候補:", sym_label)
+                push_event("🪧 滿倉候補｜" + sym_label + "｜倉位已滿 " + str(pos_count) + "/" + str(MAX_POSITIONS) + "，進候補等空位")
             skipped["max_pos"] += 1
             continue
         log("  處理新信號:", sig_id)
@@ -609,8 +619,10 @@ def process_once(ex):
         record["sig_id"] = sig_id
         processed.append(sig_id)
         _changed = True
-        if "現價偏離信號進場價過多" in (record.get("msg") or ""):
+        msg = record.get("msg") or ""
+        if "放棄追高" in msg or "放棄追空" in msg or "偏離" in msg:
             skipped["drift"] += 1
+            push_event("⏭ 跳過未下單｜" + sym_label + "｜" + msg)
         outcome = _commit_open_record(record, signal, sig_id, trades, pending, open_symbols)
         if outcome == "pending":
             new_pending += 1
