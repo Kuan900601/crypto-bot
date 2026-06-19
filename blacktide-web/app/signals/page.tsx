@@ -12,20 +12,37 @@ const TG_CHANNEL = "https://t.me/KuroshioSignal";
 const TG_VIP = "https://t.me/+G1wwlviXQaE2NDRl";
 
 function LiveFeed({ userTier }: { userTier: string }) {
-  const [latest, setLatest] = useState<Signal | null>(null);
+  const [activeSignals, setActiveSignals] = useState<Signal[]>([]);
+  const [prevCount, setPrevCount] = useState(-1);
+  const [newSymbols, setNewSymbols] = useState<Set<string>>(new Set());
   const [liveSource, setLiveSource] = useState("");
   const [lastUpdate, setLastUpdate] = useState(0);
+  const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(() => {
     fetch("/api/signals")
       .then((r) => r.json())
       .then((d) => {
         const active: Signal[] = (d.signals ?? []).filter((s: Signal) => s.status === "active");
-        if (active.length > 0) setLatest(active[0]);
+        setActiveSignals(active);
         setLiveSource(d.source ?? "");
         setLastUpdate(Date.now());
+        setLoading(false);
+        // 偵測新出現的信號
+        setPrevCount((prev) => {
+          if (prev >= 0 && active.length > prev) {
+            const prevSymbols = new Set(activeSignals.map((s) => s.symbol));
+            const fresh = new Set(active.filter((s) => !prevSymbols.has(s.symbol)).map((s) => s.symbol));
+            if (fresh.size > 0) {
+              setNewSymbols(fresh);
+              setTimeout(() => setNewSymbols(new Set()), 30000);
+            }
+          }
+          return active.length;
+        });
       })
-      .catch(() => {});
+      .catch(() => { setLoading(false); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -38,8 +55,7 @@ function LiveFeed({ userTier }: { userTier: string }) {
     if (!ts) return "";
     const s = Math.floor((Date.now() - ts) / 1000);
     if (s < 60) return s + "s 前";
-    const m = Math.floor(s / 60);
-    return m + "m 前";
+    return Math.floor(s / 60) + "m 前";
   };
 
   const isLive = liveSource === "redis";
@@ -54,10 +70,10 @@ function LiveFeed({ userTier }: { userTier: string }) {
           <div className="flex items-center gap-2">
             <span className={`h-2 w-2 rounded-full ${isLive ? "bg-up animate-pulse" : "bg-slate-600"}`} />
             <span className={`text-[10px] font-bold uppercase tracking-widest ${isLive ? "text-up" : "text-slate-500"}`}>
-              {isLive ? "LIVE · 即時推播" : "DEMO · 展示模式"}
+              {isLive ? "LIVE · 即時持倉監控" : "DEMO · 展示模式"}
             </span>
+            {lastUpdate > 0 && <span className="text-[10px] text-slate-600">更新 {relTime(lastUpdate)}</span>}
           </div>
-          {lastUpdate > 0 && <span className="text-[10px] text-slate-600">更新 {relTime(lastUpdate)}</span>}
           <div className="ml-auto flex items-center gap-2">
             <a href={TG_CHANNEL} target="_blank" rel="noopener noreferrer"
               className="flex items-center gap-1.5 rounded-lg border border-tide-500/25 bg-tide-500/10 px-2.5 py-1 text-[11px] font-semibold text-tide-300 hover:bg-tide-500/20">
@@ -76,26 +92,52 @@ function LiveFeed({ userTier }: { userTier: string }) {
           </div>
         </div>
 
-        {/* 最新信號預覽 */}
-        {latest ? (
-          <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={`text-xs font-bold ${latest.direction === "long" ? "text-up" : "text-down"}`}>
-                {latest.direction === "long" ? "▲ LONG" : "▼ SHORT"}
-              </span>
-              <span className="font-mono text-sm font-bold text-slate-100">{latest.symbol}</span>
-              <Badge tone={latest.tier === "S" ? "up" : latest.tier === "A" ? "amber" : "slate"}>Tier {latest.tier}</Badge>
-              {isLive && <span className="ml-auto text-[10px] text-up">● 即時</span>}
-            </div>
-            <div className="mt-2 flex flex-wrap gap-3 text-[11px]">
-              <span className="text-slate-500">進場 <span className="font-mono text-slate-200">{latest.entryLow} – {latest.entryHigh}</span></span>
-              {latest.tps[0] && <span className="text-slate-500">TP1 <span className="font-mono text-up">{latest.tps[0].price}</span></span>}
-              {latest.tps[1] && <span className="text-slate-500">TP2 <span className="font-mono text-up">{latest.tps[1].price}</span></span>}
-              <span className="text-slate-500">SL <span className="font-mono text-down">{latest.stopLoss}</span></span>
-            </div>
+        {/* 持倉狀態列表 */}
+        {loading ? (
+          <div className="space-y-2">
+            {[1, 2].map((i) => <div key={i} className="h-14 animate-pulse rounded-xl bg-white/5" />)}
+          </div>
+        ) : activeSignals.length > 0 ? (
+          <div className="space-y-2">
+            {activeSignals.map((sig) => {
+              const isNew = newSymbols.has(sig.symbol);
+              const hitCount = sig.tps.filter((t) => t.hit).length;
+              return (
+                <div key={sig.id}
+                  className={`rounded-xl border px-3 py-2.5 transition-all ${isNew ? "border-up/40 bg-up/[0.06] shadow shadow-up/10" : "border-white/[0.06] bg-white/[0.025]"}`}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {isNew && <span className="rounded-full bg-up/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-up animate-pulse">NEW</span>}
+                    <span className={`text-[11px] font-bold ${sig.direction === "long" ? "text-up" : "text-down"}`}>
+                      {sig.direction === "long" ? "▲ LONG" : "▼ SHORT"}
+                    </span>
+                    <span className="font-mono text-sm font-bold text-slate-100">{sig.symbol}</span>
+                    <Badge tone={sig.tier === "S" ? "up" : sig.tier === "A" ? "amber" : "slate"}>Tier {sig.tier}</Badge>
+                    {hitCount > 0 && (
+                      <span className="rounded-full bg-up/15 px-2 py-0.5 text-[10px] font-semibold text-up">
+                        TP{hitCount} 已達
+                      </span>
+                    )}
+                    <span className="ml-auto text-[10px] text-slate-600">持倉中</span>
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap gap-3 text-[11px]">
+                    <span className="text-slate-500">進場 <span className="font-mono text-slate-300">{sig.entryLow}</span></span>
+                    {sig.tps[0] && <span className={sig.tps[0].hit ? "text-up font-semibold" : "text-slate-500"}>TP1 <span className="font-mono">{sig.tps[0].price}</span>{sig.tps[0].hit ? " ✓" : ""}</span>}
+                    {sig.tps[1] && <span className={sig.tps[1].hit ? "text-up font-semibold" : "text-slate-500"}>TP2 <span className="font-mono">{sig.tps[1].price}</span>{sig.tps[1].hit ? " ✓" : ""}</span>}
+                    {sig.tps[2] && <span className={sig.tps[2].hit ? "text-up font-semibold" : "text-slate-500"}>TP3 <span className="font-mono">{sig.tps[2].price}</span>{sig.tps[2].hit ? " ✓" : ""}</span>}
+                    <span className="text-slate-500">SL <span className="font-mono text-down">{sig.stopLoss}</span></span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : (
-          <div className="h-16 animate-pulse rounded-xl bg-white/5" />
+          <div className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-4 text-sm text-slate-500">
+            <span className="text-lg">📡</span>
+            <div>
+              <div className="font-semibold text-slate-400">目前無持倉信號</div>
+              <div className="text-[11px]">持續掃描 52 幣種中，新信號出現時即時顯示</div>
+            </div>
+          </div>
         )}
 
         {/* Telegram 入口 */}
