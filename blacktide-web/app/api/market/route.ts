@@ -59,13 +59,18 @@ async function buildStats(btc?: Ticker): Promise<MarketStats> {
   return { fearGreed, btcDominance, btcTurnover: btc?.volume ?? 0, btcFunding: btc?.fundingRate };
 }
 export async function GET() {
-  if (cache && Date.now() - cache.ts < 10000) return Response.json(cache.body);
-  const [c, s] = await Promise.all([cryptoTickers(), stockTickers()]);
-  const body = {
-    tickers: [...c.list, ...s.list],
-    stats: await buildStats(c.list.find((t) => t.symbol === "BTC")),
-    source: { crypto: c.src, stocks: s.src },
-  };
-  cache = { ts: Date.now(), body };
-  return Response.json(body);
+  try {
+    if (cache && Date.now() - cache.ts < 10000) return Response.json(cache.body);
+    const [c, s] = await Promise.all([cryptoTickers(), stockTickers()]);
+    const body = {
+      tickers: [...c.list, ...s.list],
+      stats: await buildStats(c.list.find((t) => t.symbol === "BTC")),
+      source: { crypto: c.src, stocks: s.src },
+    };
+    cache = { ts: Date.now(), body };
+    return Response.json(body);
+  } catch (err) {
+    console.error("[/api/market] FAILED:", err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : "");
+    return Response.json({ error: "market data failed" }, { status: 503 });
+  }
 }
