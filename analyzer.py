@@ -6234,6 +6234,7 @@ class CryptoAnalyzer:
                     "low_volume": 0,
                     "pre_filter": 0,
                     "setup_reject": 0,
+                    "winrate_reject": 0,   # v63 P0：細分第11關 win_rate/EV 拒絕，獨立追蹤
                     "score_low": 0,
                     "passed": 0,
                 }
@@ -6372,7 +6373,10 @@ class CryptoAnalyzer:
                             oi_data=oi_data
                         )
                         if result[0] is None:
-                            reject_stats["setup_reject"] += 1
+                            if isinstance(result[1], str) and "信號勝率不足" in result[1]:
+                                reject_stats["winrate_reject"] += 1
+                            else:
+                                reject_stats["setup_reject"] += 1
                             continue
                         score, plan = result
                         # 套用最低分過濾
@@ -6606,6 +6610,7 @@ class CryptoAnalyzer:
                         + " 低流=" + str(reject_stats["low_volume"])
                         + " 預篩=" + str(reject_stats["pre_filter"])
                         + " 閘門=" + str(reject_stats["setup_reject"])
+                        + " 勝率關=" + str(reject_stats["winrate_reject"])
                         + " 低分=" + str(reject_stats["score_low"]))
 
             # ⭐ v41 修：若 ok_count = 0（全部 API 失敗）直接回診斷訊息
