@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { signIn, getProviders } from "next-auth/react";
-import { Waves, Camera, Mail, CheckCircle } from "lucide-react";
+import { Waves, Camera, CheckCircle } from "lucide-react";
 const input = "w-full rounded-lg border border-white/10 bg-ink-900 px-3 py-2.5 text-sm outline-none focus:border-tide-500/40";
 export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -17,7 +17,6 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [hasGoogle, setHasGoogle] = useState(false);
   const [logoOk, setLogoOk] = useState(true);
-  const [emailPending, setEmailPending] = useState(false);
   const [notice, setNotice] = useState("");
   const router = useRouter();
   useEffect(() => {
@@ -61,19 +60,10 @@ export default function LoginPage() {
         });
         const d = await r.json();
         if (!r.ok) { setErr(d.error || "註冊失敗"); return; }
-        if (d.emailPending) {
-          if (remember) { try { localStorage.setItem("bt:remember_email", email); } catch {} }
-          setEmailPending(true);
-          return;
-        }
       }
       if (remember) { try { localStorage.setItem("bt:remember_email", email); } catch {} }
       else { try { localStorage.removeItem("bt:remember_email"); } catch {} }
       const res = await signIn("credentials", { email, password: pw, redirect: false });
-      if (res?.error === "EmailNotVerified") {
-        setEmailPending(true);
-        return;
-      }
       if (res?.error) { setErr("Email 或密碼錯誤"); return; }
       const nx = nextUrl();
       router.push(nx || (mode === "register" ? "/member" : "/"));
@@ -83,22 +73,6 @@ export default function LoginPage() {
   const canSubmit = mode === "login"
     ? !!email && !!pw
     : !!email && !!pw && !!nickname.trim() && !!phone.trim();
-  // Email pending verification screen
-  if (emailPending) {
-    return (
-      <div className="mx-auto mt-[8vh] w-full max-w-sm text-center">
-        <div className="rounded-2xl border border-white/10 bg-ink-800/80 p-6">
-          <Mail className="mx-auto mb-4 text-tide-400" size={36} />
-          <div className="text-base font-bold">請驗證您的 Email</div>
-          <p className="mt-2 text-sm leading-relaxed text-slate-400">
-            驗證信已寄送至 <b className="text-slate-200">{email}</b>，請點擊信中的連結完成驗證後再登入。
-          </p>
-          <div className="mt-4 text-[11px] text-slate-600">沒收到？請檢查垃圾郵件，或聯絡客服。連結 24 小時內有效。</div>
-          <button onClick={() => setEmailPending(false)} className="mt-4 text-xs text-tide-400 hover:underline">返回登入</button>
-        </div>
-      </div>
-    );
-  }
   return (
     <div className="mx-auto mt-[6vh] w-full max-w-sm">
       <div className="flex flex-col items-center">
@@ -175,7 +149,7 @@ export default function LoginPage() {
           </button>
         )}
         <div className="mt-4 text-[10px] leading-relaxed text-slate-600">
-          {mode === "register" ? "註冊後需驗證 Email 才可登入。" : ""}
+          {mode === "register" ? "註冊後會寄送驗證信，建議盡快驗證以保護帳號安全（非必要）。" : ""}
           註冊即表示同意服務條款、隱私權政策與風險揭露聲明。
         </div>
       </div>

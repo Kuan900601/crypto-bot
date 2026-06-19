@@ -8,11 +8,12 @@ declare module "next-auth" {
       isAdmin: boolean;
       isLifetime: boolean;
       planExpiry?: string;
+      emailVerified?: boolean;
     };
   }
 }
 declare module "next-auth/jwt" {
   interface JWT {
-    uid?: string; plan?: string; tier?: string; isAdmin?: boolean; isLifetime?: boolean; planExpiry?: string;
+    uid?: string; plan?: string; tier?: string; isAdmin?: boolean; isLifetime?: boolean; planExpiry?: string; emailVerified?: boolean;
   }
 }

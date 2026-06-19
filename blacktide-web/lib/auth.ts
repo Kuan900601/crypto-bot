@@ -91,7 +91,6 @@ export const authOptions: NextAuthOptions = {
         if (!u || !u.hash) return null;
         const ok = await bcrypt.compare(cred.password, u.hash);
         if (!ok) return null;
-        if (u.requiresEmailVerification && !u.emailVerified) throw new Error("EmailNotVerified");
         return { id: u.uid, email: u.email, name: u.name };
       },
     }),
@@ -111,6 +110,7 @@ export const authOptions: NextAuthOptions = {
         if (u) {
           token.uid = u.uid; token.plan = u.plan; token.tier = tierOf(u);
           token.isAdmin = u.isAdmin; token.isLifetime = u.isLifetime; token.planExpiry = u.planExpiry;
+          token.emailVerified = !!u.emailVerified;
         }
       }
       return token;
@@ -123,6 +123,7 @@ export const authOptions: NextAuthOptions = {
         session.user.isAdmin = !!token.isAdmin;
         session.user.isLifetime = !!token.isLifetime;
         session.user.planExpiry = token.planExpiry as string | undefined;
+        session.user.emailVerified = !!token.emailVerified;
       }
       return session;
     },
