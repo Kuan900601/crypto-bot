@@ -4,7 +4,7 @@ export const TIER_LABEL: Record<Tier, string> = { free: "免費會員", air: "Pl
 export const TIER_SHORT: Record<Tier, string> = { free: "FREE", air: "PLUS", pro: "PRO" };
 // 路由所需的最低方案（未列出者為公開）
 const ROUTE_TIER: { prefix: string; tier: Tier }[] = [
-  { prefix: "/signals", tier: "pro" },
+  { prefix: "/signals", tier: "air" },
   { prefix: "/backtest", tier: "pro" },
   { prefix: "/analysis", tier: "air" },
   { prefix: "/news", tier: "air" },

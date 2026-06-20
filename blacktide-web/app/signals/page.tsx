@@ -101,7 +101,8 @@ function LiveFeed({ userTier }: { userTier: string }) {
           <div className="space-y-2">
             {activeSignals.map((sig) => {
               const isNew = newSymbols.has(sig.symbol);
-              const hitCount = sig.tps.filter((t) => t.hit).length;
+              const hitCount = sig.tps?.filter((t) => t.hit).length ?? (sig as unknown as { tpHitCount?: number }).tpHitCount ?? 0;
+              const locked = sig.entryLow == null;
               return (
                 <div key={sig.id}
                   className={`rounded-xl border px-3 py-2.5 transition-all ${isNew ? "border-up/40 bg-up/[0.06] shadow shadow-up/10" : "border-white/[0.06] bg-white/[0.025]"}`}>
@@ -120,11 +121,17 @@ function LiveFeed({ userTier }: { userTier: string }) {
                     <span className="ml-auto text-[10px] text-slate-600">持倉中</span>
                   </div>
                   <div className="mt-1.5 flex flex-wrap gap-3 text-[11px]">
-                    <span className="text-slate-500">進場 <span className="font-mono text-slate-300">{sig.entryLow}</span></span>
-                    {sig.tps[0] && <span className={sig.tps[0].hit ? "text-up font-semibold" : "text-slate-500"}>TP1 <span className="font-mono">{sig.tps[0].price}</span>{sig.tps[0].hit ? " ✓" : ""}</span>}
-                    {sig.tps[1] && <span className={sig.tps[1].hit ? "text-up font-semibold" : "text-slate-500"}>TP2 <span className="font-mono">{sig.tps[1].price}</span>{sig.tps[1].hit ? " ✓" : ""}</span>}
-                    {sig.tps[2] && <span className={sig.tps[2].hit ? "text-up font-semibold" : "text-slate-500"}>TP3 <span className="font-mono">{sig.tps[2].price}</span>{sig.tps[2].hit ? " ✓" : ""}</span>}
-                    <span className="text-slate-500">SL <span className="font-mono text-down">{sig.stopLoss}</span></span>
+                    {!locked ? (
+                      <>
+                        <span className="text-slate-500">進場 <span className="font-mono text-slate-300">{sig.entryLow}</span></span>
+                        {sig.tps?.[0] && <span className={sig.tps[0].hit ? "text-up font-semibold" : "text-slate-500"}>TP1 <span className="font-mono">{sig.tps[0].price}</span>{sig.tps[0].hit ? " ✓" : ""}</span>}
+                        {sig.tps?.[1] && <span className={sig.tps[1].hit ? "text-up font-semibold" : "text-slate-500"}>TP2 <span className="font-mono">{sig.tps[1].price}</span>{sig.tps[1].hit ? " ✓" : ""}</span>}
+                        {sig.tps?.[2] && <span className={sig.tps[2].hit ? "text-up font-semibold" : "text-slate-500"}>TP3 <span className="font-mono">{sig.tps[2].price}</span>{sig.tps[2].hit ? " ✓" : ""}</span>}
+                        <span className="text-slate-500">SL <span className="font-mono text-down">{sig.stopLoss}</span></span>
+                      </>
+                    ) : (
+                      <span className="text-slate-500">🔒 進場價位 · 止損 · 止盈 — 升級 Plus 解鎖</span>
+                    )}
                   </div>
                 </div>
               );

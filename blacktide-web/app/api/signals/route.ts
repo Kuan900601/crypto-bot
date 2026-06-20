@@ -1,7 +1,23 @@
+import { getServerSession } from "next-auth";
+import { authOptions, getUser, tierOf } from "@/lib/auth";
 import { SIGNALS } from "@/lib/mock";
 import { redisGet } from "@/lib/redis";
 import { Signal, TakeProfit } from "@/lib/types";
 export const dynamic = "force-dynamic";
+// free 等級只能拿到「方向 + 結果」，看不到任何操作價位（entry/sl/tp/leverage/rr）
+type PublicSignal = Pick<Signal, "id" | "symbol" | "direction" | "tier" | "entryGrade" | "score" | "votes" | "newsVote" | "winRate" | "status" | "finalPct" | "openedAt" | "note"> & { tpHitCount: number; locked: true };
+function sanitizeSignal(sig: Signal, tier: "free" | "air" | "pro"): Signal | PublicSignal {
+  if (tier !== "free") return sig;
+  return {
+    id: sig?.id, symbol: sig?.symbol, direction: sig?.direction,
+    tier: sig?.tier, entryGrade: sig?.entryGrade,
+    score: sig?.score, votes: sig?.votes, newsVote: sig?.newsVote,
+    winRate: sig?.winRate, status: sig?.status, finalPct: sig?.finalPct,
+    openedAt: sig?.openedAt, note: sig?.note,
+    tpHitCount: (sig?.tps ?? []).filter((t) => t?.hit).length,
+    locked: true,
+  };
+}
 const TP_WEIGHT: Record<number, number> = { 1: 40, 2: 35, 3: 25 };
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function buildTps(raw: any, entry: number): TakeProfit[] {
@@ -72,6 +88,14 @@ function mapResult(raw: any, i: number): Signal | null {
   } catch { return null; }
 }
 export async function GET() {
+  let tier: "free" | "air" | "pro" = "free";
+  try {
+    const session = await getServerSession(authOptions);
+    const email = session?.user?.email;
+    const u = email ? await getUser(email) : null;
+    tier = tierOf(u);
+  } catch {}
+
   const key = process.env.BOT_REDIS_KEY || "bot_data";
   const rawStr = await redisGet(key);
   if (rawStr) {
@@ -93,8 +117,8 @@ export async function GET() {
           if (m) out.push(m);
         });
       }
-      if (out.length) return Response.json({ signals: out, source: "redis" });
+      if (out.length) return Response.json({ signals: out.map((s) => sanitizeSignal(s, tier)), source: "redis" });
     } catch {}
   }
-  return Response.json({ signals: SIGNALS, source: "mock" });
+  return Response.json({ signals: SIGNALS.map((s) => sanitizeSignal(s, tier)), source: "mock" });
 }
