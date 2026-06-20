@@ -1023,6 +1023,32 @@ async def cmd_at_debug(update, context):
         text += "無\n"
     text += "at:breaker_tripped: " + (str(breaker) if breaker else "未觸發") + "\n"
 
+    # ⑥b 持倉對帳（v63b：本指令不連交易所，這裡顯示的是 auto_trader 每輪對帳後的 at:trades 狀態，
+    # 並非即時重查 Bybit；若 reconcile_positions 正常運作，此清單應與 Bybit 實際持倉一致）
+    trades_raw = _redis_get_json_key("at:trades", [])
+    open_recs = [t for t in trades_raw if t.get("ok") and not t.get("closed")]
+    recently_closed = [t for t in trades_raw if t.get("closed")]
+    text += "\n*⑥b 持倉對帳*（bot 紀錄，已經過自動對帳，非即時重查 Bybit）\n"
+    text += "bot 記錄持倉中（ok 且未平）: " + str(len(open_recs)) + "\n"
+    for t in open_recs[-5:]:
+        sym = t.get("symbol", "?")
+        side = t.get("side", "?")
+        entry = t.get("entry_price", "?")
+        opened_at = t.get("opened_at")
+        age_str = "?"
+        if opened_at:
+            try:
+                age_str = str(round((time.time() - float(opened_at)) / 60.0, 1)) + "分"
+            except Exception:
+                pass
+        text += "• " + sym + " " + side + " entry=" + str(entry) + " age=" + age_str + "\n"
+    if recently_closed:
+        last_closed = sorted(recently_closed, key=lambda t: t.get("closed_ts", 0))[-3:]
+        text += "近期由對帳標記平倉（含交易所自動觸發）: " + str(len(recently_closed)) + "\n"
+        for t in last_closed:
+            text += ("• " + t.get("symbol", "?") + " " + str(t.get("close_reason", "?"))
+                     + " price=" + str(t.get("close_price")) + " pnl=" + str(t.get("realized_pnl")) + "\n")
+
     # ⑦ 結論（自動推斷）
     text += "\n*⑦ 結論*\n"
     if hb_age is None or hb_age > 60:
@@ -3817,21 +3843,28 @@ def main():
     app.add_handler(CallbackQueryHandler(button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     # ⭐ v59 E4：每 60 秒把 auto_trader 的 at:events 轉發給 ADMIN（單輪最多 10 條防洪水）
+    # v63b：改成「先讀全部 → 逐條送成功才移除」，避免讀完即 DEL 導致部署重啟窗口漏發就永久丟失；
+    # 送失敗的留著不移除，下輪繼續重試；單輪仍只送前 10 條（防洪水），其餘留到下輪（不再被誤刪）。
     async def at_events_relay(ctx):
         if not _USE_REDIS or not ADMIN_ID:
             return
         try:
             events = _redis_lrange_raw("at:events")
-            if events:
-                _redis_cmd_raw(["DEL", "at:events"])
         except Exception as e:
             logger.error("讀取 at:events 失敗: " + str(e)[:120])
+            return
+        if not events:
             return
         for ev in events[:10]:
             try:
                 await ctx.bot.send_message(chat_id=ADMIN_ID, text=str(ev))
             except Exception as e:
-                logger.error("at:events 推播失敗: " + str(e)[:120])
+                logger.error("at:events 推播失敗（保留，下輪重試）: " + str(e)[:120])
+                continue
+            try:
+                _redis_cmd_raw(["LREM", "at:events", "1", ev])
+            except Exception as e:
+                logger.error("at:events LREM 失敗: " + str(e)[:120])
     app.job_queue.run_repeating(
         at_events_relay,
         interval=60,

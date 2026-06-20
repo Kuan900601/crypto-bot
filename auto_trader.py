@@ -844,7 +844,7 @@ def check_trailing_stop(ex):
     changed = False
     min_buf_env = float(os.getenv("TRAIL_BUFFER_MIN_PCT", "0.004"))
     for rec in trades:
-        if not rec.get("ok"):
+        if not rec.get("ok") or rec.get("closed"):
             continue
         sym = rec["symbol"]
         p = pos_map.get(sym)
@@ -952,7 +952,7 @@ def reconcile_stale_orders(ex):
     changed = False
     now = time.time()
     for rec in trades:
-        if not rec.get("ok") or rec.get("cleaned"):
+        if not rec.get("ok") or rec.get("cleaned") or rec.get("closed"):
             continue
         if now - rec.get("opened_at", 0) < 60:
             continue
@@ -968,6 +968,108 @@ def reconcile_stale_orders(ex):
         changed = True
         if cancelled:
             log("  🧹 清理殘單:", sym, "取消", cancelled, "張")
+    if changed:
+        save_json(TRADES_FILE, trades)
+
+
+def reconcile_positions(ex):
+    """v63b：持倉對帳。止損/止盈被 Bybit 直接觸發時不經過 bot，bot 端紀錄仍顯示開著、
+    不發通知、不清殘單、永久佔位擋新信號。本函式逐輪比對 auto_trades 與 Bybit 實際持倉：
+    bot 紀錄開著但交易所已無此倉 → 標記平倉、查實際平倉價/已實現損益、推播通知、清殘單。
+    防誤判（真錢）：Bybit 查詢失敗 → 整輪跳過，絕不因一次查詢異常就誤標平倉。"""
+    try:
+        positions = trader.get_positions(ex)
+    except Exception as e:
+        log("  ⚠️ 持倉對帳：查詢 Bybit 持倉失敗，本輪跳過:", str(e)[:120])
+        return
+    open_syms = {to_ccxt_symbol(p["symbol"]) for p in positions}
+
+    trades = load_json(TRADES_FILE, [])
+    pending_check = [rec for rec in trades
+                      if rec.get("ok") and not rec.get("closed")
+                      and rec.get("symbol") not in open_syms
+                      and time.time() - rec.get("opened_at", 0) >= 60]
+    if not pending_check:
+        return
+
+    # 一次抓已實現損益歷史，給本輪所有待確認紀錄共用比對（與 update_pnl_ledger 同一套 API）
+    closed_pnl_list = []
+    try:
+        hist = ex.fetch_positions_history(None, None, 50, {"category": "linear"})
+        closed_pnl_list = [p.get("info", {}) for p in hist]
+    except Exception:
+        try:
+            resp = ex.private_get_v5_position_closed_pnl({"category": "linear", "limit": "50"})
+            closed_pnl_list = (resp.get("result") or {}).get("list") or []
+        except Exception:
+            closed_pnl_list = []
+
+    changed = False
+    for rec in pending_check:
+        sym = rec["symbol"]
+        try:
+            bybit_sym = trader._bybit_symbol_id(ex, sym)
+        except Exception:
+            bybit_sym = sym.replace("/", "").split(":")[0]
+
+        match = None
+        match_ts = 0
+        for r in closed_pnl_list:
+            if r.get("symbol") != bybit_sym:
+                continue
+            try:
+                ts = float(r.get("updatedTime") or 0) / 1000.0
+            except Exception:
+                ts = 0
+            if ts >= rec.get("opened_at", 0) and ts >= match_ts:
+                match = r
+                match_ts = ts
+
+        close_price = None
+        realized_pnl = None
+        close_reason = "exchange_closed"
+        if match:
+            try:
+                close_price = float(match.get("avgExitPrice") or 0) or None
+            except Exception:
+                close_price = None
+            try:
+                realized_pnl = float(match.get("closedPnl") or 0)
+            except Exception:
+                realized_pnl = None
+            if close_price:
+                try:
+                    sl_used = rec.get("sl_used")
+                    if sl_used and abs(close_price - float(sl_used)) / float(sl_used) < 0.005:
+                        close_reason = "SL"
+                    else:
+                        for tp in (rec.get("tp1"), rec.get("tp2")):
+                            if tp and abs(close_price - float(tp)) / float(tp) < 0.005:
+                                close_reason = "TP"
+                                break
+                except Exception:
+                    pass
+
+        rec["closed"] = True
+        rec["close_price"] = close_price
+        rec["close_reason"] = close_reason
+        rec["realized_pnl"] = realized_pnl
+        rec["closed_ts"] = time.time()
+        changed = True
+
+        pnl_str = (str(round(realized_pnl, 2)) + "U") if realized_pnl is not None else "未知（查無對帳資料）"
+        price_str = str(close_price) if close_price else "未知"
+        reason_label = {"SL": "止損", "TP": "止盈", "exchange_closed": "交易所平倉"}.get(close_reason, close_reason)
+        log("  ⚠️ 持倉對帳：偵測到交易所自動平倉:", sym, "｜", reason_label, "｜價", price_str, "｜PnL", pnl_str)
+        push_event("⚠️ " + sym + " 已被交易所平倉（" + reason_label + "觸發）｜平倉價 " + price_str + "｜已實現 " + pnl_str)
+
+        try:
+            cancelled = trader.cancel_symbol_orders(ex, sym)
+            if cancelled:
+                log("  🧹 對帳清理殘單:", sym, "取消", cancelled, "張")
+        except Exception:
+            pass
+
     if changed:
         save_json(TRADES_FILE, trades)
 
@@ -1127,6 +1229,7 @@ def main_loop():
             process_once(ex)
             process_pending(ex)
             check_trailing_stop(ex)
+            reconcile_positions(ex)
             reconcile_stale_orders(ex)
             check_liquidations(ex)
             round_num += 1
