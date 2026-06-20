@@ -335,37 +335,65 @@ def save_data():
         logger.error("儲存失敗: " + str(e))
 
 
-def main_menu():
-    return InlineKeyboardMarkup([
-        # 第一排：核心功能（最常用）
+def main_menu(is_admin=False):
+    """v63d：主選單精簡到最常用，次常用收進「更多功能」，管理功能收進「管理」（僅 ADMIN 看得到）"""
+    rows = [
         [InlineKeyboardButton("🌊 黑潮船長 (即時掃描)", callback_data="hunter")],
-        # v61 P4-3：移除「今日為你挑選 TOP1」按鈕（與黑潮掃描重複）；callback todays_pick 仍保留可用
-        # 第二排：自動化
+        [InlineKeyboardButton("📊 異動掃描", callback_data="movers")],
+        [InlineKeyboardButton("🌐 市場全景", callback_data="menu_overview")],
+        [InlineKeyboardButton("📡 我的持倉", callback_data="active_signals")],
         [InlineKeyboardButton("🔔 黑潮船長推播 ON", callback_data="auto_on"),
          InlineKeyboardButton("🔕 OFF", callback_data="auto_off")],
-        [InlineKeyboardButton("📅 自訂定時推播", callback_data="schedule_menu")],
-        # 第三排：信號管理
-        [InlineKeyboardButton("📡 追蹤中信號", callback_data="active_signals"),
-         InlineKeyboardButton("📊 歷史戰績", callback_data="stats")],
-        # 第四排：個別分析
-        [InlineKeyboardButton("⚡ 即時動能", callback_data="momentum"),
-         InlineKeyboardButton("📊 異動掃描", callback_data="movers")],
-        [InlineKeyboardButton("🌐 市場情緒", callback_data="sentiment"),
-         InlineKeyboardButton("📰 加密快訊", callback_data="news_only")],
-        [InlineKeyboardButton("🔭 趨勢總覽", callback_data="trend"),
-         InlineKeyboardButton("📊 多週期分析", callback_data="multi_tf")],
-        # 第五排：快速幣種
+        [InlineKeyboardButton("📋 更多功能", callback_data="menu_more")],
+    ]
+    if is_admin:
+        rows.append([InlineKeyboardButton("🔧 管理", callback_data="menu_admin")])
+    return InlineKeyboardMarkup(rows)
+
+
+def more_menu():
+    """v63d：次常用功能子選單（原主選單裡的個別分析/工具類，移過來避免主選單過擠）"""
+    return InlineKeyboardMarkup([
         [InlineKeyboardButton("BTC", callback_data="a_BTC"),
          InlineKeyboardButton("ETH", callback_data="a_ETH"),
          InlineKeyboardButton("SOL", callback_data="a_SOL"),
          InlineKeyboardButton("BNB", callback_data="a_BNB")],
-        # 第六排：工具
+        [InlineKeyboardButton("🔍 自訂幣種分析", callback_data="custom"),
+         InlineKeyboardButton("🕯 K線/支撐阻力", callback_data="kline")],
+        [InlineKeyboardButton("⚡ 即時動能", callback_data="momentum"),
+         InlineKeyboardButton("📊 多週期分析(BTC)", callback_data="multi_tf")],
         [InlineKeyboardButton("⭐ 我的自選", callback_data="favorites"),
-         InlineKeyboardButton("🔍 自訂幣種", callback_data="custom")],
-        [InlineKeyboardButton("💼 倉位計算", callback_data="position_calc"),
+         InlineKeyboardButton("💼 倉位計算", callback_data="position_calc")],
+        [InlineKeyboardButton("📊 歷史戰績", callback_data="stats"),
          InlineKeyboardButton("📜 推播歷史", callback_data="history")],
-        # ⭐ v40 系統狀態
+        [InlineKeyboardButton("📅 自訂定時推播", callback_data="schedule_menu")],
         [InlineKeyboardButton("🩺 系統狀態", callback_data="sys_status")],
+        [InlineKeyboardButton("⬅️ 返回主選單", callback_data="home")],
+    ])
+
+
+def overview_menu():
+    """v63d：市場全景子選單（情緒/新聞/趨勢合併）"""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌐 市場情緒", callback_data="sentiment"),
+         InlineKeyboardButton("📰 加密快訊", callback_data="news_only")],
+        [InlineKeyboardButton("🔭 趨勢總覽", callback_data="trend")],
+        [InlineKeyboardButton("⬅️ 返回主選單", callback_data="home")],
+    ])
+
+
+def admin_menu():
+    """v63d：管理子選單（僅 ADMIN 可見/可用）"""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔧 斷鏈診斷", callback_data="admin_at_debug"),
+         InlineKeyboardButton("🚦 自動交易狀態", callback_data="admin_at_status")],
+        [InlineKeyboardButton("📊 期望值分析", callback_data="admin_edge"),
+         InlineKeyboardButton("💰 真實損益", callback_data="admin_real_pnl")],
+        [InlineKeyboardButton("🛡 情境閘門記錄", callback_data="admin_gate_stats")],
+        [InlineKeyboardButton("📤 匯出歷史", callback_data="admin_export"),
+         InlineKeyboardButton("🧪 測試推播", callback_data="admin_testpush")],
+        [InlineKeyboardButton("🗑 清空戰績", callback_data="admin_reset_stats")],
+        [InlineKeyboardButton("⬅️ 返回主選單", callback_data="home")],
     ])
 
 
@@ -420,7 +448,9 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "• Wyckoff + 多週期共振 + 主動退出\n\n"
         "_⚠️ 加密貨幣風險極高，僅供參考_"
     )
-    await update.message.reply_text(text, reply_markup=main_menu(), parse_mode="Markdown")
+    uid = update.effective_user.id if update.effective_user else 0
+    is_admin = bool(ADMIN_ID) and uid == ADMIN_ID
+    await update.message.reply_text(text, reply_markup=main_menu(is_admin), parse_mode="Markdown")
 
 
 async def send_chart_with_caption(ctx, chat_id, df, symbol, timeframe, direction,
@@ -589,30 +619,39 @@ async def cmd_sentiment(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_testpush(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    msg = await update.message.reply_text("⏳ 測試推播中...")
+    msg = await update.effective_message.reply_text("⏳ 測試推播中...")
     result = await safe_run(analyzer.golden_hunter(smart_filter=False), timeout=90)
     await msg.edit_text("🧪 *測試推播*\n\n" + result, parse_mode="Markdown")
 
 
 async def cmd_export(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """v63d：匯出歷史記錄，CSV + JSON 雙檔（按鈕與指令共用）"""
     try:
         if not SIGNAL_RESULTS:
-            await update.message.reply_text("目前還沒有歷史記錄")
+            await update.effective_message.reply_text("目前還沒有歷史記錄")
             return
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
         output = io.StringIO()
         fieldnames = list(SIGNAL_RESULTS[0].keys())
         writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(SIGNAL_RESULTS)
         output.seek(0)
-        filename = "signal_results_" + datetime.now(timezone.utc).strftime("%Y-%m-%d") + ".csv"
         await ctx.bot.send_document(
             chat_id=update.effective_chat.id,
             document=output.read().encode("utf-8-sig"),
-            filename=filename,
+            filename="signal_results_" + date_str + ".csv",
+        )
+
+        json_bytes = json.dumps(SIGNAL_RESULTS, ensure_ascii=False, indent=2).encode("utf-8")
+        await ctx.bot.send_document(
+            chat_id=update.effective_chat.id,
+            document=json_bytes,
+            filename="signal_results_" + date_str + ".json",
         )
     except Exception as e:
-        await update.message.reply_text("匯出失敗：" + str(e))
+        await update.effective_message.reply_text("匯出失敗：" + str(e))
 
 
 async def cmd_reset_stats(update, context):
@@ -1144,6 +1183,8 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     d = q.data
     chat_id = q.message.chat_id
+    uid = q.from_user.id if q.from_user else 0
+    is_admin = bool(ADMIN_ID) and uid == ADMIN_ID
 
     if d.startswith("a_"):
         symbol_short = d[2:]
@@ -2040,9 +2081,67 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         USER_STATES.pop(chat_id, None)
         await q.edit_message_text(
             "🤖 *主選單*",
-            reply_markup=main_menu(),
+            reply_markup=main_menu(is_admin),
             parse_mode="Markdown"
         )
+
+    elif d == "menu_more":
+        await q.edit_message_text("📋 *更多功能*", reply_markup=more_menu(), parse_mode="Markdown")
+
+    elif d == "menu_overview":
+        await q.edit_message_text("🌐 *市場全景*", reply_markup=overview_menu(), parse_mode="Markdown")
+
+    elif d == "menu_admin":
+        if not is_admin:
+            await q.answer("僅管理員可用", show_alert=True)
+            return
+        await q.edit_message_text("🔧 *管理*", reply_markup=admin_menu(), parse_mode="Markdown")
+
+    elif d.startswith("admin_"):
+        if not is_admin:
+            await q.answer("僅管理員可用", show_alert=True)
+            return
+        action = d[len("admin_"):]
+        if action == "at_debug":
+            await q.edit_message_text("⏳ 診斷中...")
+            await cmd_at_debug(update, ctx)
+        elif action == "at_status":
+            await q.edit_message_text("⏳ 查詢中...")
+            await cmd_at_status(update, ctx)
+        elif action == "edge":
+            await q.edit_message_text("⏳ 分析中...")
+            await cmd_edge(update, ctx)
+        elif action == "real_pnl":
+            await q.edit_message_text("⏳ 查詢中...")
+            await cmd_real_pnl(update, ctx)
+        elif action == "gate_stats":
+            await q.edit_message_text("⏳ 查詢中...")
+            await cmd_gate_stats(update, ctx)
+        elif action == "export":
+            await q.edit_message_text("⏳ 匯出中...")
+            await cmd_export(update, ctx)
+        elif action == "testpush":
+            await q.edit_message_text("⏳ 測試推播中...")
+            await cmd_testpush(update, ctx)
+        elif action == "reset_stats":
+            n = len(SIGNAL_RESULTS)
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("⚠️ 確定清空 " + str(n) + " 筆", callback_data="admin_reset_confirm"),
+                 InlineKeyboardButton("取消", callback_data="menu_admin")],
+            ])
+            await q.edit_message_text(
+                "⚠️ 將清空 " + str(n) + " 筆歷史戰績與連虧紀錄，此動作不可復原。確定嗎？",
+                reply_markup=kb
+            )
+        if action in ("at_debug", "at_status", "edge", "real_pnl", "gate_stats", "export", "testpush"):
+            await q.message.reply_text("⬅️ 返回", reply_markup=admin_menu())
+
+    elif d == "admin_reset_confirm":
+        if not is_admin:
+            await q.answer("僅管理員可用", show_alert=True)
+            return
+        await cmd_reset_stats(update, ctx)
+        await q.message.reply_text("⬅️ 返回", reply_markup=admin_menu())
 
 
 async def text_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
