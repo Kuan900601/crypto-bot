@@ -672,7 +672,7 @@ def _edge_bucket_stats(results):
 
 
 async def cmd_edge(update, context):
-    """v57：策略期望值驗證儀表（管理員專用，依 SIGNAL_RESULTS 統計）"""
+    """v63c：策略期望值驗證儀表（管理員專用，純分析不動策略，依 SIGNAL_RESULTS 統計）"""
     uid = update.effective_user.id if update.effective_user else 0
     if not ADMIN_ID or uid != ADMIN_ID:
         await update.effective_message.reply_text("此指令僅限管理員。你的 id：" + str(uid))
@@ -683,7 +683,7 @@ async def cmd_edge(update, context):
         return
 
     overall = _edge_bucket_stats(SIGNAL_RESULTS)
-    text = "📊 *策略期望值驗證（v57）*\n"
+    text = "📊 *策略期望值驗證（v63c）*\n"
     text += "━━━━━━━━━━━━━━━━━━━━\n\n"
     text += "*整體（n=" + str(overall["n"]) + "）*\n"
     text += "勝率: " + "{:.2f}%".format(overall["win_rate"]) + "\n"
@@ -700,6 +700,8 @@ async def cmd_edge(update, context):
         ("方向", "direction"),
         ("大盤狀態", "regime_at_entry"),
     ]
+    # 同時收集各分類的合格子桶（n≥5）統計，供下方顯示與自動診斷共用
+    qualifying_by_cat = {}
     for label, key in bucket_defs:
         groups = {}
         for r in SIGNAL_RESULTS:
@@ -708,18 +710,65 @@ async def cmd_edge(update, context):
                 v = "NA"
             groups.setdefault(v, []).append(r)
         sub_lines = []
+        qualifying = {}
         for k in sorted(groups.keys(), key=str):
             sub_results = groups[k]
             if len(sub_results) < 5:
                 continue
             st = _edge_bucket_stats(sub_results)
+            qualifying[k] = st
             sub_lines.append(
                 "  `" + str(k) + "`：n=" + str(st["n"])
                 + " 勝率=" + "{:.2f}%".format(st["win_rate"])
                 + " 毛EV=" + "{:.2f}%".format(st["gross_ev"])
+                + " 净EV=" + "{:.2f}%".format(st["net_ev"])
             )
+        qualifying_by_cat[label] = qualifying
         if sub_lines:
             text += "\n*" + label + "分組（n≥5）*\n" + "\n".join(sub_lines) + "\n"
+        else:
+            text += "\n*" + label + "分組*：樣本不足（無 n≥5 子桶），歸 NA\n"
+
+    # ⭐ v63c 自動診斷：找出各分類裡「主要靠誰賺、誰在賠」
+    diag_lines = []
+    for label, qualifying in qualifying_by_cat.items():
+        if len(qualifying) < 2:
+            continue
+        best_k = max(qualifying, key=lambda k: qualifying[k]["net_ev"])
+        worst_k = min(qualifying, key=lambda k: qualifying[k]["net_ev"])
+        if best_k == worst_k:
+            continue
+        best_ev = qualifying[best_k]["net_ev"]
+        worst_ev = qualifying[worst_k]["net_ev"]
+        diag_lines.append(
+            label + "：主要靠 `" + str(best_k) + "` 賺（净EV " + "{:+.2f}%".format(best_ev) + "），"
+            + "`" + str(worst_k) + "` 在賠（净EV " + "{:+.2f}%".format(worst_ev) + "）"
+        )
+
+    # ⭐ v63c 自動診斷：問題偏向（贏太少 vs 輸太多）
+    avg_win = overall["avg_win"]
+    avg_loss = overall["avg_loss"]
+    losses_list = [r.get("final_pct", 0) for r in SIGNAL_RESULTS if r.get("final_pct", 0) <= 0]
+    max_single_loss = min(losses_list) if losses_list else 0.0
+    if avg_win > 0 and abs(avg_loss) > 0 and avg_win < abs(avg_loss):
+        diag_lines.append(
+            "問題偏向：贏太少（平均盈 " + "{:.2f}%".format(avg_win)
+            + " < 平均虧 " + "{:.2f}%".format(abs(avg_loss))
+            + "），盈虧比不足，可能停利過早或止損距離設太寬"
+        )
+    elif avg_loss != 0 and max_single_loss < avg_loss * 2:
+        diag_lines.append(
+            "問題偏向：輸太多（單筆最大虧 " + "{:.2f}%".format(max_single_loss)
+            + " 遠超平均虧 " + "{:.2f}%".format(avg_loss)
+            + " 的 2 倍），可能存在止損未嚴格執行或滑價過大的單筆極端虧損"
+        )
+    else:
+        diag_lines.append("盈虧比結構尚屬正常，若淨期望值仍為負，問題可能在整體勝率本身")
+
+    if diag_lines:
+        text += "\n*🔍 自動診斷*\n" + "\n".join("• " + d for d in diag_lines) + "\n"
+
+    text += "\n_⚠️ 樣本 <30 為雜訊，數字僅供觀察；調整任何參數前請先確認該桶 n 是否足夠。_"
 
     await update.effective_message.reply_text(text, parse_mode="Markdown")
 
