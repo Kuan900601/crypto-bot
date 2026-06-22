@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { TrendingUp, TrendingDown, Minus, RefreshCw, BarChart2, Activity } from "lucide-react";
 import { Card } from "@/components/ui";
 import { fmtPrice } from "@/lib/format";
+import { C, MONO, SERIF } from "@/lib/theme";
+import Corner from "@/components/site/Corner";
 const STOCKS = ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD"];
 
 interface StockData {
@@ -68,18 +70,22 @@ export default function StocksPage() {
       {/* Header */}
       <div>
         <div className="mb-1 flex items-center gap-2">
-          <BarChart2 size={14} className="text-blue-400" />
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-blue-400">美股 AI 分析</span>
+          <BarChart2 size={14} color={C.teal} />
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: C.teal }}>美股 AI 分析</span>
         </div>
-        <h1 className="font-display text-2xl font-bold">美股技術分析</h1>
-        <p className="mt-1 text-sm text-slate-500">基於 Yahoo Finance 90 日數據 · RSI · 布林通道 · MACD · 均線 · 量能分析</p>
+        <h1 className="gold-text" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700 }}>美股技術分析</h1>
+        <p className="mt-1" style={{ fontSize: 13, color: C.mut }}>基於 Yahoo Finance 90 日數據 · RSI · 布林通道 · MACD · 均線 · 量能分析</p>
       </div>
 
       {/* Symbol picker */}
       <div className="flex flex-wrap gap-2">
         {STOCKS.map((s) => (
-          <button key={s} onClick={() => setSymbol(s)}
-            className={`rounded-full px-3.5 py-1.5 font-mono text-xs font-bold transition-colors ${symbol === s ? "bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/40" : "bg-white/[0.04] text-slate-400 hover:bg-white/[0.08]"}`}>
+          <button key={s} onClick={() => setSymbol(s)} className="rounded-full px-3.5 py-1.5" style={{
+            fontFamily: MONO, fontSize: 12, fontWeight: 700,
+            border: `1px solid ${symbol === s ? C.teal + "70" : C.line}`,
+            background: symbol === s ? "rgba(55,214,196,0.12)" : "transparent",
+            color: symbol === s ? C.teal : C.mut,
+          }}>
             {s}
           </button>
         ))}
@@ -95,7 +101,8 @@ export default function StocksPage() {
       {data && !loading && (
         <div className="space-y-4">
           {/* Price + bias hero */}
-          <Card className="p-5">
+          <Card className="relative overflow-hidden p-5">
+            <Corner pos="tl" /><Corner pos="br" />
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <div className="flex flex-wrap items-center gap-2">

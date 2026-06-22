@@ -1,6 +1,8 @@
 "use client";
 import { useState } from "react";
 import { Calendar, TrendingUp, DollarSign, Globe } from "lucide-react";
+import { C, MONO, SERIF } from "@/lib/theme";
+import Corner from "@/components/site/Corner";
 
 type Category = "all" | "crypto" | "macro" | "fed";
 
@@ -53,8 +55,8 @@ export default function CalendarPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-2xl font-bold">重要事件行事曆</h1>
-        <p className="mt-1 text-sm text-slate-500">加密貨幣週期事件、美國總經數據、Fed 利率決策關鍵日期</p>
+        <h1 className="gold-text" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700 }}>重要事件行事曆</h1>
+        <p className="mt-1" style={{ fontSize: 13, color: C.mut }}>加密貨幣週期事件、美國總經數據、Fed 利率決策關鍵日期</p>
       </div>
 
       {/* 分類篩選 */}
@@ -76,16 +78,19 @@ export default function CalendarPage() {
           </div>
           <div className="space-y-2">
             {high.map((e, i) => (
-              <div key={i} className="rounded-xl border border-white/5 bg-ink-800/60 p-4">
+              <div key={i} className="sigrow relative overflow-hidden rounded-xl p-4" style={{ border: `1px solid ${C.lineGold}`, background: "linear-gradient(180deg, rgba(16,30,48,0.7), rgba(6,16,30,0.5))" }}>
+                <span className="accent-bar" style={{ background: `linear-gradient(${C.rose},transparent)`, boxShadow: `0 0 6px ${C.rose}` }} />
+                <div className="row-sweep" />
+                <Corner pos="tr" />
                 <div className="flex flex-wrap items-start gap-2">
                   <div className="flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-semibold text-slate-100">{e.title}</span>
+                      <span style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>{e.title}</span>
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${CAT_CLS[e.category]}`}>{CAT_LABEL[e.category]}</span>
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${IMPACT_CLS[e.impact]}`}>高影響</span>
                     </div>
-                    <div className="mt-1 font-mono text-xs text-tide-400">{e.date}</div>
-                    <div className="mt-1.5 text-xs leading-relaxed text-slate-400">{e.desc}</div>
+                    <div className="mt-1" style={{ fontFamily: MONO, fontSize: 11, color: C.gold }}>{e.date}</div>
+                    <div className="mt-1.5" style={{ fontSize: 12, lineHeight: 1.7, color: C.mut }}>{e.desc}</div>
                   </div>
                 </div>
               </div>
@@ -103,13 +108,13 @@ export default function CalendarPage() {
           </div>
           <div className="space-y-2">
             {medium.map((e, i) => (
-              <div key={i} className="rounded-xl border border-white/5 bg-ink-800/40 p-4">
+              <div key={i} className="rounded-xl p-4" style={{ border: `1px solid ${C.line}`, background: "rgba(255,255,255,0.02)" }}>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold text-slate-200">{e.title}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{e.title}</span>
                   <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${CAT_CLS[e.category]}`}>{CAT_LABEL[e.category]}</span>
                 </div>
-                <div className="mt-1 font-mono text-xs text-slate-500">{e.date}</div>
-                <div className="mt-1.5 text-xs leading-relaxed text-slate-500">{e.desc}</div>
+                <div className="mt-1" style={{ fontFamily: MONO, fontSize: 11, color: C.dim }}>{e.date}</div>
+                <div className="mt-1.5" style={{ fontSize: 12, lineHeight: 1.7, color: C.dim }}>{e.desc}</div>
               </div>
             ))}
           </div>

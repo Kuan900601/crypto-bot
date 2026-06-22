@@ -5,6 +5,8 @@ import { randomAlert } from "@/lib/mock";
 import { useApp } from "@/lib/store";
 import { SectionTitle, Card, Badge, Chip } from "@/components/ui";
 import { Pause, Play, Waves, ArrowDownToLine, Flame, Zap, BarChart3 } from "lucide-react";
+import { C } from "@/lib/theme";
+import Corner from "@/components/site/Corner";
 const META = {
   whale: { label: "巨鯨異動", icon: Waves, color: "text-tide-300" },
   flow: { label: "交易所流向", icon: ArrowDownToLine, color: "text-indigo-300" },
@@ -36,8 +38,8 @@ export default function MonitorPage() {
       <SectionTitle title="異常監控" desc="巨鯨、流向、清算、費率與巨量事件（DEMO 模擬即時流）"
         right={
           <button onClick={() => setLive((v) => !v)}
-            className="flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-xs">
-            {live ? <><span className="pulse-dot h-2 w-2 rounded-full bg-up" />即時監控中<Pause size={13} /></> : <>已暫停<Play size={13} /></>}
+            className="ham flex items-center gap-2 rounded-full px-3 py-1.5 text-xs" style={{ border: `1px solid ${C.line}`, color: C.mut }}>
+            {live ? <><span className="pulse-dot h-2 w-2 rounded-full" style={{ background: C.green }} />模擬監控中<Pause size={13} /></> : <>已暫停<Play size={13} /></>}
           </button>
         } />
       <div className="flex flex-wrap gap-2">
@@ -50,8 +52,12 @@ export default function MonitorPage() {
         {filtered.length === 0 && <div className="rounded-xl border border-white/5 p-8 text-center text-sm text-slate-500">沒有符合條件的事件</div>}
         {filtered.map((a) => {
           const Icon = META[a.type].icon;
+          const sevColor = a.severity === "critical" ? C.rose : a.severity === "warn" ? C.gold : C.dim;
           return (
-            <Card key={a.id} className="flex items-start gap-3 p-3.5">
+            <Card key={a.id} className="sigrow relative flex items-start gap-3 overflow-hidden p-3.5">
+              <span className="accent-bar" style={{ background: `linear-gradient(${sevColor},transparent)`, boxShadow: `0 0 6px ${sevColor}` }} />
+              <div className="row-sweep" />
+              <Corner pos="tr" />
               <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/5 ${META[a.type].color}`}>
                 <Icon size={16} />
               </span>

@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { NewsItem } from "@/lib/types";
 import { SectionTitle, Card, Badge, Chip } from "@/components/ui";
+import { C } from "@/lib/theme";
+import Corner from "@/components/site/Corner";
 const SENT: Record<NewsItem["sentiment"], { label: string; tone: "up" | "down" | "slate" }> = {
   bull: { label: "利多", tone: "up" }, bear: { label: "利空", tone: "down" }, neutral: { label: "中性", tone: "slate" },
 };
@@ -38,9 +40,12 @@ export default function NewsPage() {
         {filtered.length === 0 && <div className="rounded-xl border border-white/5 p-8 text-center text-sm text-slate-500">沒有符合條件的新聞</div>}
         {filtered.map((n) => (
           <a key={n.id} href={hrefOf(n)} target="_blank" rel="noreferrer" className="block">
-            <Card className="p-4 transition hover:border-tide-500/30 hover:bg-white/[0.03]">
+            <Card className="sigrow relative overflow-hidden p-4 transition hover:border-tide-500/30 hover:bg-white/[0.03]">
+              <span className="accent-bar" style={{ background: `linear-gradient(${SENT[n.sentiment].tone === "up" ? C.green : SENT[n.sentiment].tone === "down" ? C.rose : C.dim},transparent)` }} />
+              <div className="row-sweep" />
+              <Corner pos="tr" />
               {/* 第一行：badge + 標題 */}
-              <div className="flex items-start gap-2">
+              <div className="flex items-start gap-2" style={{ position: "relative", zIndex: 1 }}>
                 <Badge tone={SENT[n.sentiment].tone}>{SENT[n.sentiment].label}</Badge>
                 <h3 className="min-w-0 flex-1 text-sm font-semibold leading-snug line-clamp-2">{n.title}</h3>
                 <ExternalLink size={13} className="mt-0.5 shrink-0 text-slate-600" />
