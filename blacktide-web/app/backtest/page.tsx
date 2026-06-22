@@ -2,7 +2,9 @@
 import { useState } from "react";
 import { Card, Stat } from "@/components/ui";
 import { makeRng } from "@/lib/format";
-import { Play, TrendingUp, FlaskConical } from "lucide-react";
+import { Play, TrendingUp, FlaskConical, AlertTriangle } from "lucide-react";
+import { C, SERIF } from "@/lib/theme";
+import Corner from "@/components/site/Corner";
 const SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "SUI", "PEPE", "NVDA", "TSLA", "AAPL", "META"];
 const TFS = ["15m", "1h", "4h", "1d"];
 const STRATS = ["黑潮綜合（7+1 投票）", "趨勢追隨", "動量策略", "BOS 突破", "均線排列", "支撐阻力", "訂單流", "新聞情緒"];
@@ -84,29 +86,30 @@ export default function BacktestPage() {
   return (
     <div className="space-y-5">
       {/* Hero */}
-      <section className="relative overflow-hidden rounded-2xl border border-white/10 p-5 sm:p-6"
-        style={{ background: "linear-gradient(135deg, rgba(100,120,255,0.07), rgba(10,12,18,0.4))" }}>
-        <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-blue-500/5 blur-3xl" />
+      <section className="relative overflow-hidden rounded-2xl p-5 sm:p-6" style={{ border: `1px solid ${C.lineGold}`, background: "linear-gradient(135deg, rgba(55,214,196,0.07), rgba(10,12,18,0.4))" }}>
+        <Corner pos="tl" /><Corner pos="br" />
         <div className="relative">
           <div className="mb-2 flex items-center gap-2">
-            <TrendingUp size={15} className="text-blue-400" />
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-blue-400">Strategy Validation</span>
+            <TrendingUp size={15} color={C.teal} />
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: C.teal }}>STRATEGY VALIDATION · 示意模擬</span>
           </div>
-          <h1 className="font-display text-2xl font-bold sm:text-3xl">策略驗證 · 不靠感覺 靠數字</h1>
-          <p className="mt-2 max-w-lg text-sm leading-relaxed text-slate-400">
-            黑潮的每個策略都有歷史數據佐證。透明的勝率、期望值、最大回撤與 Sharpe 比率——自己跑、自己判斷。
+          <h1 className="gold-text" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700 }}>策略驗證工具 · 示意模擬</h1>
+          <p className="mt-2 max-w-lg" style={{ fontSize: 13, lineHeight: 1.7, color: C.mut }}>
+            這裡的勝率、期望值、最大回撤與 Sharpe 比率是<b style={{ color: C.gold }}>示意模擬數據</b>，用來示範介面與指標算法，
+            <b style={{ color: C.gold }}>不是黑潮船長的真實歷史績效</b>。真實策略表現以 bot 歷史結算（SIGNAL_RESULTS）為準。
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             {["8 大策略", "12 標的", "4 時間框架", "12 項風險指標"].map((t) => (
-              <span key={t} className="rounded-full border border-blue-500/20 bg-blue-500/[0.06] px-3 py-1 text-[11px] text-blue-300">{t}</span>
+              <span key={t} className="rounded-full px-3 py-1" style={{ fontSize: 11, border: `1px solid ${C.teal}33`, background: "rgba(55,214,196,0.06)", color: C.teal }}>{t}</span>
             ))}
           </div>
         </div>
       </section>
 
       {/* Config */}
-      <Card className="p-4">
-        <div className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-slate-500">回測設定</div>
+      <Card className="relative overflow-hidden p-4">
+        <Corner pos="tr" />
+        <div className="mb-3 flex items-center gap-1.5" style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: C.dim, textTransform: "uppercase" }}>回測設定</div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div><div className="mb-1 text-xs text-slate-500">標的</div>
             <select className={selCls} value={symbol} onChange={(e) => setSymbol(e.target.value)}>{SYMBOLS.map((s) => <option key={s}>{s}</option>)}</select></div>
@@ -139,6 +142,10 @@ export default function BacktestPage() {
       {/* Results */}
       {res && !loading && (
         <div className="space-y-4">
+          <div className="flex items-center gap-2 rounded-xl px-4 py-2.5" style={{ border: `1px solid ${C.gold}40`, background: "rgba(232,198,110,0.08)" }}>
+            <AlertTriangle size={14} color={C.gold} className="shrink-0" />
+            <span style={{ fontSize: 12, color: C.gold }}>以下為示意模擬結果，非黑潮船長真實歷史績效</span>
+          </div>
           {/* Summary 4-big-number row */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Card className="p-4 text-center">

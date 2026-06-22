@@ -7,6 +7,8 @@ import { Crown, LogOut, Camera, Send, Save, BadgeCheck, ShieldAlert, Gift, Check
 import { Card, SectionTitle, Badge } from "@/components/ui";
 import { useApp } from "@/lib/store";
 import { TIER_LABEL } from "@/lib/access";
+import { C } from "@/lib/theme";
+import Corner from "@/components/site/Corner";
 interface Me { uid: string; email: string; nickname: string; phone: string; avatar: string; tier: "free" | "air" | "pro"; cycle: string | null; subAmount: number; planExpiry: string | null; emailVerified: boolean; phoneVerified: boolean; invitedBy: string; referrals: number; referralRewarded: number; notifyEnabled: boolean; quietStart: string; quietEnd: string; isAdmin: boolean; createdAt: string; }
 const inp = "w-full rounded-lg border border-white/10 bg-ink-900 px-3 py-2.5 text-sm outline-none focus:border-tide-500/40";
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -118,9 +120,10 @@ export default function MemberPage() {
           <span>付款流程完成！款項於區塊鏈確認後，訂閱會自動開通，可能需稍候片刻再重新整理。</span>
         </div>
       )}
-      <Card className="p-5">
+      <Card className="relative overflow-hidden p-5">
+        <Corner pos="tl" /><Corner pos="br" />
         <div className="flex items-center gap-4">
-          <label className="relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-full ring-1 ring-tide-400/40">
+          <label className="relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-full" style={{ boxShadow: `0 0 0 1px ${C.lineGold}` }}>
             {avatar ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={avatar} alt="頭像" className="h-full w-full object-cover" />
