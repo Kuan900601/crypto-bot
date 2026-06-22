@@ -5,6 +5,8 @@ import { useSession } from "next-auth/react";
 import { Search, Bell, X, Menu } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { SymbolLite } from "@/lib/types";
+import { C } from "@/lib/theme";
+import LogoMark from "@/components/site/LogoMark";
 import UserMenu from "./UserMenu";
 import SymbolDetail from "./SymbolDetail";
 export default function Topbar({ onMenu }: { onMenu?: () => void }) {
@@ -30,12 +32,11 @@ export default function Topbar({ onMenu }: { onMenu?: () => void }) {
   const pick = (s: SymbolLite) => { setDetail(s); setQ(""); setOpen(false); };
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-white/5 bg-ink-900/80 backdrop-blur">
+      <header className="sticky top-0 z-40 backdrop-blur" style={{ background: "rgba(4,9,16,0.86)", borderBottom: `1px solid ${C.lineGold}` }}>
         <div className="flex h-14 items-center gap-3 px-4">
           <div className="flex items-center gap-2 md:hidden">
-            <button onClick={onMenu} aria-label="選單" className="rounded-lg p-1.5 text-slate-300 hover:bg-white/5"><Menu size={20} /></button>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/logo.png" alt="黑潮" className="h-7 w-7 rounded-full ring-1 ring-tide-400/40" />
+            <button onClick={onMenu} aria-label="選單" className="ham rounded-lg p-1.5" style={{ color: C.gold, border: `1px solid ${C.line}` }}><Menu size={19} /></button>
+            <LogoMark size={30} />
           </div>
           <div ref={boxRef} className="relative ml-1 min-w-0 flex-1 md:ml-0 md:max-w-md">
             <div className="flex items-center gap-2 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2">
@@ -79,7 +80,10 @@ export default function Topbar({ onMenu }: { onMenu?: () => void }) {
             )}
           </div>
           {status !== "authenticated" && (
-            <Link href="/login?register=1" className="shrink-0 whitespace-nowrap rounded-lg bg-gradient-to-r from-tide-400 to-tide-600 px-3 py-1.5 text-xs font-bold text-ink-950 hover:opacity-90">
+            <Link href="/login?register=1" className="cta shrink-0 whitespace-nowrap" style={{
+              borderRadius: 9, padding: "7px 14px", fontSize: 12.5, fontWeight: 800, color: C.abyss,
+              background: `linear-gradient(135deg,#FFF4D2,${C.gold} 45%,${C.gold2})`,
+            }}>
               免費註冊
             </Link>
           )}

@@ -1,9 +1,11 @@
 "use client";
-import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Radio, BrainCircuit, Newspaper, Activity, FlaskConical, Gift, UserCircle, Waves, BookOpen, Send, ArrowRight, HelpCircle, CalendarDays, LineChart } from "lucide-react";
+import { LayoutDashboard, Radio, BrainCircuit, Newspaper, Activity, FlaskConical, Gift, UserCircle, BookOpen, Send, ArrowRight, HelpCircle, CalendarDays, LineChart } from "lucide-react";
 import { requiredTier } from "@/lib/access";
+import { C, SERIF } from "@/lib/theme";
+import LogoMark from "@/components/site/LogoMark";
+
 const NAV_MAIN = [
   { href: "/", label: "市場總覽", icon: LayoutDashboard },
   { href: "/signals", label: "黑潮船長", icon: Radio },
@@ -20,57 +22,75 @@ const NAV_ME = [
   { href: "/guide", label: "使用教學", icon: BookOpen },
   { href: "/faq", label: "常見問題", icon: HelpCircle },
 ];
+
+// 徽章一律照 lib/access.ts 的真實 requiredTier() 顯示，不自行改門檻或顯示成更高方案。
 function TierTag({ href }: { href: string }) {
   const t = requiredTier(href);
   if (!t) return null;
   const pro = t === "pro";
-  return <span className={`ml-auto rounded-md px-1.5 py-0.5 text-[9px] font-bold tracking-wide ${pro ? "bg-amber-500/15 text-amber-300" : "bg-tide-500/15 text-tide-300"}`}>{pro ? "PRO" : "PLUS"}</span>;
+  return (
+    <span style={{
+      marginLeft: "auto", fontSize: 9.5, fontWeight: 800, letterSpacing: 1, padding: "2px 8px", borderRadius: 7,
+      color: pro ? C.abyss : C.gold,
+      background: pro ? `linear-gradient(135deg,${C.gold},${C.gold2})` : "rgba(232,198,110,0.1)",
+      border: pro ? "none" : `1px solid ${C.gold}40`,
+    }}>
+      {pro ? "PRO" : "PLUS"}
+    </span>
+  );
 }
+
 function NavLink({ href, label, Icon, active, onNavigate }: { href: string; label: string; Icon: typeof LayoutDashboard; active: boolean; onNavigate?: () => void }) {
   return (
-    <Link href={href} onClick={onNavigate}
-      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all duration-150 ${active ? "bg-tide-500/15 text-tide-300" : "text-slate-400 hover:bg-white/5 hover:text-slate-200"}`}>
-      <Icon size={17} className={active ? "text-tide-300" : ""} />
-      <span>{label}</span>
+    <Link href={href} onClick={onNavigate} className="mrow" style={{
+      display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 11,
+      background: active ? "linear-gradient(100deg, rgba(232,198,110,0.14), rgba(232,198,110,0.03))" : "transparent",
+      border: active ? `1px solid ${C.gold}30` : "1px solid transparent",
+      position: "relative", textDecoration: "none",
+    }}>
+      {active && <div style={{ position: "absolute", left: 0, top: "50%", transform: "translateY(-50%)", width: 3, height: 18, borderRadius: 3, background: `linear-gradient(${C.gold},${C.teal})` }} />}
+      <Icon size={17} strokeWidth={1.8} color={active ? C.gold : C.mut} style={{ flexShrink: 0 }} />
+      <span style={{ flex: 1, fontSize: 13.5, fontWeight: active ? 700 : 600, color: active ? C.ink : "#B9C7D2" }}>{label}</span>
       <TierTag href={href} />
     </Link>
   );
 }
+
 export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  const [logoOk, setLogoOk] = useState(true);
   return (
-    <aside className="flex h-full w-60 flex-col border-r border-white/5 bg-ink-900/80 backdrop-blur-xl">
+    <aside style={{
+      display: "flex", flexDirection: "column", height: "100%", width: 240,
+      borderRight: `1px solid ${C.line}`, background: "rgba(4,9,16,0.92)", backdropFilter: "blur(20px)",
+      position: "relative", overflow: "hidden",
+    }}>
+      <div style={{ position: "absolute", inset: 0, background: "radial-gradient(360px 280px at 15% 0%, rgba(19,53,90,0.35), transparent 60%)", pointerEvents: "none" }} />
       <div className="shrink-0" style={{ height: "env(safe-area-inset-top, 0px)" }} />
-      <div className="flex items-center gap-3 px-5 py-5">
-        {logoOk ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src="/brand/logo.png" alt="黑潮 Signals" className="h-10 w-10 rounded-full object-cover ring-1 ring-tide-400/40" onError={() => setLogoOk(false)} />
-        ) : (
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-tide-400 to-tide-600 text-ink-950"><Waves size={20} strokeWidth={2.5} /></div>
-        )}
-        <div>
-          <div className="font-display text-sm font-bold tracking-widest text-gold">黑潮 BLACKTIDE</div>
-          <div className="text-[9px] tracking-[0.2em] text-slate-500">SIGNALS · PRO TERMINAL</div>
+      <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 11, padding: "18px 18px 14px" }}>
+        <LogoMark size={40} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontFamily: SERIF, fontWeight: 700, fontSize: 14, letterSpacing: 1, color: C.gold, lineHeight: 1.15 }}>黑潮 BLACKTIDE</div>
+          <div style={{ fontFamily: SERIF, fontSize: 8.5, letterSpacing: 2, color: C.gold2 }}>SIGNALS · PRO TERMINAL</div>
         </div>
       </div>
-      <div className="hairline-gold mx-4" />
-      <nav className="mt-3 flex-1 space-y-0.5 overflow-hidden px-3">
+      <div style={{ height: 1, margin: "0 16px", background: `linear-gradient(90deg, transparent, ${C.lineGold}, transparent)` }} />
+      <nav style={{ position: "relative", marginTop: 10, flex: 1, overflowY: "auto", padding: "0 12px", display: "flex", flexDirection: "column", gap: 2 }}>
         {NAV_MAIN.map((n) => <NavLink key={n.href} href={n.href} label={n.label} Icon={n.icon} active={pathname === n.href} onNavigate={onNavigate} />)}
-        <div className="px-3 pb-0.5 pt-3 text-[10px] font-semibold tracking-wider text-slate-600">其他</div>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: C.dim, margin: "16px 12px 6px" }}>其他</div>
         {NAV_ME.map((n) => <NavLink key={n.href} href={n.href} label={n.label} Icon={n.icon} active={pathname === n.href} onNavigate={onNavigate} />)}
       </nav>
-      <div className="px-3 py-2">
-        <a href="https://t.me/KuroshioSignal" target="_blank" rel="noopener noreferrer"
-          className="flex items-center gap-2 rounded-xl border border-tide-500/20 bg-tide-500/[0.06] px-3 py-2 text-xs text-tide-300 transition-colors hover:bg-tide-500/[0.12]">
-          <Send size={13} />
-          <span className="font-semibold">Telegram 社群頻道</span>
-          <ArrowRight size={11} className="ml-auto" />
+      <div style={{ position: "relative", padding: "10px 12px" }}>
+        <a href="https://t.me/KuroshioSignal" target="_blank" rel="noopener noreferrer" className="tg-btn"
+          style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 12px", borderRadius: 11, background: "rgba(55,214,196,0.06)", border: `1px solid ${C.teal}33`, color: C.ink, textDecoration: "none", fontSize: 12.5, fontWeight: 700 }}>
+          <Send size={14} color={C.teal} /><span style={{ flex: 1 }}>Telegram 社群頻道</span><ArrowRight size={13} color={C.teal} />
         </a>
       </div>
-      <div className="border-t border-white/5 px-4 py-2.5 text-xs text-slate-500">
-        <div className="flex items-center gap-2"><span className="pulse-dot h-2 w-2 rounded-full bg-up" /> 行情：Bybit 即時</div>
-        <div className="mt-0.5 text-[10px]">© {new Date().getFullYear()} 黑潮 BLACKTIDE</div>
+      <div style={{ position: "relative", borderTop: `1px solid ${C.line}`, padding: "10px 16px 12px", fontSize: 11, color: C.mut }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <span style={{ width: 6, height: 6, borderRadius: 99, background: C.green, boxShadow: `0 0 6px ${C.green}`, animation: "pulseDot 1.6s infinite" }} />
+          行情：Bybit 即時
+        </div>
+        <div style={{ fontSize: 10, color: C.dim, marginTop: 4 }}>© {new Date().getFullYear()} 黑潮 BLACKTIDE</div>
       </div>
     </aside>
   );

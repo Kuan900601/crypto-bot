@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&display=swap");
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -8,7 +8,7 @@ html { scroll-behavior: smooth; }
 * { -webkit-tap-highlight-color: transparent; }
 body {
   color: #e5e7eb;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, "PingFang TC", "Noto Sans TC", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
   font-feature-settings: "tnum" 1;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -55,3 +55,53 @@ a:active { -webkit-tap-highlight-color: transparent; }
 /* v0.9：彈窗 iOS 彈入 */
 @keyframes popIn { 0% { opacity: 0; transform: scale(0.96); } 100% { opacity: 1; transform: none; } }
 .pop-in { animation: popIn 0.22s cubic-bezier(0.22, 0.8, 0.26, 1) both; }
+
+/* ============ 全站重做（v8 深海風格）共用樣式 ============
+   見 blacktide-design-system.md。新版共用元件（LogoMark/Corner/CTA/
+   SiteBackground/Sidebar/Topbar/Footer/LegalModal…）依賴下列 class 與 keyframes。 */
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+@keyframes spinSlow { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+@keyframes spinRev { from { transform: rotate(360deg); } to { transform: rotate(0); } }
+@keyframes spinFast { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+@keyframes pulseDot { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
+@keyframes glowPulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+@keyframes ctaPulse { 0%, 100% { box-shadow: 0 8px 34px rgba(232,198,110,.4), 0 0 0 0 rgba(232,198,110,.5); } 50% { box-shadow: 0 8px 40px rgba(232,198,110,.6), 0 0 0 8px rgba(232,198,110,0); } }
+@keyframes ctaBigPulse { 0%, 100% { box-shadow: 0 10px 44px rgba(232,198,110,.5), 0 0 0 0 rgba(232,198,110,.6); } 50% { box-shadow: 0 12px 56px rgba(232,198,110,.75), 0 0 0 14px rgba(232,198,110,0); } }
+@keyframes navGlow { 0% { background-position: 0% 0; } 100% { background-position: 200% 0; } }
+@keyframes logoGlowPulse { 0%, 100% { box-shadow: 0 0 18px rgba(232,198,110,.3), inset 0 0 14px rgba(55,214,196,.15); } 50% { box-shadow: 0 0 28px rgba(232,198,110,.5), inset 0 0 18px rgba(55,214,196,.25); } }
+@keyframes drawerIn { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rowIn { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: translateX(0); } }
+
+.gold-text { background: linear-gradient(92deg,#8A6E22,#E8C66E 38%,#FFF6D6 50%,#E8C66E 62%,#8A6E22); background-size: 200% auto; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: shimmer 6s linear infinite; }
+.teal-text { background: linear-gradient(92deg,#1B8A82,#37D6C4 50%,#9DFCF0,#37D6C4,#1B8A82); background-size: 200% auto; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: shimmer 7s linear infinite; }
+.cta { position: relative; overflow: hidden; transition: transform .25s; animation: ctaPulse 2.6s ease-in-out infinite; }
+.cta:hover { transform: translateY(-3px) scale(1.02); }
+.cta::after { content: ''; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.45) 50%, transparent 70%); background-size: 200% 100%; animation: shimmer 2.8s linear infinite; }
+.cta-big { position: relative; overflow: hidden; transition: transform .25s; animation: ctaBigPulse 2.4s ease-in-out infinite; }
+.cta-big:hover { transform: translateY(-3px) scale(1.04); }
+.cta-big::after { content: ''; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 28%, rgba(255,255,255,.5) 50%, transparent 72%); background-size: 200% 100%; animation: shimmer 2.6s linear infinite; }
+.ham { transition: background .2s, border-color .2s; cursor: pointer; }
+.ham:hover { background: rgba(232,198,110,.1) !important; border-color: rgba(232,198,110,.4) !important; }
+.mrow { transition: background .2s, padding-left .2s; cursor: pointer; }
+.mrow:hover { background: rgba(232,198,110,.07); padding-left: 20px !important; }
+.tg-btn { transition: transform .2s, border-color .2s, box-shadow .2s; }
+.tg-btn:hover { transform: translateY(-2px); border-color: rgba(55,214,196,.55) !important; box-shadow: 0 8px 24px rgba(55,214,196,.15); }
+.login-link { transition: color .2s; cursor: pointer; }
+.login-link:hover { color: #EEF4F2 !important; }
+/* logo */
+.logo-wrap { position: relative; cursor: pointer; }
+.logo-ring { position: absolute; inset: -3px; border-radius: 50%; background: repeating-conic-gradient(from 0deg, rgba(232,198,110,.55) 0deg 1.4deg, transparent 1.4deg 14deg); -webkit-mask: radial-gradient(circle, transparent calc(50% - 2.5px), #000 calc(50% - 2.5px), #000 50%, transparent 50%); mask: radial-gradient(circle, transparent calc(50% - 2.5px), #000 calc(50% - 2.5px), #000 50%, transparent 50%); animation: spinSlow 34s linear infinite; }
+.logo-body { position: absolute; inset: 0; border-radius: 50%; overflow: hidden; background: radial-gradient(circle at 50% 38%, #112338, #03060E); border: 1px solid rgba(232,198,110,.5); animation: logoGlowPulse 4s ease-in-out infinite; }
+.logo-current { position: absolute; inset: -20%; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0%, rgba(232,198,110,.45) 18%, transparent 38%, rgba(55,214,196,.4) 62%, transparent 82%, rgba(232,198,110,.3) 100%); animation: spinRev 9s linear infinite; opacity: .7; filter: blur(1px); }
+.logo-sweep { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 0deg, rgba(55,214,196,.5) 0deg, rgba(55,214,196,.05) 22deg, transparent 44deg); animation: spinFast 4.5s linear infinite; }
+.logo-inring { position: absolute; inset: 18%; border-radius: 50%; border: 1px solid rgba(55,214,196,.25); border-top-color: rgba(232,198,110,.7); animation: spinSlow 16s linear infinite; }
+.logo-wrap:hover .logo-sweep { animation-duration: 1.6s; }
+.logo-wrap:hover .logo-current { animation-duration: 4s; opacity: 1; }
+.logo-wrap:hover .logo-ring { animation-duration: 10s; }
+.gpu { will-change: transform; transform: translateZ(0); backface-visibility: hidden; }
+.logo-current, .logo-sweep, .logo-ring, .logo-inring { will-change: transform; }
+@media (prefers-reduced-motion: reduce) {
+  .gold-text, .teal-text, .cta, .cta::after, .cta-big, .cta-big::after, .logo-ring, .logo-body, .logo-current, .logo-sweep, .logo-inring { animation: none !important; }
+}

@@ -14,6 +14,7 @@ import Analytics from "./Analytics";
 import VerifyBanner from "./VerifyBanner";
 import { useApp } from "@/lib/store";
 import { canAccess, requiredTier, Tier } from "@/lib/access";
+import { C } from "@/lib/theme";
 
 function ExpiryBanner() {
   const { data: session } = useSession();
@@ -93,7 +94,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                 onClick={() => router.push("/login?next=" + encodeURIComponent(pathname))}
               >
                 <button
-                  className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-tide-400 to-tide-600 px-6 py-3.5 text-sm font-bold text-ink-950 shadow-2xl shadow-tide-500/30 hover:opacity-90 active:scale-95"
+                  className="cta flex items-center gap-2 active:scale-95"
+                  style={{ borderRadius: 16, padding: "14px 26px", fontSize: 14, fontWeight: 800, color: C.abyss, background: `linear-gradient(135deg,#FFF4D2,${C.gold} 45%,${C.gold2})` }}
                   onClick={(e) => { e.stopPropagation(); router.push("/login?next=" + encodeURIComponent(pathname)); }}
                 >
                   <Unlock size={16} />
@@ -111,7 +113,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                   <Link
                     href="/login?register=1"
                     onClick={(e) => e.stopPropagation()}
-                    className="rounded-xl border border-tide-500/30 bg-tide-500/10 px-4 py-2 text-xs text-tide-300 hover:bg-tide-500/20"
+                    className="rounded-xl px-4 py-2 text-xs"
+                    style={{ border: `1px solid ${C.gold}4D`, background: "rgba(232,198,110,0.1)", color: C.gold }}
                   >
                     免費註冊
                   </Link>
@@ -130,7 +133,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                 onClick={() => setPricingOpen(true)}
               >
                 <button
-                  className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-600 px-6 py-3.5 text-sm font-bold text-ink-950 shadow-2xl"
+                  className="cta flex items-center gap-2"
+                  style={{ borderRadius: 16, padding: "14px 26px", fontSize: 14, fontWeight: 800, color: C.abyss, background: `linear-gradient(135deg,#FFF4D2,${C.gold} 45%,${C.gold2})` }}
                   onClick={(e) => { e.stopPropagation(); setPricingOpen(true); }}
                 >
                   <Lock size={16} />
