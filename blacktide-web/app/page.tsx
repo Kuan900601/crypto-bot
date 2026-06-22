@@ -1,13 +1,17 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Brain, ArrowRight, Crown, Gift, Users, Radio, TrendingUp, Zap, Shield, X, ChevronRight, Gauge } from "lucide-react";
+import { Brain, ArrowRight, Crown, Gift, Users, Radio, TrendingUp, Zap, X, Gauge, Lock } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useMarket } from "@/lib/useMarket";
 import { useApp } from "@/lib/store";
 import { Card } from "@/components/ui";
 import TickerTape from "@/components/TickerTape";
 import PriceCard from "@/components/PriceCard";
+import { Signal } from "@/lib/types";
+
+// 監測幣種數固定為 52（analyzer.py 實際掃描的幣種數，與站內既有文案一致）
+const MONITORED_COINS = 52;
 
 interface BtcBias {
   bias: "long" | "short" | "neutral";
@@ -21,10 +25,12 @@ interface BtcBias {
   fundingPct?: number;
 }
 
-function fakeOnline() {
-  const h = new Date().getHours();
-  const peak = h >= 10 && h <= 23 ? 160 : 50;
-  return 500 + Math.floor(Math.sin(h * 1.3) * 70 + peak * 0.6 + 40);
+function isToday(iso?: string) {
+  if (!iso) return false;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return false;
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 }
 
 function TrialFloatCard() {
@@ -44,7 +50,7 @@ function TrialFloatCard() {
           <div className="mt-1 text-sm font-bold text-amber-200">新用戶限定</div>
           <div className="mt-0.5 text-[11px] leading-relaxed text-slate-400">完成免費註冊即獲得 <b className="text-amber-300">3 日 Plus 體驗</b>，無需付款</div>
           <Link href="/login?register=1" className="mt-3 flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-600 py-2 text-xs font-bold text-ink-950 hover:opacity-90">
-            免費註冊 <ArrowRight size={11} />
+            免費註冊 · 查看今日信號 <ArrowRight size={11} />
           </Link>
         </div>
       </div>
@@ -57,12 +63,31 @@ export default function Home() {
   const { setPricingOpen } = useApp();
   const { data: session } = useSession();
   const [btc, setBtc] = useState<BtcBias | null>(null);
-  const [online] = useState(() => fakeOnline());
-  const [signals24h] = useState(() => 3 + Math.floor(Math.random() * 9));
-  const [plusSubs] = useState(() => { const h = new Date().getHours(); return 200 + Math.floor(Math.abs(Math.sin(h * 2.1)) * 60 + 30); });
-  const [proSubs] = useState(() => { const h = new Date().getHours(); return 30 + Math.floor(Math.abs(Math.sin(h * 1.7)) * 20 + 8); });
+  const [signals, setSignals] = useState<Signal[] | null>(null);
 
   const tier = (session?.user?.tier as string) || "free";
+
+  useEffect(() => {
+    fetch("/api/signals").then((r) => r.json()).then((d) => setSignals(d.signals ?? null)).catch(() => {});
+  }, []);
+
+  const todaySignalCount = (signals || []).filter((s) => isToday(s.openedAt)).length;
+  const previewSignal = (signals || []).find((s) => s.status === "active") || (signals || [])[0] || null;
+
+  // 真實已結算信號績效（依 /api/signals 回傳的 finalPct 計算，無捏造數字）
+  const closedSignals = (signals || []).filter((s) => s.status !== "active" && typeof s.finalPct === "number");
+  const chronological = [...closedSignals].reverse(); // API 回傳新到舊，轉成舊到新算回撤
+  const perfWins = chronological.filter((s) => (s.finalPct ?? 0) > 0).length;
+  const perfWinRate = chronological.length ? Math.round((perfWins / chronological.length) * 100) : 0;
+  const perfAvgPct = chronological.length ? chronological.reduce((a, s) => a + (s.finalPct ?? 0), 0) / chronological.length : 0;
+  let perfPeak = 0, perfCum = 0, perfMaxDD = 0;
+  for (const s of chronological) {
+    perfCum += s.finalPct ?? 0;
+    if (perfCum > perfPeak) perfPeak = perfCum;
+    const dd = perfPeak - perfCum;
+    if (dd > perfMaxDD) perfMaxDD = dd;
+  }
+  const perfSampleOk = chronological.length >= 5;
   const crypto = tickers.filter((t) => t.class === "crypto");
   const up = tickers.filter((t) => t.changePct >= 0).length;
   const down = tickers.length - up;
@@ -88,10 +113,9 @@ export default function Home() {
 
       {/* ── 緊湊統計一行 ── */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-white/5 bg-white/[0.025] px-4 py-2 text-[11px] text-slate-500">
-        <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-up" /><b className="text-slate-300">{online.toLocaleString()}</b> 在線</span>
-        <span className="flex items-center gap-1.5"><Radio size={10} className="text-tide-400" /><b className="text-tide-300">{signals24h}</b> 近 24h 信號</span>
-        <span className="flex items-center gap-1.5"><Users size={10} className="text-blue-400" /><b className="text-blue-300">{plusSubs.toLocaleString()}</b> Plus 會員</span>
-        <span className="flex items-center gap-1.5"><Crown size={10} className="text-amber-400" /><b className="text-amber-300">{proSubs.toLocaleString()}</b> Pro 會員</span>
+        <span className="flex items-center gap-1.5"><Zap size={10} className="text-tide-400" /><b className="text-slate-300">{MONITORED_COINS}</b> 監測幣種</span>
+        <span className="flex items-center gap-1.5"><Radio size={10} className="text-tide-400" /><b className="text-tide-300">{todaySignalCount}</b> 今日信號</span>
+        <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-up" /><b className="text-slate-300">24/7</b> AI 盯盤</span>
         <span className="ml-auto flex items-center gap-1 text-[10px]">
           <span className={`font-semibold ${fg >= 55 ? "text-up" : fg <= 45 ? "text-down" : "text-amber-400"}`}>{fgLabel}</span>
           <span className="text-slate-600">恐貪 {Math.round(fg)}</span>
@@ -111,37 +135,95 @@ export default function Home() {
                   🎁 新用戶限定 · 免費試用 3 天
                 </div>
                 <h1 className="font-display text-2xl font-bold leading-tight text-slate-100 sm:text-3xl">
-                  超前市場的<span className="text-tide-300">加密貨幣</span><br />智能交易情報站
+                  AI 24 小時盯盤<br /><span className="text-tide-300">幫你抓加密貨幣交易信號</span>
                 </h1>
                 <p className="mt-3 text-sm leading-relaxed text-slate-400">
-                  七大技術策略 × AI 五維評分 × 即時中英文新聞 × 52 幣種持續掃描。完成免費註冊即自動解鎖 <b className="text-amber-300">3 天 Plus 完整功能</b>，不需信用卡。
+                  登入即可查看今日 AI 分析、方向判斷與部分交易信號。<br />升級 Pro 解鎖進場、止損與 TP 點位。
                 </p>
                 <div className="mt-4 flex flex-wrap items-center gap-3">
                   <Link href="/login?register=1"
                     className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-tide-400 to-tide-600 px-6 py-3 text-sm font-bold text-ink-950 shadow-lg shadow-tide-500/25 hover:opacity-90">
-                    免費註冊 · 立即體驗 <ArrowRight size={15} />
+                    免費註冊 · 查看今日信號 <ArrowRight size={15} />
                   </Link>
-                  <a href="https://t.me/KuroshioSignal" target="_blank" rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-semibold text-slate-300 hover:bg-white/[0.08]">
-                    查看公開信號記錄 <ChevronRight size={14} />
-                  </a>
                 </div>
+                <p className="mt-2 text-[11px] text-slate-500">不需信用卡</p>
               </div>
-              {/* 功能特點 */}
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 lg:w-64 lg:shrink-0 lg:grid-cols-1">
-                {[
-                  { icon: Brain, color: "text-blue-400", bg: "bg-blue-500/10", label: "AI 深度分析", sub: "RSI · OI · 資金費率" },
-                  { icon: Radio, color: "text-tide-400", bg: "bg-tide-500/10", label: "黑潮船長信號", sub: "進出場計畫 · 分批止盈" },
-                  { icon: TrendingUp, color: "text-up", bg: "bg-up/10", label: "即時新聞情報", sub: "中英文 · 影響評分" },
-                  { icon: Shield, color: "text-amber-400", bg: "bg-amber-500/10", label: "策略回測工具", sub: "12 標的 × 8 策略" },
-                ].map(({ icon: Icon, color, bg, label, sub }) => (
-                  <div key={label} className={`flex items-center gap-2.5 rounded-xl border border-white/[0.06] ${bg} px-3 py-2.5`}>
-                    <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.04] ${color}`}><Icon size={15} /></div>
-                    <div><div className="text-xs font-semibold text-slate-200">{label}</div><div className="text-[10px] text-slate-500">{sub}</div></div>
+
+              {/* ── 今日 AI 信號預覽（真實資料，價位鎖定） ── */}
+              {previewSignal && (
+                <div className="w-full max-w-xs shrink-0 rounded-2xl border border-tide-500/25 bg-white/[0.03] p-4 backdrop-blur-sm lg:max-w-[260px]">
+                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">今日 AI 信號預覽</div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-base font-bold text-slate-100">{previewSignal.symbol}/USDT</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${previewSignal.direction === "long" ? "bg-up/15 text-up" : "bg-down/15 text-down"}`}>
+                      {previewSignal.direction === "long" ? "做多" : "做空"}
+                    </span>
                   </div>
-                ))}
-              </div>
+                  <div className="mt-1.5 text-xs text-slate-400">勝率：<b className="text-tide-300">{Math.round(previewSignal.winRate ?? 0)}%</b></div>
+                  <div className="mt-3 space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between"><span className="text-slate-500">進場價</span><span className="flex items-center gap-1 text-slate-500"><Lock size={11} />登入解鎖</span></div>
+                    <div className="flex items-center justify-between"><span className="text-slate-500">止損價</span><span className="flex items-center gap-1 text-slate-500"><Lock size={11} />登入解鎖</span></div>
+                    <div className="flex items-center justify-between"><span className="text-slate-500">TP1</span><span className="flex items-center gap-1 text-slate-500"><Lock size={11} />登入解鎖</span></div>
+                  </div>
+                  <Link href="/login?register=1"
+                    className="mt-3 flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-tide-400 to-tide-600 py-2.5 text-xs font-bold text-ink-950 hover:opacity-90">
+                    免費註冊 · 查看完整信號 <ArrowRight size={12} />
+                  </Link>
+                </div>
+              )}
             </div>
+
+            {/* ── 真實績效（依已結算信號計算，樣本不足不強調數字） ── */}
+            <div className="mt-5 max-w-md rounded-2xl border border-white/5 bg-white/[0.02] p-4">
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                {perfSampleOk ? `最近 ${chronological.length} 筆已結算信號` : "信號績效"}
+              </div>
+              {perfSampleOk ? (
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div>
+                    <div className="font-mono text-lg font-bold text-up">{perfWinRate}%</div>
+                    <div className="text-[10px] text-slate-500">勝率</div>
+                  </div>
+                  <div>
+                    <div className={`font-mono text-lg font-bold ${perfAvgPct >= 0 ? "text-up" : "text-down"}`}>{perfAvgPct >= 0 ? "+" : ""}{perfAvgPct.toFixed(1)}%</div>
+                    <div className="text-[10px] text-slate-500">平均報酬</div>
+                  </div>
+                  <div>
+                    <div className="font-mono text-lg font-bold text-down">-{perfMaxDD.toFixed(1)}%</div>
+                    <div className="text-[10px] text-slate-500">最大回撤</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs text-slate-500">樣本仍在累積中，待已結算信號足量後將公開實際績效數字。</div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── 功能介紹 · 四張實際功能卡 ── */}
+      {!session && (
+        <section>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {[
+              { icon: Radio, label: "黑潮船長信號", sub: "進出場計畫 · 分批止盈 · 即時推播", note: "免費看方向與結果，升級 Plus 解鎖完整進出場價位" },
+              { icon: Brain, label: "AI 五維分析", sub: "趨勢 · 動量 · 結構 · 量能 · 風險，逐幣評分" },
+              { icon: TrendingUp, label: "即時新聞情報", sub: "中英文來源 · 影響評分 · 異常監控" },
+              { icon: Zap, label: "52 幣種掃描", sub: "持續監測主流與熱門幣，不錯過機會" },
+            ].map(({ icon: Icon, label, sub, note }) => (
+              <div key={label} className="relative overflow-hidden rounded-2xl border border-amber-500/20 bg-white/[0.025] p-4 backdrop-blur-sm">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400"><Icon size={17} /></div>
+                <div className="mt-3 text-sm font-bold text-slate-100">{label}</div>
+                <div className="mt-1 text-[11px] leading-relaxed text-slate-400">{sub}</div>
+                {note && <div className="mt-2 text-[10px] leading-relaxed text-amber-300/80">{note}</div>}
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 flex justify-center">
+            <Link href="/login?register=1"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-5 py-2.5 text-sm font-semibold text-amber-300 hover:bg-amber-500/20">
+              免費註冊 · 查看今日信號 <ArrowRight size={14} />
+            </Link>
           </div>
         </section>
       )}
@@ -283,10 +365,17 @@ export default function Home() {
       {/* 手機浮動 CTA */}
       {tier === "free" && (
         <div className="fixed inset-x-4 bottom-28 z-10 md:hidden">
-          <button onClick={() => setPricingOpen(true)}
-            className="w-full rounded-2xl bg-gradient-to-r from-tide-400 to-tide-600 py-3.5 text-sm font-bold text-ink-950 shadow-xl shadow-tide-500/30">
-            <Crown size={14} className="mr-1.5 inline-block" /> 升級解鎖 · 完整交易信號
-          </button>
+          {!session ? (
+            <Link href="/login?register=1"
+              className="block w-full rounded-2xl bg-gradient-to-r from-tide-400 to-tide-600 py-3.5 text-center text-sm font-bold text-ink-950 shadow-xl shadow-tide-500/30">
+              <Crown size={14} className="mr-1.5 inline-block" /> 登入解鎖完整信號
+            </Link>
+          ) : (
+            <button onClick={() => setPricingOpen(true)}
+              className="w-full rounded-2xl bg-gradient-to-r from-tide-400 to-tide-600 py-3.5 text-sm font-bold text-ink-950 shadow-xl shadow-tide-500/30">
+              <Crown size={14} className="mr-1.5 inline-block" /> 升級解鎖 · 完整交易信號
+            </button>
+          )}
         </div>
       )}
 

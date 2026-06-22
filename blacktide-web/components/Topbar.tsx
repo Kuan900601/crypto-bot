@@ -1,11 +1,14 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { Search, Bell, X, Menu } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { SymbolLite } from "@/lib/types";
 import UserMenu from "./UserMenu";
 import SymbolDetail from "./SymbolDetail";
 export default function Topbar({ onMenu }: { onMenu?: () => void }) {
+  const { status } = useSession();
   const { notifs, markAllRead, setDetail } = useApp();
   const unread = notifs.filter((n) => !n.read).length;
   const [q, setQ] = useState("");
@@ -75,6 +78,11 @@ export default function Topbar({ onMenu }: { onMenu?: () => void }) {
               </div>
             )}
           </div>
+          {status !== "authenticated" && (
+            <Link href="/login?register=1" className="shrink-0 whitespace-nowrap rounded-lg bg-gradient-to-r from-tide-400 to-tide-600 px-3 py-1.5 text-xs font-bold text-ink-950 hover:opacity-90">
+              免費註冊
+            </Link>
+          )}
           <UserMenu />
         </div>
       </header>
