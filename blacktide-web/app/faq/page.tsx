@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { ChevronDown, HelpCircle, RefreshCw, Repeat2, Zap, Shield, DollarSign, Clock, TrendingUp, Lock, Bell } from "lucide-react";
+import { C, SERIF } from "@/lib/theme";
 
 interface Item { q: string; a: string; icon: typeof HelpCircle }
 const SECTIONS: { title: string; items: Item[] }[] = [
@@ -85,7 +86,7 @@ function AccordionItem({ item }: { item: Item }) {
         onClick={() => setOpen(!open)}
         className="flex w-full items-start gap-3 py-4 text-left transition-colors hover:text-slate-200"
       >
-        <Icon size={15} className="mt-0.5 shrink-0 text-tide-400" />
+        <Icon size={15} className="mt-0.5 shrink-0" style={{ color: C.gold2 }} />
         <span className="flex-1 text-sm font-medium text-slate-200">{item.q}</span>
         <ChevronDown size={15} className={`mt-0.5 shrink-0 text-slate-500 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
@@ -102,12 +103,12 @@ export default function FaqPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-2xl font-bold">常見問題</h1>
-        <p className="mt-1 text-sm text-slate-500">關於黑潮信號、AI 分析、訂閱方案的常見疑問解答</p>
+        <h1 className="gold-text" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700 }}>常見問題</h1>
+        <p className="mt-1" style={{ fontSize: 13, color: C.mut }}>關於黑潮信號、AI 分析、訂閱方案的常見疑問解答</p>
       </div>
       {SECTIONS.map((s) => (
-        <div key={s.title} className="rounded-xl border border-white/5 bg-ink-800/60 px-4">
-          <div className="border-b border-white/5 py-3 text-[10px] font-semibold uppercase tracking-wider text-slate-500">{s.title}</div>
+        <div key={s.title} className="rounded-xl px-4" style={{ border: `1px solid ${C.line}`, background: "rgba(255,255,255,0.02)" }}>
+          <div className="border-b border-white/5 py-3" style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: C.dim, textTransform: "uppercase" }}>{s.title}</div>
           {s.items.map((item) => <AccordionItem key={item.q} item={item} />)}
         </div>
       ))}
