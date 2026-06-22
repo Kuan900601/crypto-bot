@@ -3,8 +3,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Signal } from "@/lib/types";
 import SignalCard from "@/components/SignalCard";
 import SignalModal from "@/components/SignalModal";
-import { SectionTitle, Chip, Stat, Badge } from "@/components/ui";
-import { Crown, Radio, Send, Bell, ArrowRight, ExternalLink } from "lucide-react";
+import { C, MONO, SERIF } from "@/lib/theme";
+import Corner from "@/components/site/Corner";
+import { Crown, Radio, Send, Bell, ArrowRight, ExternalLink, Lock } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useSession } from "next-auth/react";
 
@@ -28,7 +29,6 @@ function LiveFeed({ userTier }: { userTier: string }) {
         setLiveSource(d.source ?? "");
         setLastUpdate(Date.now());
         setLoading(false);
-        // 偵測新出現的信號
         setPrevCount((prev) => {
           if (prev >= 0 && active.length > prev) {
             const prevSymbols = new Set(activeSignals.map((s) => s.symbol));
@@ -61,107 +61,85 @@ function LiveFeed({ userTier }: { userTier: string }) {
   const isLive = liveSource === "redis";
 
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-tide-500/30 p-5"
-      style={{ background: "linear-gradient(135deg, rgba(0,180,180,0.07), rgba(10,12,18,0.5))" }}>
-      <div className="pointer-events-none absolute -right-8 -top-8 h-40 w-40 rounded-full bg-tide-400/10 blur-3xl" />
-      <div className="relative">
-        {/* 標題列 */}
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2">
-            <span className={`h-2 w-2 rounded-full ${isLive ? "bg-up animate-pulse" : "bg-slate-600"}`} />
-            <span className={`text-[10px] font-bold uppercase tracking-widest ${isLive ? "text-up" : "text-slate-500"}`}>
-              {isLive ? "LIVE · 即時持倉監控" : "DEMO · 展示模式"}
-            </span>
-            {lastUpdate > 0 && <span className="text-[10px] text-slate-600">更新 {relTime(lastUpdate)}</span>}
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <a href={TG_CHANNEL} target="_blank" rel="noopener noreferrer"
-              className="flex items-center gap-1.5 rounded-lg border border-tide-500/25 bg-tide-500/10 px-2.5 py-1 text-[11px] font-semibold text-tide-300 hover:bg-tide-500/20">
-              <Send size={11} /> 公開頻道
-            </a>
-            {userTier === "pro" ? (
-              <a href={TG_VIP} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-500/20">
-                <Crown size={11} /> VIP 群
-              </a>
-            ) : (
-              <span className="flex items-center gap-1 rounded-lg border border-white/5 bg-white/[0.03] px-2.5 py-1 text-[11px] text-slate-600">
-                <Crown size={10} /> VIP 群（Pro）
-              </span>
-            )}
-          </div>
+    <section style={{ position: "relative", overflow: "hidden", borderRadius: 18, padding: 20, border: `1px solid ${C.lineGold}`, background: "linear-gradient(180deg, rgba(16,30,48,0.7), rgba(6,16,30,0.55))" }}>
+      <Corner pos="tl" /><Corner pos="tr" />
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2">
+          <span style={{ width: 8, height: 8, borderRadius: 99, background: isLive ? C.green : C.dim, boxShadow: isLive ? `0 0 6px ${C.green}` : "none", animation: isLive ? "pulseDot 1.5s infinite" : "none" }} />
+          <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: 2, color: isLive ? C.green : C.dim }}>{isLive ? "LIVE · 即時持倉監控" : "DEMO · 展示模式"}</span>
+          {lastUpdate > 0 && <span style={{ fontSize: 10.5, color: C.dim }}>更新 {relTime(lastUpdate)}</span>}
         </div>
-
-        {/* 持倉狀態列表 */}
-        {loading ? (
-          <div className="space-y-2">
-            {[1, 2].map((i) => <div key={i} className="h-14 animate-pulse rounded-xl bg-white/5" />)}
-          </div>
-        ) : activeSignals.length > 0 ? (
-          <div className="space-y-2">
-            {activeSignals.map((sig) => {
-              const isNew = newSymbols.has(sig.symbol);
-              const hitCount = sig.tps?.filter((t) => t.hit).length ?? (sig as unknown as { tpHitCount?: number }).tpHitCount ?? 0;
-              const locked = sig.entryLow == null;
-              return (
-                <div key={sig.id}
-                  className={`rounded-xl border px-3 py-2.5 transition-all ${isNew ? "border-up/40 bg-up/[0.06] shadow shadow-up/10" : "border-white/[0.06] bg-white/[0.025]"}`}>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {isNew && <span className="rounded-full bg-up/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-up animate-pulse">NEW</span>}
-                    <span className={`text-[11px] font-bold ${sig.direction === "long" ? "text-up" : "text-down"}`}>
-                      {sig.direction === "long" ? "▲ LONG" : "▼ SHORT"}
-                    </span>
-                    <span className="font-mono text-sm font-bold text-slate-100">{sig.symbol}</span>
-                    <Badge tone={sig.tier === "S" ? "up" : sig.tier === "A" ? "amber" : "slate"}>Tier {sig.tier}</Badge>
-                    {hitCount > 0 && (
-                      <span className="rounded-full bg-up/15 px-2 py-0.5 text-[10px] font-semibold text-up">
-                        TP{hitCount} 已達
-                      </span>
-                    )}
-                    <span className="ml-auto text-[10px] text-slate-600">持倉中</span>
-                  </div>
-                  <div className="mt-1.5 flex flex-wrap gap-3 text-[11px]">
-                    {!locked ? (
-                      <>
-                        <span className="text-slate-500">進場 <span className="font-mono text-slate-300">{sig.entryLow}</span></span>
-                        {sig.tps?.[0] && <span className={sig.tps[0].hit ? "text-up font-semibold" : "text-slate-500"}>TP1 <span className="font-mono">{sig.tps[0].price}</span>{sig.tps[0].hit ? " ✓" : ""}</span>}
-                        {sig.tps?.[1] && <span className={sig.tps[1].hit ? "text-up font-semibold" : "text-slate-500"}>TP2 <span className="font-mono">{sig.tps[1].price}</span>{sig.tps[1].hit ? " ✓" : ""}</span>}
-                        {sig.tps?.[2] && <span className={sig.tps[2].hit ? "text-up font-semibold" : "text-slate-500"}>TP3 <span className="font-mono">{sig.tps[2].price}</span>{sig.tps[2].hit ? " ✓" : ""}</span>}
-                        <span className="text-slate-500">SL <span className="font-mono text-down">{sig.stopLoss}</span></span>
-                      </>
-                    ) : (
-                      <span className="text-slate-500">🔒 進場價位 · 止損 · 止盈 — 升級 Plus 解鎖</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-4 text-sm text-slate-500">
-            <span className="text-lg">📡</span>
-            <div>
-              <div className="font-semibold text-slate-400">目前無持倉信號</div>
-              <div className="text-[11px]">持續掃描 52 幣種中，新信號出現時即時顯示</div>
-            </div>
-          </div>
-        )}
-
-        {/* Telegram 入口 */}
-        <div className="mt-3 flex flex-wrap gap-2 text-xs">
-          <a href={TG_CHANNEL} target="_blank" rel="noopener noreferrer"
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-tide-500/20 bg-tide-500/[0.05] px-3 py-2.5 font-semibold text-tide-300 hover:bg-tide-500/[0.12]">
-            <Bell size={13} /> 訂閱 Telegram 推播通知
-            <ArrowRight size={11} className="ml-auto" />
+        <div className="ml-auto flex items-center gap-2">
+          <a href={TG_CHANNEL} target="_blank" rel="noopener noreferrer" className="tg-btn flex items-center gap-1.5 rounded-lg px-2.5 py-1" style={{ fontSize: 11, fontWeight: 700, border: `1px solid ${C.teal}40`, background: "rgba(55,214,196,0.08)", color: C.teal }}>
+            <Send size={11} /> 公開頻道
           </a>
-          {userTier === "pro" && (
-            <a href={TG_VIP} target="_blank" rel="noopener noreferrer"
-              className="flex items-center gap-1.5 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] px-4 py-2.5 font-semibold text-amber-300 hover:bg-amber-500/[0.14]">
-              <Crown size={13} /> 進入 VIP 群
-              <ExternalLink size={11} className="ml-1" />
+          {userTier === "pro" ? (
+            <a href={TG_VIP} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 rounded-lg px-2.5 py-1" style={{ fontSize: 11, fontWeight: 700, border: `1px solid ${C.gold}55`, background: "rgba(232,198,110,0.1)", color: C.gold }}>
+              <Crown size={11} /> VIP 群
             </a>
+          ) : (
+            <span className="flex items-center gap-1 rounded-lg px-2.5 py-1" style={{ fontSize: 11, color: C.dim, border: `1px solid ${C.line}` }}>
+              <Crown size={10} /> VIP 群（Pro）
+            </span>
           )}
         </div>
+      </div>
+
+      {loading ? (
+        <div className="space-y-2">{[1, 2].map((i) => <div key={i} className="h-14 animate-pulse rounded-xl" style={{ background: "rgba(255,255,255,0.04)" }} />)}</div>
+      ) : activeSignals.length > 0 ? (
+        <div className="space-y-2">
+          {activeSignals.map((sig) => {
+            const isNew = newSymbols.has(sig.symbol);
+            const hitCount = sig.tps?.filter((t) => t.hit).length ?? (sig as unknown as { tpHitCount?: number }).tpHitCount ?? 0;
+            const locked = sig.entryLow == null;
+            const sc = sig.direction === "long" ? C.green : C.rose;
+            return (
+              <div key={sig.id} className="sigrow" style={{ position: "relative", overflow: "hidden", borderRadius: 12, padding: "10px 12px", border: isNew ? `1px solid ${C.green}66` : `1px solid ${C.line}`, background: isNew ? "rgba(70,214,160,0.06)" : "rgba(255,255,255,0.02)" }}>
+                <div className="flex flex-wrap items-center gap-2">
+                  {isNew && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1, padding: "2px 7px", borderRadius: 99, color: C.green, background: "rgba(70,214,160,0.18)", animation: "pulseDot 1.4s infinite" }}>NEW</span>}
+                  <span style={{ fontSize: 11, fontWeight: 700, color: sc }}>{sig.direction === "long" ? "▲ LONG" : "▼ SHORT"}</span>
+                  <span style={{ fontFamily: MONO, fontWeight: 800, fontSize: 14, color: C.ink }}>{sig.symbol}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6, color: sig.tier === "S" ? C.gold : C.mut, border: `1px solid ${sig.tier === "S" ? C.gold + "55" : C.line}` }}>Tier {sig.tier}</span>
+                  {hitCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, color: C.green, background: "rgba(70,214,160,0.15)" }}>TP{hitCount} 已達</span>}
+                  <span style={{ marginLeft: "auto", fontSize: 10.5, color: C.dim }}>持倉中</span>
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-3" style={{ fontSize: 11 }}>
+                  {!locked ? (
+                    <>
+                      <span style={{ color: C.dim }}>進場 <span style={{ fontFamily: MONO, color: C.ink }}>{sig.entryLow}</span></span>
+                      {sig.tps?.[0] && <span style={{ color: sig.tps[0].hit ? C.green : C.dim, fontWeight: sig.tps[0].hit ? 700 : 400 }}>TP1 <span style={{ fontFamily: MONO }}>{sig.tps[0].price}</span>{sig.tps[0].hit ? " ✓" : ""}</span>}
+                      {sig.tps?.[1] && <span style={{ color: sig.tps[1].hit ? C.green : C.dim, fontWeight: sig.tps[1].hit ? 700 : 400 }}>TP2 <span style={{ fontFamily: MONO }}>{sig.tps[1].price}</span>{sig.tps[1].hit ? " ✓" : ""}</span>}
+                      {sig.tps?.[2] && <span style={{ color: sig.tps[2].hit ? C.green : C.dim, fontWeight: sig.tps[2].hit ? 700 : 400 }}>TP3 <span style={{ fontFamily: MONO }}>{sig.tps[2].price}</span>{sig.tps[2].hit ? " ✓" : ""}</span>}
+                      <span style={{ color: C.dim }}>SL <span style={{ fontFamily: MONO, color: C.rose }}>{sig.stopLoss}</span></span>
+                    </>
+                  ) : (
+                    <span style={{ display: "flex", alignItems: "center", gap: 5, color: C.dim }}><Lock size={11} />進場價位 · 止損 · 止盈 — 升級 Plus 解鎖</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="flex items-center gap-3 rounded-xl px-4 py-4" style={{ border: `1px solid ${C.line}`, fontSize: 13, color: C.dim }}>
+          <span style={{ fontSize: 18 }}>📡</span>
+          <div>
+            <div style={{ fontWeight: 700, color: C.mut }}>目前無持倉信號</div>
+            <div style={{ fontSize: 11, marginTop: 2 }}>持續掃描 52 幣種中，新信號出現時即時顯示</div>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-wrap gap-2" style={{ fontSize: 12 }}>
+        <a href={TG_CHANNEL} target="_blank" rel="noopener noreferrer" className="tg-btn flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5" style={{ fontWeight: 700, border: `1px solid ${C.teal}33`, background: "rgba(55,214,196,0.06)", color: C.teal }}>
+          <Bell size={13} /> 訂閱 Telegram 推播通知<ArrowRight size={11} className="ml-auto" />
+        </a>
+        {userTier === "pro" && (
+          <a href={TG_VIP} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 rounded-xl px-4 py-2.5" style={{ fontWeight: 700, border: `1px solid ${C.gold}40`, background: "rgba(232,198,110,0.08)", color: C.gold }}>
+            <Crown size={13} /> 進入 VIP 群<ExternalLink size={11} className="ml-1" />
+          </a>
+        )}
       </div>
     </section>
   );
@@ -190,30 +168,27 @@ export default function SignalsPage() {
   const shortN = signals.filter((s) => s.direction === "short").length;
   return (
     <div className="space-y-5">
-      {/* 黑潮船長 CTA — 金色卡片，置頂 */}
-      <section className="relative overflow-hidden rounded-2xl border border-amber-500/25 p-5 sm:p-6"
-        style={{ background: "linear-gradient(135deg, rgba(212,175,55,0.12), rgba(10,12,18,0.5))" }}>
-        <div className="pointer-events-none absolute -right-10 -top-10 h-48 w-48 rounded-full bg-amber-500/10 blur-3xl" />
-        <div className="pointer-events-none absolute -left-6 bottom-0 h-32 w-32 rounded-full bg-tide-400/10 blur-2xl" />
+      {/* 黑潮船長 CTA */}
+      <section style={{ position: "relative", overflow: "hidden", borderRadius: 18, padding: 22, border: `1px solid ${C.lineGold}`, background: "linear-gradient(135deg, rgba(232,198,110,0.1), rgba(10,12,18,0.5))" }}>
+        <Corner pos="tl" /><Corner pos="br" />
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="mb-1.5 flex items-center gap-2">
-              <Radio size={14} className="text-amber-400" />
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-amber-400/80">黑潮船長 · 信號中心</span>
+              <Radio size={14} color={C.gold} />
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: C.gold2 }}>黑潮船長 · 信號中心</span>
             </div>
-            <h1 className="font-display text-2xl font-bold text-gold glow-gold">黑潮 BLACKTIDE · 交易信號</h1>
-            <p className="mt-1.5 max-w-md text-sm leading-relaxed text-slate-400">
+            <h1 className="gold-text" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700, letterSpacing: 0.5 }}>黑潮 BLACKTIDE · 交易信號</h1>
+            <p className="mt-1.5 max-w-md" style={{ fontSize: 13.5, lineHeight: 1.7, color: C.mut }}>
               七大技術策略加新聞情緒投票，過五維評分與盈虧比硬門檻才出手。三段止盈 40/35/25，波動自適應止損。
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:shrink-0 sm:flex-row sm:items-center sm:gap-3">
             {userTier === "free" ? (
-              <button onClick={() => setPricingOpen(true)}
-                className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-tide-400 to-tide-600 px-6 py-3 text-sm font-bold text-ink-950 shadow-lg shadow-tide-500/25 hover:opacity-90">
+              <button onClick={() => setPricingOpen(true)} className="cta flex items-center justify-center gap-1.5 rounded-xl px-6 py-3" style={{ fontSize: 14, fontWeight: 800, color: C.abyss, background: `linear-gradient(135deg,#FFF4D2,${C.gold} 45%,${C.gold2})` }}>
                 <Crown size={15} /> 加入船長艙
               </button>
             ) : (
-              <div className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm font-semibold text-amber-300">
+              <div className="inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5" style={{ fontSize: 13.5, fontWeight: 700, border: `1px solid ${C.gold}40`, background: "rgba(232,198,110,0.08)", color: C.gold }}>
                 <Crown size={14} /> 已訂閱 · 完整信號解鎖
               </div>
             )}
@@ -221,30 +196,45 @@ export default function SignalsPage() {
         </div>
       </section>
 
-      {/* 即時推播區塊 */}
       <LiveFeed userTier={userTier} />
 
-      <SectionTitle title="黑潮船長 · 信號中心" desc="進出場計畫、分批止盈與動態止損"
-        right={source === "redis" ? <Badge tone="up">Bot 即時資料</Badge> : <Badge tone="amber">展示資料</Badge>} />
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: C.ink }}>黑潮船長 · 信號中心</h2>
+          <p className="mt-0.5" style={{ fontSize: 11.5, color: C.dim }}>進出場計畫、分批止盈與動態止損</p>
+        </div>
+        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "3px 9px", borderRadius: 99, color: source === "redis" ? C.green : C.gold, background: source === "redis" ? "rgba(70,214,160,0.12)" : "rgba(232,198,110,0.1)" }}>
+          {source === "redis" ? "Bot 即時資料" : "展示資料"}
+        </span>
+      </div>
+
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="信號總數" value={String(signals.length)} />
-        <Stat label="進行中" value={String(signals.filter((s) => s.status === "active").length)} />
-        <Stat label="做多" value={String(longN)} tone="up" />
-        <Stat label="做空" value={String(shortN)} tone="down" />
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Chip active={dir === "all"} onClick={() => setDir("all")}>全部</Chip>
-        <Chip active={dir === "long"} onClick={() => setDir("long")}>做多</Chip>
-        <Chip active={dir === "short"} onClick={() => setDir("short")}>做空</Chip>
-        <span className="mx-1 h-4 w-px bg-white/10" />
-        {["all", "S", "A", "B", "C"].map((t) => (
-          <Chip key={t} active={tier === t} onClick={() => setTier(t)}>{t === "all" ? "全部 Tier" : "Tier " + t}</Chip>
+        {[["信號總數", String(signals.length), C.ink], ["進行中", String(signals.filter((s) => s.status === "active").length), C.ink], ["做多", String(longN), C.green], ["做空", String(shortN), C.rose]].map(([label, value, color]) => (
+          <div key={label} className="rounded-xl p-3.5" style={{ border: `1px solid ${C.line}`, background: "rgba(255,255,255,0.02)" }}>
+            <div style={{ fontSize: 11, color: C.dim }}>{label}</div>
+            <div style={{ marginTop: 4, fontFamily: MONO, fontSize: 19, fontWeight: 800, color: color as string }}>{value}</div>
+          </div>
         ))}
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜尋幣種…"
-          className="ml-auto w-32 rounded-lg border border-white/5 bg-ink-800 px-3 py-1.5 text-sm outline-none focus:border-tide-500/40" />
       </div>
-      {loading && <div className="h-28 animate-pulse rounded-xl bg-white/5" />}
-      {!loading && filtered.length === 0 && <div className="rounded-xl border border-white/5 p-8 text-center text-sm text-slate-500">沒有符合條件的信號</div>}
+
+      <div className="flex flex-wrap items-center gap-2">
+        {(["all", "long", "short"] as const).map((d) => (
+          <button key={d} onClick={() => setDir(d)} className="rounded-full px-3 py-1" style={{ fontSize: 12, border: `1px solid ${dir === d ? C.gold + "70" : C.line}`, background: dir === d ? "rgba(232,198,110,0.12)" : "transparent", color: dir === d ? C.gold : C.mut }}>
+            {d === "all" ? "全部" : d === "long" ? "做多" : "做空"}
+          </button>
+        ))}
+        <span style={{ margin: "0 4px", width: 1, height: 16, background: C.line }} />
+        {["all", "S", "A", "B", "C"].map((t) => (
+          <button key={t} onClick={() => setTier(t)} className="rounded-full px-3 py-1" style={{ fontSize: 12, border: `1px solid ${tier === t ? C.gold + "70" : C.line}`, background: tier === t ? "rgba(232,198,110,0.12)" : "transparent", color: tier === t ? C.gold : C.mut }}>
+            {t === "all" ? "全部 Tier" : "Tier " + t}
+          </button>
+        ))}
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜尋幣種…" className="ml-auto w-32 rounded-lg px-3 py-1.5 text-sm outline-none"
+          style={{ border: `1px solid ${C.line}`, background: "rgba(255,255,255,0.02)", color: C.ink }} />
+      </div>
+
+      {loading && <div className="h-28 animate-pulse rounded-xl" style={{ background: "rgba(255,255,255,0.04)" }} />}
+      {!loading && filtered.length === 0 && <div className="rounded-xl p-8 text-center" style={{ border: `1px solid ${C.line}`, fontSize: 13, color: C.dim }}>沒有符合條件的信號</div>}
       <div className="grid gap-4 lg:grid-cols-2">
         {filtered.map((s) => <SignalCard key={s.id} s={s} onOpen={() => setOpen(s)} />)}
       </div>
