@@ -416,12 +416,14 @@ def open_batch_tp_position(ex, signal, equity, free_usdt=None):
 
 
 def push_event(text):
-    """推一則即時事件到 Redis 'at:events'(供 bot.py 轉發 ADMIN)。失敗不影響主流程。"""
+    """推一則即時事件到 Redis 'at:events'(供 bot.py 轉發 ADMIN)。失敗不影響主流程，但至少留痕 log。"""
     try:
         redis_cmd(["RPUSH", "at:events", text])
         redis_cmd(["LTRIM", "at:events", "-200", "-1"])
-    except Exception:
-        pass
+    except Exception as e:
+        # v64：這是止損上移失敗/平倉通知等關鍵真錢事件的唯一推播管道，
+        # 失敗絕不能完全靜默，至少留在 Railway log 讓人查得到
+        log("  ⚠️ push_event 寫入 at:events 失敗（通知可能漏發）:", str(e)[:120], "｜原文:", text[:100])
 
 
 def check_circuit_breaker(equity):
@@ -581,15 +583,19 @@ def process_once(ex):
                 if created_dt.tzinfo is None:
                     created_dt = created_dt.replace(tzinfo=timezone.utc)
                 age_min = (datetime.now(timezone.utc) - created_dt).total_seconds() / 60.0
-                if age_min > float(os.getenv("SIGNAL_MAX_AGE_MIN", "10")):
-                    log("  ⏭ 跳過", sym_label, "：信號過舊（", round(age_min, 1), "分鐘）")
-                    push_event("⏭ 跳過未下單｜" + sym_label + "｜信號過舊 " + str(round(age_min, 1)) + " 分鐘（上限 " + os.getenv("SIGNAL_MAX_AGE_MIN", "10") + " 分）")
-                    processed.append(sig_id)
-                    _changed = True
-                    skipped["expired"] += 1
-                    continue
+                too_old = age_min > float(os.getenv("SIGNAL_MAX_AGE_MIN", "10"))
             except Exception:
-                pass
+                # v64：解析失敗時視為過舊、跳過，與 1175 行同原則，避免格式異常的信號繞過年齡檢查
+                age_min = None
+                too_old = True
+            if too_old:
+                age_label = (str(round(age_min, 1)) + " 分鐘") if age_min is not None else "格式無法解析"
+                log("  ⏭ 跳過", sym_label, "：信號過舊（", age_label, "）")
+                push_event("⏭ 跳過未下單｜" + sym_label + "｜信號過舊 " + age_label + "（上限 " + os.getenv("SIGNAL_MAX_AGE_MIN", "10") + " 分）")
+                processed.append(sig_id)
+                _changed = True
+                skipped["expired"] += 1
+                continue
         if signal.get("tier", "B") not in ALLOWED_TIERS:
             push_event("⏭ 跳過未下單｜" + sym_label + "｜等級 " + str(signal.get("tier")) + " 不在允許清單 " + str(ALLOWED_TIERS))
             processed.append(sig_id)
