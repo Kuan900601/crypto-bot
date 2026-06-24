@@ -80,19 +80,19 @@ export default function Home() {
                 <span style={{ width: 6, height: 6, borderRadius: 99, background: C.teal, boxShadow: `0 0 8px ${C.teal}`, animation: "pulseDot 2s infinite" }} />
                 {MONITORED_COINS} 幣種 · 24/7 AI 盯盤
               </div>
-              <h1 style={{ fontFamily: SANS, fontWeight: 800, lineHeight: 1.18, margin: 0, fontSize: "clamp(36px,6vw,64px)", letterSpacing: "-1.2px", color: C.ink, textShadow: "0 2px 40px rgba(0,0,0,.6)" }}>
+              <h1 style={{ fontFamily: SANS, fontWeight: 800, lineHeight: 1.32, margin: 0, fontSize: "clamp(36px,6vw,64px)", letterSpacing: "-1.2px", color: C.ink, textShadow: "0 2px 40px rgba(0,0,0,.6)", wordBreak: "keep-all", overflowWrap: "break-word" }}>
                 AI 24 小時盯盤<br /><span className="gold-text">幫你抓加密貨幣交易信號</span>
               </h1>
-              <p style={{ fontFamily: SANS, fontSize: "clamp(15px,1.8vw,18px)", lineHeight: 1.65, color: C.mut, margin: "22px 0 0", maxWidth: 480 }}>
+              <p style={{ fontFamily: SANS, fontSize: "clamp(15px,1.8vw,18px)", lineHeight: 1.65, color: C.mut, margin: "22px 0 0", maxWidth: 480, wordBreak: "keep-all", overflowWrap: "break-word" }}>
                 {session
-                  ? <>歡迎回來，下面是今日 AI 分析與信號戰績。付費方案可解鎖完整進出場價位。</>
+                  ? <>歡迎回來，下面是今日 AI 分析與信號戰績。<br />付費方案可解鎖完整進出場價位。</>
                   : <>登入即可查看今日 AI 分析、方向判斷與部分交易信號。<br />升級 Pro 解鎖進場、止損與 TP 點位。</>}
               </p>
               <div style={{ display: "flex", gap: 14, marginTop: 32, flexWrap: "wrap", alignItems: "center" }}>
                 {session ? (
                   <Link href="/signals"><CTA big>前往黑潮船長信號 <ArrowRight size={16} style={{ display: "inline", marginLeft: 4 }} /></CTA></Link>
                 ) : (
-                  <Link href="/login?register=1"><CTA big>免費註冊 · 查看今日信號</CTA></Link>
+                  <Link href="/login?register=1"><CTA big>免費註冊 · 送 3 日 Plus 體驗</CTA></Link>
                 )}
               </div>
               <div style={{ display: "flex", gap: 30, marginTop: 44, flexWrap: "wrap" }}>
@@ -162,7 +162,7 @@ export default function Home() {
                 <div><div style={{ fontFamily: MONO, fontSize: 18, fontWeight: 800, color: C.rose }}>-{perfMaxDD.toFixed(1)}%</div><div style={{ fontSize: 10, color: C.dim }}>最大回撤</div></div>
               </div>
             ) : (
-              <div style={{ fontSize: 12.5, color: C.mut, lineHeight: 1.6 }}>
+              <div style={{ fontSize: 12.5, color: C.mut, lineHeight: 1.6, wordBreak: "keep-all", overflowWrap: "break-word" }}>
                 樣本仍在累積中，待已結算信號足量後將公開實際績效數字。目前可確認：{MONITORED_COINS} 幣種監測、7+1 策略投票、分批止盈紀律、24/7 AI 盯盤。
               </div>
             )}
@@ -191,13 +191,13 @@ export default function Home() {
         ))}
         <div style={{ position: "relative", zIndex: 2, maxWidth: 760, margin: "0 auto" }}>
           <div style={{ fontSize: 12, letterSpacing: 5, color: C.tealDk, fontWeight: 700, marginBottom: 22 }}>WHY BLACK TIDE</div>
-          <h2 style={{ fontFamily: SANS, fontSize: "clamp(26px,4.6vw,46px)", fontWeight: 800, color: C.ink, margin: 0, lineHeight: 1.3, letterSpacing: "-0.5px" }}>
+          <h2 style={{ fontFamily: SANS, fontSize: "clamp(26px,4.6vw,46px)", fontWeight: 800, color: C.ink, margin: 0, lineHeight: 1.32, letterSpacing: "-0.5px", wordBreak: "keep-all", overflowWrap: "break-word" }}>
             這裡能看<span className="teal-text">方向、信號、進場、止損、TP</span>。
           </h2>
-          <p style={{ fontSize: "clamp(15px,2vw,18px)", color: C.mut, margin: "16px 0 0" }}>免費註冊即可開始查看今日信號。</p>
+          <p style={{ fontSize: "clamp(15px,2vw,18px)", color: C.mut, margin: "16px 0 0", wordBreak: "keep-all" }}>免費註冊即可開始查看今日信號。</p>
           <div style={{ position: "relative", marginTop: 40, display: "inline-block" }}>
             {!session && (
-              <Link href="/login?register=1"><CTA big>免費註冊 · 查看今日信號</CTA></Link>
+              <Link href="/login?register=1"><CTA big>免費註冊 · 送 3 日 Plus 體驗</CTA></Link>
             )}
             {session && (
               <Link href="/signals"><CTA big>前往黑潮船長信號</CTA></Link>

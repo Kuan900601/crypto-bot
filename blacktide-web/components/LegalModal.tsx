@@ -19,10 +19,11 @@ export default function LegalModal({ docKey, onClose }: { docKey: LegalDocKey | 
   return (
     <div onClick={onClose} style={{
       position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center",
-      padding: 20, background: "rgba(2,4,9,0.7)", backdropFilter: "blur(5px)", animation: "fadeIn .25s",
+      padding: 20, paddingTop: "max(20px, env(safe-area-inset-top))", paddingBottom: "max(20px, env(safe-area-inset-bottom))",
+      background: "rgba(2,4,9,0.7)", backdropFilter: "blur(5px)", animation: "fadeIn .25s",
     }}>
       <div onClick={(e) => e.stopPropagation()} style={{
-        position: "relative", width: "100%", maxWidth: 640, maxHeight: "84vh", display: "flex", flexDirection: "column",
+        position: "relative", width: "100%", maxWidth: 640, maxHeight: "85vh", display: "flex", flexDirection: "column",
         borderRadius: 20, background: "linear-gradient(180deg, rgba(10,20,34,0.98), rgba(4,9,16,0.98))",
         border: `1px solid ${C.lineGold}`, boxShadow: "0 30px 80px rgba(0,0,0,.6)", overflow: "hidden",
       }}>

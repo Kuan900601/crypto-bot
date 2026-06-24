@@ -114,7 +114,7 @@ function LiveFeed({ userTier }: { userTier: string }) {
                       <span style={{ color: C.dim }}>SL <span style={{ fontFamily: MONO, color: C.rose }}>{sig.stopLoss}</span></span>
                     </>
                   ) : (
-                    <span style={{ display: "flex", alignItems: "center", gap: 5, color: C.dim }}><Lock size={11} />進場價位 · 止損 · 止盈 — 升級 Plus 解鎖</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 5, color: C.dim }}><Lock size={11} />進場價位 · 止損 · 止盈 — 升級 Pro 解鎖</span>
                   )}
                 </div>
               </div>
@@ -183,7 +183,7 @@ export default function SignalsPage() {
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:shrink-0 sm:flex-row sm:items-center sm:gap-3">
-            {userTier === "free" ? (
+            {userTier !== "pro" ? (
               <button onClick={() => setPricingOpen(true)} className="cta flex items-center justify-center gap-1.5 rounded-xl px-6 py-3" style={{ fontSize: 14, fontWeight: 800, color: C.abyss, background: `linear-gradient(135deg,#FFF4D2,${C.gold} 45%,${C.gold2})` }}>
                 <Crown size={15} /> 加入船長艙
               </button>
