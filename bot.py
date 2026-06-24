@@ -1819,14 +1819,33 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 logger.error("快訊推播失敗: " + str(e))
 
     elif d == "active_signals":
-        if not ACTIVE_SIGNALS:
-            text = "📡 *追蹤中的信號*\n\n目前無活躍信號\n_當黑潮船長發出推播時會自動追蹤_"
-            await q.edit_message_text(text, parse_mode="Markdown", reply_markup=back_btn())
+        # v64：拆成兩區，避免「信號追蹤」(ACTIVE_SIGNALS，只是 Telegram 端追蹤，
+        # 未必真的下了倉) 跟「真實持倉」(at:trades，auto_trader 實際在 Bybit 開的倉)
+        # 混看，造成「報告一堆單」但其實大半沒真的進場的誤導。
+        real_positions = [t for t in _redis_get_json_key("at:trades", [])
+                          if t.get("ok") and not t.get("closed")]
+        text = "📡 *我的持倉 / 信號追蹤*\n"
+        text += "━━━━━━━━━━━━━━━\n\n"
+
+        text += "*🟢 真實持倉（Bybit 實際開倉中，" + str(len(real_positions)) + "）*\n"
+        if not real_positions:
+            text += "目前沒有真實持倉\n"
         else:
-            text = "📡 *追蹤中的信號* (" + str(len(ACTIVE_SIGNALS)) + ")\n"
-            text += "━━━━━━━━━━━━━━━\n"
+            for t in real_positions:
+                sym = t.get("symbol", "?")
+                sym_short = sym.replace("/USDT:USDT", "").replace("/USDT", "")
+                side_label = "做多 🟢" if t.get("side") == "buy" else "做空 🔴"
+                text += ("• *" + sym_short + "* " + side_label
+                         + "｜進場 `" + str(t.get("entry_price", "?"))
+                         + "` 止損 `" + str(t.get("sl_used", "?")) + "`\n")
+        text += "\n"
+
+        text += "*📋 信號追蹤（Telegram 推播追蹤，不代表已真實下單，共 " + str(len(ACTIVE_SIGNALS)) + "）*\n"
+        kb_rows = []
+        if not ACTIVE_SIGNALS:
+            text += "目前無追蹤中信號\n_當黑潮船長發出推播時會自動追蹤_\n"
+        else:
             now = datetime.now(timezone.utc)
-            kb_rows = []
             for sym, sig in ACTIVE_SIGNALS.items():
                 # v55 修：用 .get 容錯，缺字段的信號跳過，不拖垮整個清單
                 _dir = sig.get("direction")
@@ -1850,8 +1869,8 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     InlineKeyboardButton("📱 " + sym_short + " 開 Bybit", url=bingx_swap_url(sym)),
                     InlineKeyboardButton("📋 參數", callback_data="copy_" + sym.replace("/", "_"))
                 ])
-            kb_rows.append([InlineKeyboardButton("🏠 返回主選單", callback_data="home")])
-            await q.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb_rows))
+        kb_rows.append([InlineKeyboardButton("🏠 返回主選單", callback_data="home")])
+        await q.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb_rows))
 
     elif d == "stats":
         if not SIGNAL_RESULTS:

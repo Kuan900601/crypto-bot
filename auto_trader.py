@@ -641,6 +641,10 @@ def process_once(ex):
                 last_error = signal.get("symbol", "") + "：" + record["msg"]
 
     # v62 P2b：有空位 → 從候補「由新到舊」補單；超時/漂移過大則放棄
+    # v64：final_waitlist 預設沿用現有清單（含主迴圈新增的滿倉信號），
+    # 補單迴圈跑過才覆寫成 kept；最後只有「單一」寫回路徑，不再依賴
+    # 「pos_count 單調不減」這個隱性假設去判斷兩段寫入要不要互斥。
+    final_waitlist = waitlist
     if pos_count < MAX_POSITIONS and waitlist:
         wl_max_age = float(os.getenv("WAITLIST_MAX_AGE_MIN", "60"))
         max_drift = float(os.getenv("MAX_ENTRY_DRIFT_PCT", "1.5"))
@@ -703,16 +707,11 @@ def process_once(ex):
                 else:
                     last_error = w.get("symbol", "") + "：" + record["msg"]
         # 重建候補（kept 是反序蒐集，還原成 oldest→newest）
-        if waitlist_changed:
-            new_waitlist = list(reversed(kept))[-20:]
-            redis_cmd(["DEL", REDIS_WAITLIST_KEY])
-            for w in new_waitlist:
-                redis_cmd(["RPUSH", REDIS_WAITLIST_KEY, json.dumps(w, ensure_ascii=False)])
-            waitlist_changed = False
-    # 滿倉這輪只新增候補、沒補單 → 寫回（含去重後的新候補）
+        final_waitlist = list(reversed(kept))
+    # v64：唯一寫回路徑，涵蓋「補單迴圈跑過」與「只是滿倉新增候補」兩種情況
     if waitlist_changed:
         redis_cmd(["DEL", REDIS_WAITLIST_KEY])
-        for w in waitlist[-20:]:
+        for w in final_waitlist[-20:]:
             redis_cmd(["RPUSH", REDIS_WAITLIST_KEY, json.dumps(w, ensure_ascii=False)])
 
     if _changed:

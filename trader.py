@@ -196,8 +196,9 @@ def close_position(ex, symbol):
         try:
             ex.create_order(symbol, "market", close_side, contracts, None,
                             {"reduceOnly": True})
-        except Exception:
+        except Exception as e:
             ok = False
+            print("⚠️ close_position 平倉下單失敗:", symbol, str(e)[:200], flush=True)
     return ok
 
 
