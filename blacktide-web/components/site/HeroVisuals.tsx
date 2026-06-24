@@ -1,11 +1,36 @@
+"use client";
+import { useEffect, useRef } from "react";
 import { C } from "@/lib/theme";
 import Corner from "@/components/site/Corner";
 
 /** 純裝飾性視覺（燈塔、海浪、飄光），不帶任何數據，禁止在這裡塞任何統計數字。 */
 
+/** 視差景深 hook：依 scrollY * speed 設定 translateY，純 transform，不影響 layout。
+ *  speed 負值代表遠景（慢於捲動，往反方向飄），正值代表近景。
+ *  尊重 prefers-reduced-motion；用 rAF 節流，passive scroll listener。 */
+export function useParallax<T extends HTMLElement>(speed: number) {
+  const ref = useRef<T>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    let raf = 0;
+    const apply = () => {
+      el.style.transform = `translate3d(0, ${window.scrollY * speed}px, 0)`;
+      raf = 0;
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(apply); };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    apply();
+    return () => { window.removeEventListener("scroll", onScroll); cancelAnimationFrame(raf); };
+  }, [speed]);
+  return ref;
+}
+
 export function GodRays() {
+  const ref = useParallax<HTMLDivElement>(-0.06);
   return (
-    <div style={{ position: "absolute", inset: 0, zIndex: 1, overflow: "hidden", pointerEvents: "none" }}>
+    <div ref={ref} className="parallax-layer" style={{ position: "absolute", inset: 0, zIndex: 1, overflow: "hidden", pointerEvents: "none" }}>
       {[16, 32, 50, 68, 84].map((left, i) => (
         <div key={i} className="gpu" style={{
           position: "absolute", top: "-10%", left: left + "%", width: 110, height: "95%",
@@ -32,8 +57,9 @@ export function SoftRays() {
 }
 
 export function Lighthouse() {
+  const ref = useParallax<HTMLDivElement>(-0.12);
   return (
-    <div style={{ position: "absolute", bottom: 60, right: "4%", zIndex: 1, pointerEvents: "none", opacity: 0.9 }}>
+    <div ref={ref} className="parallax-layer" style={{ position: "absolute", bottom: 60, right: "4%", zIndex: 1, pointerEvents: "none", opacity: 0.9 }}>
       <div className="gpu" style={{
         position: "absolute", bottom: 130, left: 30, width: 520, height: 230,
         background: "linear-gradient(108deg, rgba(255,246,214,.22) 0%, rgba(232,198,110,.1) 30%, transparent 62%)",
@@ -76,13 +102,14 @@ export function Lighthouse() {
 }
 
 export function HeroWaves() {
+  const ref = useParallax<HTMLDivElement>(0.08);
   const layers = [
     { fill: "rgba(232,198,110,0.13)", h: 130, dur: 11, y: 48, blur: 1 },
     { fill: "rgba(27,138,130,0.24)", h: 150, dur: 15, y: 24, blur: 1.5 },
     { fill: "rgba(9,20,38,0.9)", h: 180, dur: 21, y: 0, blur: 0 },
   ];
   return (
-    <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 2, pointerEvents: "none", height: 200, overflow: "hidden", maskImage: "linear-gradient(180deg, transparent, #000 20%)", WebkitMaskImage: "linear-gradient(180deg, transparent, #000 20%)" }}>
+    <div ref={ref} className="parallax-layer" style={{ position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 2, pointerEvents: "none", height: 200, overflow: "hidden", maskImage: "linear-gradient(180deg, transparent, #000 20%)", WebkitMaskImage: "linear-gradient(180deg, transparent, #000 20%)" }}>
       {layers.map((w, i) => (
         <div key={i} className="gpu" style={{ position: "absolute", left: 0, bottom: w.y, width: "200%", height: w.h, animation: `waveMove ${w.dur}s linear infinite`, filter: w.blur ? `blur(${w.blur}px)` : "none" }}>
           <svg viewBox="0 0 1200 120" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>

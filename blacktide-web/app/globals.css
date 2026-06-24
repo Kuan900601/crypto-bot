@@ -137,3 +137,27 @@ a:active { -webkit-tap-highlight-color: transparent; }
   .reveal { opacity: 1; animation: none !important; }
   .sigrow, .row-sweep, .accent-bar, .locked-px, .grade-pill, .scanline { animation: none !important; }
 }
+
+/* ============ 階段二：隔水玻璃高光（純 CSS，不開新 Canvas） ============ */
+@keyframes sheenDrift { 0% { transform: translate(-30%, -30%) rotate(0deg); } 100% { transform: translate(30%, 30%) rotate(0deg); } }
+.glass-sheen { position: relative; overflow: hidden; }
+.glass-sheen::before {
+  content: ''; position: absolute; inset: -60%; pointer-events: none; z-index: 0;
+  background: linear-gradient(115deg, transparent 42%, rgba(255,255,255,.05) 48%, rgba(255,255,255,.10) 50%, rgba(255,255,255,.05) 52%, transparent 58%);
+  animation: sheenDrift 11s ease-in-out infinite alternate;
+}
+@media (prefers-reduced-motion: reduce) {
+  .glass-sheen::before { animation: none !important; }
+}
+
+/* ============ 階段二：卡片 3D 傾斜（桌機滑鼠，hover media query 排除觸控） ============ */
+.tilt-card { transform-style: preserve-3d; transition: transform .15s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .tilt-card { transition: none !important; }
+}
+
+/* ============ 階段二：視差景深（純 transform，由 JS 依 scrollY 設定） ============ */
+.parallax-layer { will-change: transform; }
+@media (prefers-reduced-motion: reduce) {
+  .parallax-layer { transform: none !important; }
+}

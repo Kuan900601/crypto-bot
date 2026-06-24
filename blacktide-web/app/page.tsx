@@ -11,7 +11,8 @@ import Corner from "@/components/site/Corner";
 import CTA from "@/components/site/CTA";
 import Counter from "@/components/site/Counter";
 import SignalShowcase from "@/components/site/SignalShowcase";
-import { GodRays, SoftRays, Lighthouse, HeroWaves, FloatCard } from "@/components/site/HeroVisuals";
+import { GodRays, SoftRays, Lighthouse, HeroWaves, FloatCard, useParallax } from "@/components/site/HeroVisuals";
+import { useTilt } from "@/lib/useTilt";
 
 // 監測幣種數固定為 52（analyzer.py 實際掃描的幣種數，與站內既有文案一致，非首頁自行估算）
 const MONITORED_COINS = 52;
@@ -28,6 +29,9 @@ export default function Home() {
   const { tickers } = useMarket();
   const { data: session } = useSession();
   const [signals, setSignals] = useState<Signal[] | null>(null);
+  const heroContentRef = useParallax<HTMLDivElement>(0.04);
+  const previewTiltRef = useTilt<HTMLDivElement>(6);
+  const perfTiltRef = useTilt<HTMLDivElement>(4);
 
   useEffect(() => {
     fetch("/api/signals").then((r) => r.json()).then((d) => setSignals(d.signals ?? null)).catch(() => {});
@@ -73,7 +77,7 @@ export default function Home() {
           </div>
         )}
 
-        <div style={{ position: "relative", zIndex: 5, maxWidth: 1180, margin: "0 auto", padding: "48px 22px", width: "100%" }}>
+        <div ref={heroContentRef} className="parallax-layer" style={{ position: "relative", zIndex: 5, maxWidth: 1180, margin: "0 auto", padding: "48px 22px", width: "100%" }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 32, alignItems: "flex-start" }}>
             <div style={{ maxWidth: 600, flex: "1 1 360px" }}>
               <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 22, padding: "7px 15px", borderRadius: 999, fontSize: 12, fontWeight: 600, color: C.gold, border: `1px solid ${C.gold}45`, background: `${C.gold}10`, backdropFilter: "blur(4px)" }}>
@@ -111,7 +115,7 @@ export default function Home() {
 
             {/* 今日 AI 信號預覽（真實資料；信心為模型評分，非已實現歷史勝率） */}
             {previewSignal && (
-              <div style={{ flex: "0 1 280px", minWidth: 240, borderRadius: 18, padding: 18, position: "relative", background: "rgba(6,16,30,0.78)", border: `1px solid ${C.lineGold}`, backdropFilter: "blur(10px)" }}>
+              <div ref={previewTiltRef} className="glass-sheen tilt-card" style={{ flex: "0 1 280px", minWidth: 240, borderRadius: 18, padding: 18, position: "relative", background: "rgba(6,16,30,0.78)", border: `1px solid ${C.lineGold}`, backdropFilter: "blur(10px)" }}>
                 <Corner pos="tl" /><Corner pos="tr" /><Corner pos="bl" /><Corner pos="br" />
                 <div style={{ fontSize: 10, letterSpacing: 2, color: C.dim, marginBottom: 8 }}>今日 AI 信號預覽</div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -151,7 +155,7 @@ export default function Home() {
           </div>
 
           {/* 近 N 筆已結算信號績效（樣本不足不強調具體數字，見 design-system §7） */}
-          <div style={{ marginTop: 36, maxWidth: 520, borderRadius: 16, padding: 16, background: "rgba(255,255,255,0.02)", border: `1px solid ${C.line}` }}>
+          <div ref={perfTiltRef} className="glass-sheen tilt-card" style={{ marginTop: 36, maxWidth: 520, borderRadius: 16, padding: 16, position: "relative", background: "rgba(255,255,255,0.02)", border: `1px solid ${C.line}` }}>
             <div style={{ fontSize: 11, letterSpacing: 2, color: C.dim, marginBottom: 10 }}>
               {perfSampleOk ? `近 ${chronological.length} 筆已結算信號` : "信號績效"}
             </div>

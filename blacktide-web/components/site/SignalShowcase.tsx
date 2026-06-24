@@ -32,7 +32,7 @@ export default function SignalShowcase({ signals }: { signals: Signal[] | null }
           </p>
         </div>
 
-        <div className="reveal in" style={{ maxWidth: 600, margin: "0 auto", borderRadius: 20, padding: 20, position: "relative", overflow: "hidden", background: "linear-gradient(180deg, rgba(16,30,48,0.9), rgba(6,16,30,0.78))", border: `1px solid ${C.lineGold}`, boxShadow: "0 20px 60px rgba(0,0,0,.4)" }}>
+        <div className="reveal in glass-sheen" style={{ maxWidth: 600, margin: "0 auto", borderRadius: 20, padding: 20, position: "relative", overflow: "hidden", background: "linear-gradient(180deg, rgba(16,30,48,0.9), rgba(6,16,30,0.78))", border: `1px solid ${C.lineGold}`, boxShadow: "0 20px 60px rgba(0,0,0,.4)" }}>
           <div className="scanline" />
           <Corner pos="tl" /><Corner pos="tr" /><Corner pos="bl" /><Corner pos="br" />
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, position: "relative", zIndex: 1 }}>

@@ -4,6 +4,7 @@ import { fmtPrice, entryGradeDisplay } from "@/lib/format";
 import { C, MONO } from "@/lib/theme";
 import Corner from "@/components/site/Corner";
 import { TrendingUp, TrendingDown, Lock } from "lucide-react";
+import { useTilt } from "@/lib/useTilt";
 
 const STATUS_LABEL: Record<Signal["status"], string> = { active: "進行中", tp: "已止盈", sl: "已止損", closed: "已平倉" };
 
@@ -13,8 +14,9 @@ export default function SignalCard({ s, onOpen }: { s: Signal; onOpen: () => voi
   const long = s.direction === "long";
   const sc = long ? C.green : C.rose;
   const locked = s.entryLow == null;
+  const tiltRef = useTilt<HTMLDivElement>(5);
   return (
-    <div onClick={onOpen} className="sigrow" style={{
+    <div ref={tiltRef} onClick={onOpen} className="sigrow glass-sheen tilt-card" style={{
       cursor: "pointer", position: "relative", overflow: "hidden", padding: "16px 16px 14px 20px", borderRadius: 16,
       background: "linear-gradient(180deg, rgba(16,30,48,0.75), rgba(6,16,30,0.62))", border: `1px solid ${C.line}`,
     }}>

@@ -31,12 +31,24 @@ function GlobalCurrent() {
       hue: Math.random() < 0.72 ? "g" : "t",
       a: 0.3 + Math.random() * 0.55,
     }));
+    // 點按/觸碰漣漪：上限數量，隱藏分頁時不累積（running=false 時不繪製）
+    const MAX_RIPPLES = mobile ? 4 : 7;
+    const ripples: { x: number; y: number; born: number }[] = [];
+    const addRipple = (x: number, y: number) => {
+      ripples.push({ x, y, born: performance.now() });
+      if (ripples.length > MAX_RIPPLES) ripples.shift();
+    };
+    const onPointer = (e: PointerEvent) => addRipple(e.clientX, e.clientY);
+    window.addEventListener("pointerdown", onPointer);
     const field = (x: number, y: number, t: number) => {
       const s = 0.0015;
-      return (Math.sin(x * s + t * 3e-4) * 0.8 + Math.cos(y * s * 1.4 - t * 4e-4) * 0.7 + Math.sin((x + y) * s * 0.6 + t * 2e-4) * 0.5) * 0.9 - 0.15;
+      // 緩慢水波扭曲：再疊一層極低頻、大波長的相位偏移，模擬整體水面慢速起伏
+      const swell = Math.sin(x * 0.0006 + t * 8e-5) * Math.cos(y * 0.0006 - t * 6e-5) * 0.35;
+      return (Math.sin(x * s + t * 3e-4) * 0.8 + Math.cos(y * s * 1.4 - t * 4e-4) * 0.7 + Math.sin((x + y) * s * 0.6 + t * 2e-4) * 0.5) * 0.9 - 0.15 + swell;
     };
     let t0 = performance.now();
     let running = true;
+    const RIPPLE_LIFE = 1400, RIPPLE_MAX_R = mobile ? 90 : 140;
     const draw = (t: number) => {
       if (!running) return;
       const dt = Math.min(40, t - t0); t0 = t;
@@ -51,6 +63,16 @@ function GlobalCurrent() {
         p.x = nx; p.y = ny;
         if (p.x < -20 || p.x > W + 20 || p.y < -20 || p.y > H + 20) { p.x = Math.random() * W * 0.4 - 20; p.y = H * 0.3 + Math.random() * H * 0.7; }
       }
+      for (let i = ripples.length - 1; i >= 0; i--) {
+        const r = ripples[i];
+        const age = t - r.born;
+        if (age > RIPPLE_LIFE) { ripples.splice(i, 1); continue; }
+        const k = age / RIPPLE_LIFE;
+        const rad = k * RIPPLE_MAX_R;
+        ctx.strokeStyle = `rgba(70,224,205,${0.32 * (1 - k)})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(r.x, r.y, rad, 0, Math.PI * 2); ctx.stroke();
+      }
       raf.current = requestAnimationFrame(draw);
     };
     raf.current = requestAnimationFrame(draw);
@@ -63,6 +85,7 @@ function GlobalCurrent() {
       running = false;
       cancelAnimationFrame(raf.current);
       window.removeEventListener("resize", resize);
+      window.removeEventListener("pointerdown", onPointer);
       document.removeEventListener("visibilitychange", onVis);
     };
   }, []);
