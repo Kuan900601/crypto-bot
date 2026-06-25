@@ -7,6 +7,7 @@ import os
 import time
 import math
 import urllib.request
+import urllib.error
 from datetime import datetime, timezone
 
 import trader
@@ -44,7 +45,8 @@ def load_env():
     except FileNotFoundError:
         pass
     for _k in ("BYBIT_API_KEY", "BYBIT_API_SECRET",
-               "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"):
+               "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN",
+               "TELEGRAM_BOT_TOKEN"):
         _v = os.environ.get(_k)
         if _v:
             env[_k] = _v
@@ -55,6 +57,55 @@ _ENV = load_env()
 _REDIS_URL = _ENV.get("UPSTASH_REDIS_REST_URL", "").rstrip("/")
 _REDIS_TOKEN = _ENV.get("UPSTASH_REDIS_REST_TOKEN", "")
 _USE_REDIS = bool(_REDIS_URL and _REDIS_TOKEN)
+_TELEGRAM_TOKEN = _ENV.get("TELEGRAM_BOT_TOKEN", "")
+ADMIN_ID = 5947529357  # v64 P1：沿用 bot.py 同一個 ADMIN_ID 常數
+
+# v64 P1：Redis 連續失敗追蹤狀態（純記憶體，重啟歸零）
+_REDIS_HEALTH = {"consec_fail": 0, "last_alert_ts": 0.0}
+_REDIS_FAIL_ALERT_THRESHOLD = int(os.getenv("REDIS_FAIL_ALERT_THRESHOLD", "5"))
+_REDIS_ALERT_COOLDOWN_SEC = 1800  # 30 分鐘最多告警一次，避免洗版
+
+
+def _telegram_alert(text):
+    """v64 P1：繞過 Redis，直打 Telegram API 通知 ADMIN。
+    Redis 掛掉時 push_event（走 at:events 隊列）送不出去，這是唯一還能逃生的告警管道。"""
+    if not _TELEGRAM_TOKEN:
+        log("⚠️ 無 TELEGRAM_BOT_TOKEN，無法直發告警:", text[:100])
+        return
+    try:
+        url = "https://api.telegram.org/bot" + _TELEGRAM_TOKEN + "/sendMessage"
+        body = json.dumps({"chat_id": ADMIN_ID, "text": text}).encode("utf-8")
+        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()
+    except Exception as e:
+        log("⚠️ 直打 Telegram 告警也失敗（雙重故障）:", str(e)[:150])
+
+
+def _on_redis_success():
+    if _REDIS_HEALTH["consec_fail"] >= _REDIS_FAIL_ALERT_THRESHOLD:
+        log("✅ Redis 已恢復正常")
+        _telegram_alert("✅ Redis 已恢復，自動交易恢復運作。")
+    _REDIS_HEALTH["consec_fail"] = 0
+
+
+def _on_redis_failure(args, e, http_code):
+    cmd_name = args[0] if args else "?"
+    if http_code == 429:
+        log("🔴 Redis 命令失敗(限流 429):", cmd_name, str(e)[:120])
+    elif http_code in (400, 401):
+        log("🔴 Redis 命令失敗(請求/Token問題 " + str(http_code) + "):", cmd_name, str(e)[:120])
+    else:
+        log("🔴 Redis 命令失敗:", cmd_name, str(e)[:120])
+    _REDIS_HEALTH["consec_fail"] += 1
+    if _REDIS_HEALTH["consec_fail"] >= _REDIS_FAIL_ALERT_THRESHOLD:
+        now_ts = time.time()
+        if now_ts - _REDIS_HEALTH["last_alert_ts"] >= _REDIS_ALERT_COOLDOWN_SEC:
+            _REDIS_HEALTH["last_alert_ts"] = now_ts
+            _telegram_alert(
+                "🔴 Redis 持續失敗 " + str(_REDIS_HEALTH["consec_fail"]) + " 輪，"
+                "自動交易已停擺，請檢查 Upstash 用量/Token，並手動確認現有持倉止損。"
+            )
 
 
 # ⭐ 狀態改存 Redis(部署換容器不會丟)——根治「重啟重放 backlog」
@@ -71,7 +122,8 @@ _REDIS_STATE_KEYS = {
 
 
 def redis_cmd(args):
-    """執行單一 Redis 命令(命令數組格式)。成功回應 dict,失敗回 None。"""
+    """執行單一 Redis 命令(命令數組格式)。成功回應 dict,失敗回 None。
+    v64 P1：所有 Redis 存取都經過這個函式，在此統一追蹤連續失敗次數並告警。"""
     if not _USE_REDIS:
         return None
     try:
@@ -81,9 +133,14 @@ def redis_cmd(args):
             "Content-Type": "application/json",
         })
         with urllib.request.urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+            result = json.loads(resp.read().decode("utf-8"))
+        _on_redis_success()
+        return result
+    except urllib.error.HTTPError as e:
+        _on_redis_failure(args, e, e.code)
+        return None
     except Exception as e:
-        log("🔴 Redis 命令失敗:", (args[0] if args else "?"), str(e)[:120])
+        _on_redis_failure(args, e, None)
         return None
 
 
@@ -130,27 +187,21 @@ def save_json(path, data):
 
 
 def read_redis_list(key):
+    """v64 P1：改走 redis_cmd()，讓 LRANGE 失敗也算進 Redis 健康計數
+    （原本獨立發 HTTP 請求，繞過健康追蹤，是個盲區）。"""
     if not _USE_REDIS:
         return []
-    try:
-        body = json.dumps(["LRANGE", key, "0", "-1"]).encode("utf-8")
-        req = urllib.request.Request(_REDIS_URL, data=body, headers={
-            "Authorization": "Bearer " + _REDIS_TOKEN,
-            "Content-Type": "application/json",
-        })
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-        items = result.get("result", []) or []
-        out = []
-        for it in items:
-            try:
-                out.append(json.loads(it))
-            except Exception:
-                continue
-        return out
-    except Exception as e:
-        log("🔴 讀 Redis", key, "失敗:", str(e)[:150])
+    result = redis_cmd(["LRANGE", key, "0", "-1"])
+    if result is None:
         return []
+    items = result.get("result", []) or []
+    out = []
+    for it in items:
+        try:
+            out.append(json.loads(it))
+        except Exception:
+            continue
+    return out
 
 
 def to_ccxt_symbol(sym):
