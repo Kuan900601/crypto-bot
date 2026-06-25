@@ -57,7 +57,14 @@ def get_balance(ex):
     except Exception:
         bal = None
     if not bal:
-        bal = ex.fetch_balance()
+        try:
+            bal = ex.fetch_balance()
+        except Exception as e:
+            # v64：這行原本沒包 try/except——Bybit API 短暫異常時會讓例外直接往外拋，
+            # main_loop 連線後緊接著呼叫這裡（不在輪詢迴圈的 try/except 保護內），
+            # 一旦炸開就讓整個自動交易執行緒永久死亡、33小時無人發現的真錢風險根因。
+            print("⚠️ get_balance fetch_balance() 失敗:", str(e)[:150], flush=True)
+            return 0
     usdt = (bal.get("total", {}) or {}).get("USDT", 0)
     if not usdt:
         # UTA 有時要用 accountType=UNIFIED 才讀得到

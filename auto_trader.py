@@ -1194,17 +1194,9 @@ def mark_backlog_processed():
         log("⚠️ 啟動標記 backlog 失敗(略過,改靠 Redis 既有狀態保護):", str(e)[:120])
 
 
-def main_loop():
-    log("=" * 50)
-    log("auto_trader.py 自動交易（Redis｜輪詢", POLL_INTERVAL, "秒）")
-    log("=" * 50)
-    log("模式：", "Bybit 測試網(假錢)" if trader.USE_SANDBOX else "🔴🔴🔴 真錢 🔴🔴🔴")
-    log("設定：最多", MAX_POSITIONS, "倉｜單筆本金 = 淨值 ÷ 4｜槓桿", LEVERAGE, "｜等級", ALLOWED_TIERS)
-    log("⚠️ 20倍：爆倉線約 -5%，止損強制收緊到最遠 -3.5%（留爆倉緩衝）")
-    log("⚠️ 日內熔斷：淨值跌破當日起始 ×(1-" + os.getenv("MAX_DAILY_DD", "0.10") + ")，當日不再開新倉")
-    if not _USE_REDIS:
-        log("🔴 .env 缺 Upstash Redis 設定，無法讀信號")
-        return
+def _main_loop_connected():
+    """連線成功後的主輪詢迴圈本體。會被 main_loop() 的外層保護整圈包住——
+    任何這裡面沒接住的例外都不會殺死執行緒，只會讓 main_loop() 重新呼叫這個函式。"""
     # 2a：連線/憑證失敗不讓執行緒永久死亡——每 60 秒重試，連續失敗每 10 次推一則 at:events
     ex = None
     fail_count = 0
@@ -1242,11 +1234,43 @@ def main_loop():
                 update_pnl_ledger(ex)
         except KeyboardInterrupt:
             log("\n已停止。")
-            break
+            raise
         except Exception as e:
             log("⚠️ 本輪出錯（繼續下一輪）:", str(e)[:150])
         redis_cmd(["SET", "at:heartbeat", datetime.now(timezone.utc).isoformat()])
         time.sleep(POLL_INTERVAL)
+
+
+def main_loop():
+    """v64：外層整圈例外保護。_main_loop_connected() 裡任何沒被接住的例外
+    （未知 bug、連線層之外的未保護呼叫等）都不會讓執行緒永久死亡——
+    這裡捕獲、log、push_event 警告 ADMIN、sleep 60 秒後從頭重新連線重試。
+    真錢風險：執行緒死亡=止損移動/平倉對帳全部停擺，絕不能無聲死掉。"""
+    log("=" * 50)
+    log("auto_trader.py 自動交易（Redis｜輪詢", POLL_INTERVAL, "秒）")
+    log("=" * 50)
+    log("模式：", "Bybit 測試網(假錢)" if trader.USE_SANDBOX else "🔴🔴🔴 真錢 🔴🔴🔴")
+    log("設定：最多", MAX_POSITIONS, "倉｜單筆本金 = 淨值 ÷ 4｜槓桿", LEVERAGE, "｜等級", ALLOWED_TIERS)
+    log("⚠️ 20倍：爆倉線約 -5%，止損強制收緊到最遠 -3.5%（留爆倉緩衝）")
+    log("⚠️ 日內熔斷：淨值跌破當日起始 ×(1-" + os.getenv("MAX_DAILY_DD", "0.10") + ")，當日不再開新倉")
+    if not _USE_REDIS:
+        log("🔴 .env 缺 Upstash Redis 設定，無法讀信號")
+        return
+    outer_fail_count = 0
+    while True:
+        try:
+            _main_loop_connected()
+            return  # 只有 KeyboardInterrupt 觸發的正常停止才會走到這裡
+        except KeyboardInterrupt:
+            log("\n已停止。")
+            return
+        except Exception as e:
+            outer_fail_count += 1
+            log("🔴🔴 main_loop 整圈未預期例外（執行緒不會死，60秒後自動重啟）第",
+                outer_fail_count, "次:", str(e)[:200])
+            push_event("🔴🔴 auto_trader 主迴圈整體異常已自動重啟（第" + str(outer_fail_count)
+                       + "次）｜原因: " + str(e)[:150])
+            time.sleep(60)
 
 
 if __name__ == "__main__":

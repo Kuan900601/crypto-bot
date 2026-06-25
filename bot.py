@@ -4479,8 +4479,9 @@ def main():
                 except Exception as _e:
                     logger.error("🔴 自動交易背景執行緒掛了（不影響 bot）: " + str(_e)[:200])
 
-            _at_thread = _threading.Thread(target=_auto_trade_worker, daemon=True)
-            _at_thread.start()
+            # v64：用 holder 存執行緒物件，讓下面的健康監控 job 能讀到/換掉它
+            _at_thread_holder = {"thread": _threading.Thread(target=_auto_trade_worker, daemon=True)}
+            _at_thread_holder["thread"].start()
 
             # ⭐ 真錢模式啟動警告（推給 ADMIN）
             if not _tr.USE_SANDBOX:
@@ -4493,6 +4494,48 @@ def main():
                     except Exception as e:
                         logger.error("真錢警告推播失敗: " + str(e))
                 app.job_queue.run_once(_at_realmoney_warning, 35)
+
+            # ⭐ v64：執行緒健康監控——每 5 分鐘查 at:heartbeat，超過 5 分鐘沒更新
+            # 視為執行緒可能死了/卡死，嘗試自動重啟並推播 ADMIN，絕不讓死亡無人發現。
+            async def _at_health_check(ctx):
+                if not ADMIN_ID or not _USE_REDIS:
+                    return
+                try:
+                    hb_resp = _redis_cmd_raw(["GET", "at:heartbeat"])
+                    hb_val = (hb_resp or {}).get("result")
+                    age_sec = None
+                    if hb_val:
+                        try:
+                            hb_dt = datetime.fromisoformat(hb_val)
+                            if hb_dt.tzinfo is None:
+                                hb_dt = hb_dt.replace(tzinfo=timezone.utc)
+                            age_sec = (datetime.now(timezone.utc) - hb_dt).total_seconds()
+                        except Exception:
+                            age_sec = None
+                    stale = age_sec is None or age_sec > 300
+                    if not stale:
+                        return
+                    age_label = (str(round(age_sec / 60, 1)) + " 分鐘前") if age_sec is not None else "無心跳紀錄"
+                    thread = _at_thread_holder.get("thread")
+                    if thread is not None and thread.is_alive():
+                        # 執行緒物件還活著但心跳沒更新 → 可能卡在某個無回應呼叫，先警告不強殺
+                        await ctx.bot.send_message(
+                            chat_id=ADMIN_ID,
+                            text="⚠️ 自動交易心跳異常（" + age_label + "）但執行緒仍存活，可能卡在某呼叫中，建議查 Railway log。"
+                        )
+                        return
+                    # 執行緒真的死了 → 自動重啟
+                    new_thread = _threading.Thread(target=_auto_trade_worker, daemon=True)
+                    _at_thread_holder["thread"] = new_thread
+                    new_thread.start()
+                    logger.error("🔴 偵測到自動交易執行緒死亡（心跳 " + age_label + "），已自動重啟")
+                    await ctx.bot.send_message(
+                        chat_id=ADMIN_ID,
+                        text="🔴 自動交易執行緒異常（心跳停在 " + age_label + "），已嘗試自動重啟，請確認是否恢復正常（/at_debug 查心跳）。"
+                    )
+                except Exception as e:
+                    logger.error("執行緒健康監控本身出錯: " + str(e)[:150])
+            app.job_queue.run_repeating(_at_health_check, interval=300, first=300)
         except Exception as _e:
             logger.error("🔴 無法啟動自動交易執行緒（不影響 bot）: " + str(_e)[:150])
     else:
