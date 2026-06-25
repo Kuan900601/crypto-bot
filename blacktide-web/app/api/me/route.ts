@@ -1,5 +1,5 @@
 import { getServerSession } from "next-auth";
-import { authOptions, getUser, saveUser, tierOf } from "@/lib/auth";
+import { authOptions, getUser, getUserWithSource, saveUser, tierOf } from "@/lib/auth";
 import { redisGet, redisSet } from "@/lib/redis";
 export const dynamic = "force-dynamic";
 const NOTIFYKEY = (e: string) => "web:notify:" + e.trim().toLowerCase();
@@ -10,8 +10,11 @@ async function current() {
   return getUser(email);
 }
 export async function GET() {
-  const u = await current();
-  if (!u) return Response.json({ error: "未登入" }, { status: 401 });
+  const session = await getServerSession(authOptions);
+  const email = session?.user?.email;
+  if (!email) return Response.json({ error: "未登入", source: "none" }, { status: 401 });
+  const { user: u, source } = await getUserWithSource(email);
+  if (!u) return Response.json({ error: "未登入", source }, { status: 401 });
   let notify = { enabled: true, quietStart: "", quietEnd: "" };
   try { const raw = await redisGet(NOTIFYKEY(u.email)); if (raw) notify = { ...notify, ...JSON.parse(raw) }; } catch {}
   return Response.json({
@@ -21,6 +24,7 @@ export async function GET() {
     invitedBy: u.invitedBy || "", referrals: u.referrals || 0, referralRewarded: u.referralRewarded || 0,
     notifyEnabled: notify.enabled, quietStart: notify.quietStart, quietEnd: notify.quietEnd,
     isAdmin: !!u.isAdmin, createdAt: u.createdAt,
+    source, // 診斷用："redis"=真資料／"memory"=Redis讀不到、退回暫存（重啟即消失）／"none"=查無紀錄
   });
 }
 export async function POST(req: Request) {

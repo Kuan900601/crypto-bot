@@ -4,7 +4,7 @@ import { AlertItem } from "@/lib/types";
 import { randomAlert } from "@/lib/mock";
 import { useApp } from "@/lib/store";
 import { SectionTitle, Card, Badge, Chip } from "@/components/ui";
-import { Pause, Play, Waves, ArrowDownToLine, Flame, Zap, BarChart3 } from "lucide-react";
+import { Pause, Play, Waves, ArrowDownToLine, Flame, Zap, BarChart3, Activity } from "lucide-react";
 import { C } from "@/lib/theme";
 import Corner from "@/components/site/Corner";
 const META = {
@@ -13,33 +13,45 @@ const META = {
   liquidation: { label: "爆倉 / 清算", icon: Flame, color: "text-down" },
   funding: { label: "資金費率", icon: Zap, color: "text-amber-300" },
   volume: { label: "巨量成交", icon: BarChart3, color: "text-up" },
+  system: { label: "系統事件", icon: Activity, color: "text-slate-300" },
 } as const;
 const SEV: Record<AlertItem["severity"], { label: string; tone: "slate" | "amber" | "down" }> = {
   info: { label: "提示", tone: "slate" }, warn: { label: "警告", tone: "amber" }, critical: { label: "嚴重", tone: "down" },
 };
 export default function MonitorPage() {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [source, setSource] = useState<"redis" | "mock" | "">("");
   const [live, setLive] = useState(true);
   const [type, setType] = useState<"all" | AlertItem["type"]>("all");
   const pushNotif = useApp((s) => s.pushNotif);
-  useEffect(() => { fetch("/api/alerts").then((r) => r.json()).then((d) => setAlerts(d.alerts)).catch(() => {}); }, []);
+  const refresh = () => fetch("/api/alerts").then((r) => r.json()).then((d) => { setAlerts(d.alerts ?? []); setSource(d.source ?? ""); }).catch(() => {});
+  useEffect(() => { refresh(); }, []);
+  // 有真實 Redis 資料（at:events/at:liquidations）時改用真實輪詢；
+  // 沒有（fallback 到 mock）才用既有的隨機事件注入做 DEMO 展示，不能讓假事件混進真資料流。
   useEffect(() => {
     if (!live) return;
-    const id = setInterval(() => {
-      const a = randomAlert();
-      setAlerts((prev) => [a, ...prev].slice(0, 50));
-      if (a.severity !== "info") pushNotif({ id: a.id, title: "異常警報：" + META[a.type].label, body: a.title, time: a.time });
-    }, 7000);
-    return () => clearInterval(id);
-  }, [live, pushNotif]);
+    if (source === "redis") {
+      const id = setInterval(refresh, 20000);
+      return () => clearInterval(id);
+    }
+    if (source === "mock") {
+      const id = setInterval(() => {
+        const a = randomAlert();
+        setAlerts((prev) => [a, ...prev].slice(0, 50));
+        if (a.severity !== "info") pushNotif({ id: a.id, title: "異常警報：" + META[a.type].label, body: a.title, time: a.time });
+      }, 7000);
+      return () => clearInterval(id);
+    }
+  }, [live, source, pushNotif]);
   const filtered = alerts.filter((a) => type === "all" || a.type === type);
+  const isLive = source === "redis";
   return (
     <div className="space-y-5">
-      <SectionTitle title="異常監控" desc="巨鯨、流向、清算、費率與巨量事件（DEMO 模擬即時流）"
+      <SectionTitle title="異常監控" desc={isLive ? "黑潮自動交易系統即時事件與本帳戶爆倉紀錄" : "巨鯨、流向、清算、費率與巨量事件（DEMO 模擬即時流）"}
         right={
           <button onClick={() => setLive((v) => !v)}
             className="ham flex items-center gap-2 rounded-full px-3 py-1.5 text-xs" style={{ border: `1px solid ${C.line}`, color: C.mut }}>
-            {live ? <><span className="pulse-dot h-2 w-2 rounded-full" style={{ background: C.green }} />模擬監控中<Pause size={13} /></> : <>已暫停<Play size={13} /></>}
+            {live ? <><span className="pulse-dot h-2 w-2 rounded-full" style={{ background: C.green }} />{isLive ? "即時監控中" : "模擬監控中"}<Pause size={13} /></> : <>已暫停<Play size={13} /></>}
           </button>
         } />
       <div className="flex flex-wrap gap-2">

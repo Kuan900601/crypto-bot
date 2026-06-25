@@ -69,7 +69,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
         {/* Content wrapper — relative so lock overlay can be anchored here, NOT inside scroll */}
         <div className="relative flex-1 overflow-hidden">
-          <main className={`h-full px-4 pb-24 pt-5 md:px-8 md:pb-8 md:pt-6 ${partialLocked ? "overflow-hidden" : "overflow-y-auto"}`}>
+          <main className={`h-full overflow-x-hidden px-4 pb-24 pt-5 md:px-8 md:pb-8 md:pt-6 ${partialLocked ? "overflow-hidden" : "overflow-y-auto"}`}>
             {status === "authenticated" && <VerifyBanner />}
             {status === "authenticated" && <ExpiryBanner />}
             <motion.div key={pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>

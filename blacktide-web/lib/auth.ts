@@ -22,6 +22,18 @@ export async function getUser(email: string): Promise<WebUser | null> {
   if (raw) { try { return JSON.parse(raw) as WebUser; } catch {} }
   return mem.get(k) ?? null;
 }
+// 診斷用：跟 getUser 邏輯一致，但額外回報資料來源——
+// "redis" 是真資料；"memory" 代表 Redis 讀不到、退回 process 內記憶體（換一次部署/冷啟動就會消失）；
+// "none" 代表完全沒有這個使用者的紀錄。給 /api/me 用來讓作者核對 Redis 環境變數是否接對。
+export async function getUserWithSource(email: string): Promise<{ user: WebUser | null; source: "redis" | "memory" | "none" }> {
+  const k = KEY(email);
+  const raw = await redisGet(k);
+  if (raw) {
+    try { return { user: JSON.parse(raw) as WebUser, source: "redis" }; } catch {}
+  }
+  const m = mem.get(k);
+  return { user: m ?? null, source: m ? "memory" : "none" };
+}
 export async function saveUser(u: WebUser): Promise<void> {
   const k = KEY(u.email);
   if (!u.nickname) u.nickname = u.name || u.email.split("@")[0];

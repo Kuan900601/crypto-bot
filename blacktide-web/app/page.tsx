@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useMarket } from "@/lib/useMarket";
 import { Signal } from "@/lib/types";
@@ -93,11 +93,7 @@ export default function Home() {
                   : <>登入即可查看今日 AI 分析、方向判斷與部分交易信號。<br />升級 Pro 解鎖進場、止損與 TP 點位。</>}
               </p>
               <div style={{ display: "flex", gap: 14, marginTop: 32, flexWrap: "wrap", alignItems: "center" }}>
-                {session ? (
-                  <Link href="/signals"><CTA big>前往黑潮船長信號 <ArrowRight size={16} style={{ display: "inline", marginLeft: 4 }} /></CTA></Link>
-                ) : (
-                  <Link href="/login?register=1"><CTA big>免費註冊 · 送 3 日 Plus 體驗</CTA></Link>
-                )}
+                <Link href="/login?register=1"><CTA big>免費註冊 · 送 3 日 Plus 體驗</CTA></Link>
               </div>
               <div style={{ display: "flex", gap: 30, marginTop: 44, flexWrap: "wrap" }}>
                 {[[MONITORED_COINS, "監測幣種"], [todaySignalCount, "今日信號"]].map(([n, l]) => (

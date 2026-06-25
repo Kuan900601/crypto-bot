@@ -34,7 +34,7 @@ export interface NewsItem {
   summary: string; tags: string[]; url?: string;
 }
 export interface AlertItem {
-  id: string; type: "whale" | "flow" | "liquidation" | "funding" | "volume";
+  id: string; type: "whale" | "flow" | "liquidation" | "funding" | "volume" | "system";
   severity: "info" | "warn" | "critical";
   title: string; detail: string; time: string; symbol?: string;
 }
