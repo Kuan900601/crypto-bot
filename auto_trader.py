@@ -1028,6 +1028,79 @@ def reconcile_stale_orders(ex):
         save_json(TRADES_FILE, trades)
 
 
+_UNPROTECTED_ALERT_COOLDOWN = {}  # {ccxt_sym: last_alert_ts}，純記憶體，重啟歸零
+_UNPROTECTED_ALERT_COOLDOWN_SEC = 600  # 同一幣 10 分鐘最多告警一次，避免持續無人處理時洗版
+
+
+def check_unprotected_positions(ex):
+    """v64 P2：直接查 Bybit 實際持倉，逐一檢查是否掛有止損(stopLoss)。
+    不依賴 Redis 狀態——即使 Redis 全部掛掉，這個檢查仍能跑、仍能告警，
+    確保『Bybit 上任何真實持倉都有止損』這個底線不被打破。
+    找到沒止損的（真錢裸倉，最高風險）：
+      - bot 紀錄(at:trades)認得這筆 → 嘗試用該紀錄最後已知的 sl_used 補掛
+      - bot 不認得（孤兒單/作者手動開的單）→ 只告警，不自動動作（避免亂動手動單）
+    告警走 _telegram_alert 直打，不靠 Redis 的 at:events，理由與 P1 相同；
+    同一幣種告警有冷卻，避免問題沒處理時每輪洗版。"""
+    try:
+        positions = trader.get_positions(ex)
+    except Exception as e:
+        log("  ⚠️ 無止損檢查：查詢 Bybit 持倉失敗，本輪跳過:", str(e)[:120])
+        return
+    if not positions:
+        return
+
+    # bot 紀錄只用來「比對是否認得這筆單」，讀失敗就視為全部不認得，仍繼續用 Bybit 資料告警
+    try:
+        trades = load_json(TRADES_FILE, [])
+    except Exception:
+        trades = []
+    known_by_sym = {}
+    for rec in trades:
+        if rec.get("ok") and not rec.get("closed"):
+            known_by_sym[rec.get("symbol")] = rec
+
+    for p in positions:
+        info = p.get("info", {}) or {}
+        sl_val = info.get("stopLoss")
+        has_sl = bool(sl_val) and str(sl_val) not in ("", "0", "0.0")
+        if has_sl:
+            continue
+        ccxt_sym = to_ccxt_symbol(p.get("symbol", ""))
+        side = p.get("side", "?")
+        contracts = p.get("contracts", "?")
+        now_ts = time.time()
+        last_alert = _UNPROTECTED_ALERT_COOLDOWN.get(ccxt_sym, 0)
+        in_cooldown = (now_ts - last_alert) < _UNPROTECTED_ALERT_COOLDOWN_SEC
+        rec = known_by_sym.get(ccxt_sym)
+        if rec and rec.get("sl_used"):
+            # bot 認得這筆 → 用最後已知的 sl_used 補掛（不重新計算，只是把該掛的補回去）
+            # 補掛這個動作本身不受冷卻限制（每輪都該嘗試修），冷卻只管「要不要再發一次通知」
+            try:
+                sl_str = ex.price_to_precision(ccxt_sym, rec["sl_used"])
+                ex.private_post_v5_position_trading_stop({
+                    "category": "linear",
+                    "symbol": trader._bybit_symbol_id(ex, ccxt_sym),
+                    "stopLoss": sl_str,
+                    "positionIdx": 0,
+                })
+                log("  ✅ 無止損補掛成功:", ccxt_sym, "→ SL", sl_str)
+                _telegram_alert("✅ " + ccxt_sym + " 偵測到無止損，已自動補掛 SL " + sl_str + "（bot 認得此單）")
+                _UNPROTECTED_ALERT_COOLDOWN[ccxt_sym] = now_ts
+            except Exception as e:
+                log("  🔴 無止損補掛失敗:", ccxt_sym, str(e)[:150])
+                if not in_cooldown:
+                    _UNPROTECTED_ALERT_COOLDOWN[ccxt_sym] = now_ts
+                    _telegram_alert("🔴🔴 " + ccxt_sym + " 偵測到無止損且自動補掛失敗！請立即手動處理！side=" + str(side)
+                                    + " 量=" + str(contracts) + "｜" + str(e)[:120])
+        else:
+            # bot 不認得（孤兒單/手動單）→ 只告警，不動作；告警有冷卻
+            if not in_cooldown:
+                _UNPROTECTED_ALERT_COOLDOWN[ccxt_sym] = now_ts
+                _telegram_alert("⚠️⚠️ 偵測到持倉 " + ccxt_sym + " 無止損，且 bot 沒有此單的紀錄（可能是手動開的單），"
+                                "請立即自行確認並補掛止損！side=" + str(side) + " 量=" + str(contracts))
+            log("  ⚠️ 偵測到無止損的孤兒/手動單:", ccxt_sym, "side=", side, "量=", contracts)
+
+
 def reconcile_positions(ex):
     """v63b：持倉對帳。止損/止盈被 Bybit 直接觸發時不經過 bot，bot 端紀錄仍顯示開著、
     不發通知、不清殘單、永久佔位擋新信號。本函式逐輪比對 auto_trades 與 Bybit 實際持倉：
@@ -1277,6 +1350,7 @@ def _main_loop_connected():
             process_once(ex)
             process_pending(ex)
             check_trailing_stop(ex)
+            check_unprotected_positions(ex)
             reconcile_positions(ex)
             reconcile_stale_orders(ex)
             check_liquidations(ex)
