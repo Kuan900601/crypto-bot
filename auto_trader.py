@@ -979,6 +979,20 @@ def check_trailing_stop(ex):
             sl_str = ex.price_to_precision(sym, new_sl)
         except Exception:
             sl_str = str(new_sl)
+
+        # v64 P3：送 API 前先比對目標止損 vs 目前已掛的，相同就不必送（省請求，也順便避免34040噪音）
+        cur_sl_used = rec.get("sl_used")
+        try:
+            already_set = cur_sl_used is not None and abs(float(sl_str) - float(cur_sl_used)) < 1e-9
+        except Exception:
+            already_set = False
+        if already_set:
+            rec["sl_stage"] = target_stage
+            rec["trailing_done"] = True
+            changed = True
+            log("  ℹ️ 止損已是目標值，不重複送出:", sym, "SL", sl_str)
+            continue
+
         # V5 trading-stop 原子更新整倉止損；失敗保留原止損（等同「先確保新單成功才生效」）
         try:
             ex.private_post_v5_position_trading_stop({
@@ -988,8 +1002,18 @@ def check_trailing_stop(ex):
                 "positionIdx": 0,
             })
         except Exception as e:
-            log("  ⚠️ 止損上移失敗（保留原止損）:", sym, str(e)[:100])
-            push_event("⚠️ 止損上移失敗（保留原止損）｜" + sym + "｜" + str(e)[:100])
+            err_str = str(e)
+            if "34040" in err_str:
+                # v64 P3：retCode 34040 = "not modified"，代表目標止損其實已經是現在這個值，
+                # 視為成功（無需更動），不當失敗、不發警告，避免反覆洗版嚇到作者
+                rec["sl_used"] = float(sl_str)
+                rec["sl_stage"] = target_stage
+                rec["trailing_done"] = True
+                changed = True
+                log("  ℹ️ 止損上移：Bybit 回 34040(未變更)，視為已是目標值:", sym, "SL", sl_str)
+                continue
+            log("  ⚠️ 止損上移失敗（保留原止損）:", sym, err_str[:100])
+            push_event("⚠️ 止損上移失敗（保留原止損）｜" + sym + "｜" + err_str[:100])
             continue
         rec["sl_used"] = float(sl_str)
         rec["sl_stage"] = target_stage
