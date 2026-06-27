@@ -633,7 +633,15 @@ async def cmd_export(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
         output = io.StringIO()
-        fieldnames = list(SIGNAL_RESULTS[0].keys())
+        # v65 修：原本只取第一筆 key，新欄位若只出現在較晚的紀錄會被靜默丟棄；
+        # 改成所有紀錄 key 的聯集（依出現順序），避免新增欄位後 CSV 漏欄
+        fieldnames = []
+        _seen = set()
+        for _r in SIGNAL_RESULTS:
+            for _k in _r.keys():
+                if _k not in _seen:
+                    _seen.add(_k)
+                    fieldnames.append(_k)
         writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(SIGNAL_RESULTS)
@@ -3285,19 +3293,25 @@ def register_signal(sig, watchers):
         "entered": False,  # v47: 標記是否已觸及進場價
         "entered_at": None,
         "sl_at_entry": sig.get("sl", 0),
-        "rr_at_entry": sig.get("rr", sig.get("rr_ratio", 0)),
+        "rr_at_entry": sig.get("rr2"),  # v65 修：原 rr/rr_ratio 兩個 key 在 plan 裡都不存在，永遠是 0
         "regime_at_entry": sig.get("regime", ""),
         "adx_at_entry": sig.get("adx", 0),
         "consensus_at_entry": sig.get("consensus_count", 0),
         "news_vote_at_entry": sig.get("news_vote", False),
         "created_hour_utc": now.hour,
-        "funding_at_entry": sig.get("funding", 0),
-        "ls_ratio_at_entry": sig.get("ls_ratio", 1.0),
+        # v65 修：funding/ls_ratio 原本沒寫進 plan dict，.get 永遠落到假預設 0/1.0；
+        # 現在 plan 裡有真值就複用，抓不到就是 None，不再冒充假值
+        "funding_at_entry": sig.get("funding"),
+        "ls_ratio_at_entry": sig.get("ls_ratio"),
         # v57 驗證儀表用欄位
         "range_pos_at_entry": sig.get("range_pos"),
         "vol_pct_at_entry": sig.get("vol_pct"),
         "strategy_type_at_entry": sig.get("strategy_type"),
         "mtf_at_entry": sig.get("mtf_grade"),
+        # v65 新增
+        "entry_vs_ema_at_entry": sig.get("entry_vs_ema"),
+        "price_change_before_entry": sig.get("price_change_before_entry"),
+        "session_at_entry": "Asia" if now.hour < 8 else ("Europe" if now.hour < 16 else "America"),
     }
     save_data()
     logger.info("註冊信號: " + sym + " " + sig["direction"] + " 評分 " + str(sig.get("score")) + " 等級 " + str(sig.get("entry_grade", "C")) + " 訂閱 " + str(len(watchers)))
@@ -3502,13 +3516,18 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
         "consensus_at_entry": sig.get("consensus_at_entry", 0),
         "news_vote_at_entry": sig.get("news_vote_at_entry", False),
         "created_hour_utc": sig.get("created_hour_utc", 0),
-        "funding_at_entry": sig.get("funding_at_entry", 0),
-        "ls_ratio_at_entry": sig.get("ls_ratio_at_entry", 1.0),
+        # v65 修：拿不到一律 None，不再用假預設 0/1.0 冒充真值
+        "funding_at_entry": sig.get("funding_at_entry"),
+        "ls_ratio_at_entry": sig.get("ls_ratio_at_entry"),
         # v57 驗證儀表用欄位（舊紀錄缺欄位 → None）
         "range_pos_at_entry": sig.get("range_pos_at_entry", None),
         "vol_pct_at_entry": sig.get("vol_pct_at_entry", None),
         "strategy_type_at_entry": sig.get("strategy_type_at_entry", None),
         "mtf_at_entry": sig.get("mtf_at_entry", None),
+        # v65 新增
+        "entry_vs_ema_at_entry": sig.get("entry_vs_ema_at_entry"),
+        "price_change_before_entry": sig.get("price_change_before_entry"),
+        "session_at_entry": sig.get("session_at_entry"),
     })
     # 只保留最近 1000 筆
     if len(SIGNAL_RESULTS) > 1000:

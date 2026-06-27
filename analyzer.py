@@ -5874,6 +5874,20 @@ class CryptoAnalyzer:
         else:
             order_valid_hours = 8
 
+        # v65 進場情境快照：純記憶體計算，失敗一律 None（不可填假值）
+        try:
+            _e20_ctx = sig1h.get("e20")
+            entry_vs_ema = round((current_price - _e20_ctx) / _e20_ctx * 100, 2) if _e20_ctx else None
+        except Exception:
+            entry_vs_ema = None
+        try:
+            price_change_before_entry = (
+                round((current_price - float(df1h["close"].iloc[-6])) / float(df1h["close"].iloc[-6]) * 100, 2)
+                if len(df1h) >= 6 else None
+            )
+        except Exception:
+            price_change_before_entry = None
+
         plan = {
             "score": round(score, 1),
             "win_rate": win_rate,
@@ -5889,6 +5903,11 @@ class CryptoAnalyzer:
             "sl": sl,
             "rr1": rr1, "rr2": rr2, "rr3": rr3, "rr4": rr4,
             "news_vote": news_vote,  # v55：這單有沒有吃到新聞情緒票（供事後驗證新聞準不準）
+            # v65 進場情境快照（複用本次掃描已抓的 funding/ls_ratio，不重抓；抓不到一律 None）
+            "funding": funding,
+            "ls_ratio": ls_ratio,
+            "entry_vs_ema": entry_vs_ema,
+            "price_change_before_entry": price_change_before_entry,
             "regime": sig1h.get("regime", ""),
             "adx": sig1h.get("adx", 0),
             "position": adjusted_position,
