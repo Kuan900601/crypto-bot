@@ -23,7 +23,7 @@ export async function GET() {
     emailVerified: !!u.emailVerified, phoneVerified: !!u.phoneVerified,
     invitedBy: u.invitedBy || "", referrals: u.referrals || 0, referralRewarded: u.referralRewarded || 0,
     notifyEnabled: notify.enabled, quietStart: notify.quietStart, quietEnd: notify.quietEnd,
-    isAdmin: !!u.isAdmin, createdAt: u.createdAt,
+    isAdmin: !!u.isAdmin, isFounder: !!u.isFounder, createdAt: u.createdAt,
     source, // 診斷用："redis"=真資料／"memory"=Redis讀不到、退回暫存（重啟即消失）／"none"=查無紀錄
   });
 }

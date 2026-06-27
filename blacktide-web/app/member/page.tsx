@@ -9,7 +9,7 @@ import { useApp } from "@/lib/store";
 import { TIER_LABEL } from "@/lib/access";
 import { C } from "@/lib/theme";
 import Corner from "@/components/site/Corner";
-interface Me { uid: string; email: string; nickname: string; phone: string; avatar: string; tier: "free" | "air" | "pro"; cycle: string | null; subAmount: number; planExpiry: string | null; emailVerified: boolean; phoneVerified: boolean; invitedBy: string; referrals: number; referralRewarded: number; notifyEnabled: boolean; quietStart: string; quietEnd: string; isAdmin: boolean; createdAt: string; }
+interface Me { uid: string; email: string; nickname: string; phone: string; avatar: string; tier: "free" | "air" | "pro"; cycle: string | null; subAmount: number; planExpiry: string | null; emailVerified: boolean; phoneVerified: boolean; invitedBy: string; referrals: number; referralRewarded: number; notifyEnabled: boolean; quietStart: string; quietEnd: string; isAdmin: boolean; isFounder: boolean; createdAt: string; }
 const inp = "w-full rounded-lg border border-white/10 bg-ink-900 px-3 py-2.5 text-sm outline-none focus:border-tide-500/40";
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (<div><div className="mb-1 text-xs text-slate-500">{label}</div>{children}</div>);
@@ -123,7 +123,7 @@ export default function MemberPage() {
       <Card className="relative overflow-hidden p-5">
         <Corner pos="tl" /><Corner pos="br" />
         <div className="flex items-center gap-4">
-          <label className="relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-full" style={{ boxShadow: `0 0 0 1px ${C.lineGold}` }}>
+          <label className="relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-full" style={{ boxShadow: me.isFounder ? `0 0 0 2px ${C.gold}, 0 0 14px ${C.gold}99` : `0 0 0 1px ${C.lineGold}` }}>
             {avatar ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={avatar} alt="頭像" className="h-full w-full object-cover" />
@@ -132,12 +132,16 @@ export default function MemberPage() {
             )}
             <span className="absolute bottom-0 right-0 rounded-full bg-ink-900 p-1 text-tide-300"><Camera size={11} /></span>
             <input type="file" accept="image/*" className="hidden" onChange={(e) => onAvatar(e.target.files?.[0])} />
+            {me.isFounder && (
+              <span aria-label="創始會員" className="absolute -top-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full text-[10px]" style={{ background: C.gold }}>🔥</span>
+            )}
           </label>
           <div className="min-w-0">
             <div className="text-base font-bold">{nickname || "—"}</div>
             <div className="mt-0.5 font-mono text-[11px] text-slate-500">UID {me.uid}</div>
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
               <Badge tone={me.tier === "pro" ? "amber" : me.tier === "air" ? "tide" : "slate"}>{TIER_LABEL[me.tier]}</Badge>
+              {me.isFounder && <Badge tone="amber">🔥 創始會員</Badge>}
               {me.tier !== "free" && me.planExpiry && <span className="text-[11px] text-slate-500">到期 {fmtDate(me.planExpiry)}</span>}
             </div>
           </div>

@@ -194,6 +194,7 @@ export default function PricingModal() {
                 <div className="flex items-center gap-2"><Check size={12} className="text-amber-400 shrink-0" /> 新功能優先測試資格</div>
                 <div className="flex items-center gap-2"><Check size={12} className="text-amber-400 shrink-0" /> 黑潮船長完整訊號 + VIP 群</div>
                 <div className="flex items-center gap-2"><Check size={12} className="text-amber-400 shrink-0" /> 策略回測 + AI 深度分析</div>
+                <div className="flex items-center gap-2"><Check size={12} className="text-amber-400 shrink-0" /> 專屬創始頭像標記 🔥</div>
               </div>
               <div className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-200/80">
                 ⚡ 限量 {FOUNDER.slots} 名，售完即關閉此方案。付款成功後即開通，VIP 群邀請連結將寄至信箱。
