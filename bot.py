@@ -3286,6 +3286,7 @@ def register_signal(sig, watchers):
         "created": now.isoformat(),
         "expires": (now + timedelta(hours=expire_hours)).isoformat(),
         "score": sig.get("score", 0),
+        "win_rate": sig.get("win_rate", 0),  # v65 修：analyzer plan 裡本來就有，這裡漏存，網站首頁/信號卡的 AI 信心評分一直顯示 0%
         "timeframe": sig.get("timeframe", "短線"),
         "entry_grade": sig.get("entry_grade", "C"),
         "order_type": sig.get("order_type", "MARKET"),
@@ -3506,6 +3507,10 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
         "score": sig.get("score", 0),
         "tier": sig.get("tier", "B"),  # v38 新增
         "entry_grade": sig.get("entry_grade", ""),  # v53：為真實勝率校準
+        "sl": sig.get("sl", 0),  # v65 修：開倉時就存在 ACTIVE_SIGNALS 裡，平倉時漏複製進歷史紀錄
+        "tp1": sig.get("tp1", 0),
+        "tp2": sig.get("tp2", 0),
+        "tp3": sig.get("tp3", 0),
         "is_win": is_win,  # v38 新增
         "closed_at": datetime.now(timezone.utc).isoformat(),
         "duration_min": _dur_min,
@@ -4484,6 +4489,15 @@ def main():
             except Exception as e:
                 logger.error("啟動通知失敗 " + str(t) + ": " + str(e))
     app.job_queue.run_once(startup_notify, 30)
+    # ⭐ v65：全市場異常監控（market_monitor.py，由 MARKET_MONITOR_ENABLED 控制，未設或非 true 不啟動）。
+    # 獨立模組、獨立 thread，純讀取 Bybit 公開 WS 寫 Redis，不碰任何下單/風控邏輯，
+    # 啟動失敗只 log，絕不影響本來的交易執行緒。
+    if os.getenv("MARKET_MONITOR_ENABLED", "false").lower() == "true":
+        try:
+            import market_monitor as _mm
+            _mm.start()
+        except Exception as _e:
+            logger.error("🔴 market_monitor 載入失敗（不影響交易）: " + str(_e)[:200])
     # ⭐ 啟動自動交易背景執行緒（由 AUTO_TRADE_ENABLED 控制，未設或非 true 不啟動）
     if os.getenv("AUTO_TRADE_ENABLED", "false").lower() == "true":
         try:

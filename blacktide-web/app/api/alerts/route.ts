@@ -35,6 +35,11 @@ function mapEvent(text: string, i: number): AlertItem {
 
 // at:liquidations 是這個 bot 自己帳戶的爆倉紀錄（ex.fetch_my_liquidations()），
 // 不是市場面巨鯨/資金費率/巨量訊號——語意上對應 AlertItem 的 "liquidation" 類型最準確。
+// ccxt 永續合約統一符號格式是 "AR/USDT:USDT"，原本只 replace("/USDT","")+replace("USDT","")
+// 對這種格式會漏掉冒號後的 USDT，留下「AR:」這種尾巴——改成直接取「/」前面的底層資產代號。
+function baseSymbol(raw: string): string {
+  return String(raw).split("/")[0].split(":")[0];
+}
 function mapLiquidation(raw: any, i: number): AlertItem | null {
   if (!raw?.symbol) return null;
   let time = "";
@@ -43,10 +48,10 @@ function mapLiquidation(raw: any, i: number): AlertItem | null {
     id: "liq-" + i,
     type: "liquidation",
     severity: "critical",
-    title: "本帳戶爆倉：" + String(raw.symbol).replace("/USDT", "").replace("USDT", ""),
+    title: "本帳戶爆倉：" + baseSymbol(raw.symbol),
     detail: "數量 " + (raw.amount ?? "未知"),
     time,
-    symbol: String(raw.symbol).replace("/USDT", "").replace("USDT", ""),
+    symbol: baseSymbol(raw.symbol),
   };
 }
 

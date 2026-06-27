@@ -84,7 +84,7 @@ export default function Home() {
                 <span style={{ width: 6, height: 6, borderRadius: 99, background: C.teal, boxShadow: `0 0 8px ${C.teal}`, animation: "pulseDot 2s infinite" }} />
                 {MONITORED_COINS} 幣種 · 24/7 AI 盯盤
               </div>
-              <h1 style={{ fontFamily: SANS, fontWeight: 800, lineHeight: 1.32, margin: 0, fontSize: "clamp(36px,6vw,64px)", letterSpacing: "-1.2px", color: C.ink, textShadow: "0 2px 40px rgba(0,0,0,.6)", wordBreak: "keep-all", overflowWrap: "break-word" }}>
+              <h1 style={{ fontFamily: SANS, fontWeight: 800, lineHeight: 1.32, margin: 0, paddingRight: 4, fontSize: "clamp(36px,6vw,64px)", letterSpacing: "-0.3px", color: C.ink, textShadow: "0 2px 40px rgba(0,0,0,.6)", wordBreak: "keep-all", overflowWrap: "break-word" }}>
                 AI 24 小時盯盤<br /><span className="gold-text">幫你抓加密貨幣交易信號</span>
               </h1>
               <p style={{ fontFamily: SANS, fontSize: "clamp(15px,1.8vw,18px)", lineHeight: 1.65, color: C.mut, margin: "22px 0 0", maxWidth: 480, wordBreak: "keep-all", overflowWrap: "break-word" }}>

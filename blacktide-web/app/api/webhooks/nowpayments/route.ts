@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { getUser, saveUser } from "@/lib/auth";
-import { redisGet, redisSet, redisLPush } from "@/lib/redis";
-import { priceOf } from "@/lib/access";
+import { redisGet, redisSet, redisLPush, redisCmd } from "@/lib/redis";
+import { priceOf, FOUNDER } from "@/lib/access";
 export const dynamic = "force-dynamic";
 function sortedStringify(obj: Record<string, unknown>): string {
   return JSON.stringify(obj, Object.keys(obj).sort());
@@ -32,16 +32,28 @@ export async function POST(req: Request) {
     const u = await getUser(order.email);
     if (u) {
       if (order.tier === "founder") {
-        u.isFounder = true;
-        u.tier = "pro"; u.plan = "premium"; u.cycle = "yearly";
-        u.subAmount = order.amount; u.subStartedAt = new Date().toISOString();
-        u.isTrial = false;
-        u.planExpiry = new Date(Date.now() + 365 * 86400000).toISOString();
-        // 累計創始名額
+        // 用 Redis INCR 做原子計數，避免「checkout 時還沒滿、幾乎同時付款完成」的競態超賣
+        // （checkout 端的名額檢查是建立訂單時的第一層擋，這裡才是真正核發福利前的最終守門）。
+        let oversold = false;
         try {
-          const sold = parseInt(await redisGet("founder:slots:sold") || "0", 10);
-          await redisSet("founder:slots:sold", String(sold + 1));
+          const newCount = await redisCmd(["INCR", "founder:slots:sold"]);
+          if (typeof newCount === "number" && newCount > FOUNDER.slots) {
+            oversold = true;
+            await redisCmd(["DECR", "founder:slots:sold"]); // 退回計數，不佔用名額（名額代表「已核發」，不是「已嘗試」）
+          }
         } catch {}
+        if (oversold) {
+          // 已收到款項但名額已滿：不核發創始福利，留證據給作者人工處理（退款或加開名額）
+          await redisLPush("web:founder:oversold", JSON.stringify({
+            orderId, email: order.email, amount: order.amount, at: new Date().toISOString(),
+          }));
+        } else {
+          u.isFounder = true;
+          u.tier = "pro"; u.plan = "premium"; u.cycle = "yearly";
+          u.subAmount = order.amount; u.subStartedAt = new Date().toISOString();
+          u.isTrial = false;
+          u.planExpiry = new Date(Date.now() + 365 * 86400000).toISOString();
+        }
       } else {
         u.tier = order.tier; u.plan = "premium"; u.cycle = order.cycle;
         u.subAmount = priceOf(order.tier, order.cycle); u.subStartedAt = new Date().toISOString();

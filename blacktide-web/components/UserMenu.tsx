@@ -11,7 +11,7 @@ export default function UserMenu() {
     fetch("/api/me").then((r) => r.json()).then((d) => { if (d && !d.error) { setAvatar(d.avatar || ""); setName(d.name || ""); } }).catch(() => {});
   }, [status]);
   if (status === "loading") return <div className="h-8 w-8 animate-pulse rounded-full bg-white/10" />;
-  if (!session?.user) return <Link href="/login" className="rounded-lg bg-tide-500/15 px-3 py-1.5 text-xs font-semibold text-tide-300 hover:bg-tide-500/25">登入</Link>;
+  if (!session?.user) return <Link href="/login" className="login-link shrink-0 whitespace-nowrap px-1.5 text-xs font-medium text-slate-400">登入</Link>;
   const letter = (name || session.user.name || session.user.email || "?").slice(0, 1).toUpperCase();
   return (
     <Link href="/member" aria-label="會員中心" className="block h-8 w-8 overflow-hidden rounded-full ring-1 ring-tide-400/40">

@@ -63,25 +63,27 @@ export default function Topbar({ onMenu }: { onMenu?: () => void }) {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <div className="relative">
-              <button onClick={() => { setBellOpen((v) => !v); if (!bellOpen) markAllRead(); }} className="relative rounded-lg p-2 text-slate-400 hover:bg-white/5">
-                <Bell size={18} />
-                {unread > 0 && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-tide-500" />}
-              </button>
-              {bellOpen && (
-                <div className="absolute right-0 top-12 z-50 max-h-96 w-80 overflow-y-auto rounded-xl border border-white/10 bg-ink-800 p-1.5 shadow-2xl">
-                  <div className="px-2 py-1 text-xs font-semibold text-slate-400">通知</div>
-                  {notifs.length === 0 && <div className="px-2 py-3 text-xs text-slate-600">暫無通知</div>}
-                  {notifs.map((n) => (
-                    <div key={n.id} className="rounded-lg px-2 py-2 hover:bg-white/5">
-                      <div className="text-sm font-medium">{n.title}</div>
-                      <div className="mt-0.5 text-xs text-slate-500">{n.body}</div>
-                      <div className="mt-0.5 text-[10px] text-slate-600">{n.time}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            {status === "authenticated" && (
+              <div className="relative">
+                <button onClick={() => { setBellOpen((v) => !v); if (!bellOpen) markAllRead(); }} className="relative rounded-lg p-2 text-slate-400 hover:bg-white/5">
+                  <Bell size={18} />
+                  {unread > 0 && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-tide-500" />}
+                </button>
+                {bellOpen && (
+                  <div className="absolute right-0 top-12 z-50 max-h-96 w-80 overflow-y-auto rounded-xl border border-white/10 bg-ink-800 p-1.5 shadow-2xl">
+                    <div className="px-2 py-1 text-xs font-semibold text-slate-400">通知</div>
+                    {notifs.length === 0 && <div className="px-2 py-3 text-xs text-slate-600">暫無通知</div>}
+                    {notifs.map((n) => (
+                      <div key={n.id} className="rounded-lg px-2 py-2 hover:bg-white/5">
+                        <div className="text-sm font-medium">{n.title}</div>
+                        <div className="mt-0.5 text-xs text-slate-500">{n.body}</div>
+                        <div className="mt-0.5 text-[10px] text-slate-600">{n.time}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {status !== "authenticated" && (
               <Link href="/login?register=1" className="cta shrink-0 whitespace-nowrap" style={{
                 borderRadius: 9, padding: "7px 14px", fontSize: 12.5, fontWeight: 800, color: C.abyss,
