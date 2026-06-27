@@ -15,6 +15,8 @@ const META = {
   volume: { label: "巨量成交", icon: BarChart3, color: "text-up" },
   system: { label: "系統事件", icon: Activity, color: "text-slate-300" },
 } as const;
+// 目前沒有免費資料源能做這兩類（需要付費鏈上/交易所流向 API），不放假資料，先標即將推出並停用篩選
+const COMING_SOON: (keyof typeof META)[] = ["whale", "flow"];
 const SEV: Record<AlertItem["severity"], { label: string; tone: "slate" | "amber" | "down" }> = {
   info: { label: "提示", tone: "slate" }, warn: { label: "警告", tone: "amber" }, critical: { label: "嚴重", tone: "down" },
 };
@@ -47,7 +49,7 @@ export default function MonitorPage() {
   const isLive = source === "redis";
   return (
     <div className="space-y-5">
-      <SectionTitle title="異常監控" desc={isLive ? "黑潮自動交易系統即時事件與本帳戶爆倉紀錄" : "巨鯨、流向、清算、費率與巨量事件（DEMO 模擬即時流）"}
+      <SectionTitle title="全市場異常監控" desc={isLive ? "全市場爆倉、資金費率異常、巨量成交（即時）+ 黑潮系統事件與本帳戶爆倉紀錄" : "巨鯨、流向、清算、費率與巨量事件（DEMO 模擬即時流）"}
         right={
           <button onClick={() => setLive((v) => !v)}
             className="ham flex items-center gap-2 rounded-full px-3 py-1.5 text-xs" style={{ border: `1px solid ${C.line}`, color: C.mut }}>
@@ -56,9 +58,15 @@ export default function MonitorPage() {
         } />
       <div className="flex flex-wrap gap-2">
         <Chip active={type === "all"} onClick={() => setType("all")}>全部</Chip>
-        {(Object.keys(META) as (keyof typeof META)[]).map((k) => (
-          <Chip key={k} active={type === k} onClick={() => setType(k)}>{META[k].label}</Chip>
-        ))}
+        {(Object.keys(META) as (keyof typeof META)[]).map((k) =>
+          COMING_SOON.includes(k) ? (
+            <span key={k} className="cursor-not-allowed rounded-full border border-white/5 px-3 py-1 text-xs text-slate-600" title="免費版暫無此資料源">
+              {META[k].label}（即將推出）
+            </span>
+          ) : (
+            <Chip key={k} active={type === k} onClick={() => setType(k)}>{META[k].label}</Chip>
+          )
+        )}
       </div>
       <div className="space-y-2.5">
         {filtered.length === 0 && <div className="rounded-xl border border-white/5 p-8 text-center text-sm text-slate-500">沒有符合條件的事件</div>}

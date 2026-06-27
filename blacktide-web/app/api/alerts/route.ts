@@ -55,20 +55,81 @@ function mapLiquidation(raw: any, i: number): AlertItem | null {
   };
 }
 
+function fmtUsd(n: number): string {
+  if (n >= 1_000_000) return "$" + (n / 1_000_000).toFixed(2) + "M";
+  if (n >= 1_000) return "$" + (n / 1_000).toFixed(1) + "K";
+  return "$" + n.toFixed(0);
+}
+function timeOf(iso?: string): string {
+  try { return iso ? new Date(iso).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" }) : ""; } catch { return ""; }
+}
+
+// market:liquidations / market:funding / market:volume 是 market_monitor.py（v65 新增的獨立模組，
+// 訂閱 Bybit 公開 WS）寫的全市場資料，跟上面 at:liquidations（本帳戶）是不同性質。
+function mapMarketLiquidation(text: string, i: number): AlertItem | null {
+  try {
+    const d = JSON.parse(text);
+    const amount = Number(d.amount ?? 0);
+    return {
+      id: "mliq-" + i, type: "liquidation",
+      severity: amount >= 200000 ? "critical" : "warn",
+      title: "全市場爆倉：" + d.symbol + " " + (d.side === "Buy" ? "空單" : "多單") + " " + fmtUsd(amount),
+      detail: "數量 " + d.qty + " · 價格 " + d.price,
+      time: timeOf(d.time), symbol: d.symbol,
+    };
+  } catch { return null; }
+}
+function mapMarketFunding(text: string, i: number): AlertItem | null {
+  try {
+    const d = JSON.parse(text);
+    const pct = (Number(d.fundingRate ?? 0) * 100).toFixed(3);
+    return {
+      id: "mfund-" + i, type: "funding",
+      severity: Math.abs(Number(d.fundingRate ?? 0)) >= 0.01 ? "critical" : "warn",
+      title: d.symbol + " 資金費率異常：" + pct + "%",
+      detail: Number(d.fundingRate) > 0 ? "多頭付費給空頭，多方擁擠" : "空頭付費給多頭，空方擁擠",
+      time: timeOf(d.time), symbol: d.symbol,
+    };
+  } catch { return null; }
+}
+function mapMarketVolume(text: string, i: number): AlertItem | null {
+  try {
+    const d = JSON.parse(text);
+    const total = Number(d.totalUsd ?? 0);
+    return {
+      id: "mvol-" + i, type: "volume",
+      severity: total >= 10_000_000 ? "warn" : "info",
+      title: d.symbol + " " + Math.round((d.windowSec ?? 300) / 60) + " 分鐘成交量異常：" + fmtUsd(total),
+      detail: "窗口內累計成交額 " + fmtUsd(total),
+      time: timeOf(d.time), symbol: d.symbol,
+    };
+  } catch { return null; }
+}
+
 export async function GET() {
   try {
-    const [events, liqRaw] = await Promise.all([
+    const [events, liqRaw, marketLiq, marketFunding, marketVolume] = await Promise.all([
       redisLRange("at:events", -50, -1),
       redisGet("at:liquidations"),
+      redisLRange("market:liquidations", -30, -1),
+      redisLRange("market:funding", -30, -1),
+      redisLRange("market:volume", -30, -1),
     ]);
     let liqRecords: any[] = [];
     if (liqRaw) {
       try { liqRecords = JSON.parse(liqRaw)?.records ?? []; } catch {}
     }
-    if (events.length || liqRecords.length) {
+    const hasAny = events.length || liqRecords.length || marketLiq.length || marketFunding.length || marketVolume.length;
+    if (hasAny) {
       const evtAlerts = events.slice().reverse().map(mapEvent);
       const liqAlerts = liqRecords.slice(-20).reverse().map(mapLiquidation).filter(Boolean) as AlertItem[];
-      return Response.json({ alerts: [...liqAlerts, ...evtAlerts], source: "redis" });
+      const mLiqAlerts = marketLiq.slice().reverse().map(mapMarketLiquidation).filter(Boolean) as AlertItem[];
+      const mFundAlerts = marketFunding.slice().reverse().map(mapMarketFunding).filter(Boolean) as AlertItem[];
+      const mVolAlerts = marketVolume.slice().reverse().map(mapMarketVolume).filter(Boolean) as AlertItem[];
+      return Response.json({
+        alerts: [...mLiqAlerts, ...mFundAlerts, ...mVolAlerts, ...liqAlerts, ...evtAlerts],
+        source: "redis",
+      });
     }
   } catch {}
   return Response.json({ alerts: ALERTS, source: "mock" });
