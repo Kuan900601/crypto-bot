@@ -161,3 +161,19 @@ a:active { -webkit-tap-highlight-color: transparent; }
 @media (prefers-reduced-motion: reduce) {
   .parallax-layer { transform: none !important; }
 }
+
+/* ============ 階段二批次1：骨架屏 / 卡片按壓回饋 / 下拉刷新指示器 ============ */
+@keyframes skeletonSweep { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+.skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.11) 50%, rgba(255,255,255,0.05) 75%);
+  background-size: 200% 100%; animation: skeletonSweep 1.6s ease-in-out infinite;
+}
+.press-feedback { transition: transform .15s ease-out; }
+.press-feedback:active { transform: scale(0.985); }
+@keyframes ptrSpin { to { transform: rotate(360deg); } }
+.ptr-spinner { animation: ptrSpin .7s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background: rgba(255,255,255,0.07); }
+  .press-feedback { transition: none !important; }
+  .ptr-spinner { animation: none !important; }
+}

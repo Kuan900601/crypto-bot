@@ -1,12 +1,13 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AlertItem } from "@/lib/types";
 import { randomAlert } from "@/lib/mock";
 import { useApp } from "@/lib/store";
-import { SectionTitle, Card, Badge, Chip } from "@/components/ui";
-import { Pause, Play, Waves, ArrowDownToLine, Flame, Zap, BarChart3, Activity } from "lucide-react";
+import { SectionTitle, Card, Badge, Chip, Skeleton, EmptyState, PullIndicator } from "@/components/ui";
+import { Pause, Play, Waves, ArrowDownToLine, Flame, Zap, BarChart3, Activity, Bell } from "lucide-react";
 import { C } from "@/lib/theme";
 import Corner from "@/components/site/Corner";
+import { usePullToRefresh } from "@/lib/usePullToRefresh";
 const META = {
   whale: { label: "巨鯨異動", icon: Waves, color: "text-tide-300" },
   flow: { label: "交易所流向", icon: ArrowDownToLine, color: "text-indigo-300" },
@@ -23,11 +24,15 @@ const SEV: Record<AlertItem["severity"], { label: string; tone: "slate" | "amber
 export default function MonitorPage() {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [source, setSource] = useState<"redis" | "mock" | "">("");
+  const [loading, setLoading] = useState(true);
   const [live, setLive] = useState(true);
   const [type, setType] = useState<"all" | AlertItem["type"]>("all");
   const pushNotif = useApp((s) => s.pushNotif);
-  const refresh = () => fetch("/api/alerts").then((r) => r.json()).then((d) => { setAlerts(d.alerts ?? []); setSource(d.source ?? ""); }).catch(() => {});
-  useEffect(() => { refresh(); }, []);
+  const refresh = useCallback(() => {
+    return fetch("/api/alerts").then((r) => r.json()).then((d) => { setAlerts(d.alerts ?? []); setSource(d.source ?? ""); }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+  const { pullDistance, refreshing, threshold } = usePullToRefresh(refresh);
   // 有真實 Redis 資料（at:events/at:liquidations）時改用真實輪詢；
   // 沒有（fallback 到 mock）才用既有的隨機事件注入做 DEMO 展示，不能讓假事件混進真資料流。
   useEffect(() => {
@@ -49,6 +54,7 @@ export default function MonitorPage() {
   const isLive = source === "redis";
   return (
     <div className="space-y-5">
+      <PullIndicator pullDistance={pullDistance} refreshing={refreshing} threshold={threshold} />
       <SectionTitle title="全市場異常監控" desc={isLive ? "全市場爆倉、資金費率異常、巨量成交（即時）+ 黑潮系統事件與本帳戶爆倉紀錄" : "巨鯨、流向、清算、費率與巨量事件（DEMO 模擬即時流）"}
         right={
           <button onClick={() => setLive((v) => !v)}
@@ -69,8 +75,27 @@ export default function MonitorPage() {
         )}
       </div>
       <div className="space-y-2.5">
-        {filtered.length === 0 && <div className="rounded-xl border border-white/5 p-8 text-center text-sm text-slate-500">沒有符合條件的事件</div>}
-        {filtered.map((a) => {
+        {loading && (
+          <>
+            {[0, 1, 2].map((i) => (
+              <Card key={i} className="flex items-start gap-3 p-3.5">
+                <Skeleton className="h-8 w-8 shrink-0 rounded-lg" />
+                <div className="min-w-0 flex-1">
+                  <Skeleton className="h-3.5 w-2/3" />
+                  <Skeleton className="mt-2 h-3 w-1/3" />
+                </div>
+              </Card>
+            ))}
+          </>
+        )}
+        {!loading && filtered.length === 0 && (
+          <EmptyState
+            icon={<Bell size={22} />}
+            title={type === "all" ? "目前沒有異常事件" : `「${META[type as keyof typeof META]?.label}」目前沒有事件`}
+            desc={isLive ? "持續監控全市場資料，有異常會立即顯示在這裡。" : "DEMO 模式下事件每 7 秒模擬一筆，請稍候。"}
+          />
+        )}
+        {!loading && filtered.map((a) => {
           const Icon = META[a.type].icon;
           const sevColor = a.severity === "critical" ? C.rose : a.severity === "warn" ? C.gold : C.dim;
           return (

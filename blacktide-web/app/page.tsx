@@ -13,6 +13,7 @@ import Counter from "@/components/site/Counter";
 import SignalShowcase from "@/components/site/SignalShowcase";
 import { GodRays, SoftRays, Lighthouse, HeroWaves, FloatCard, useParallax } from "@/components/site/HeroVisuals";
 import { useTilt } from "@/lib/useTilt";
+import { Skeleton } from "@/components/ui";
 
 // 監測幣種數固定為 52（analyzer.py 實際掃描的幣種數，與站內既有文案一致，非首頁自行估算）
 const MONITORED_COINS = 52;
@@ -110,6 +111,22 @@ export default function Home() {
             </div>
 
             {/* 今日 AI 信號預覽（真實資料；信心為模型評分，非已實現歷史勝率） */}
+            {signals === null && (
+              <div style={{ flex: "0 1 280px", minWidth: 240, borderRadius: 18, padding: 18, position: "relative", background: "rgba(6,16,30,0.78)", border: `1px solid ${C.lineGold}`, backdropFilter: "blur(10px)" }}>
+                <Corner pos="tl" /><Corner pos="tr" /><Corner pos="bl" /><Corner pos="br" />
+                <Skeleton className="h-2.5 w-24" />
+                <div style={{ marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <Skeleton className="h-5 w-20" />
+                  <Skeleton className="h-4 w-12 rounded-full" />
+                </div>
+                <Skeleton className="mt-3 h-3 w-32" />
+                <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+                  <Skeleton className="h-3 w-full" />
+                  <Skeleton className="h-3 w-full" />
+                  <Skeleton className="h-3 w-full" />
+                </div>
+              </div>
+            )}
             {previewSignal && (
               <div ref={previewTiltRef} className="glass-sheen tilt-card" style={{ flex: "0 1 280px", minWidth: 240, borderRadius: 18, padding: 18, position: "relative", background: "rgba(6,16,30,0.78)", border: `1px solid ${C.lineGold}`, backdropFilter: "blur(10px)" }}>
                 <Corner pos="tl" /><Corner pos="tr" /><Corner pos="bl" /><Corner pos="br" />
@@ -153,9 +170,18 @@ export default function Home() {
           {/* 近 N 筆已結算信號績效（樣本不足不強調具體數字，見 design-system §7） */}
           <div ref={perfTiltRef} className="glass-sheen tilt-card" style={{ marginTop: 36, maxWidth: 520, borderRadius: 16, padding: 16, position: "relative", background: "rgba(255,255,255,0.02)", border: `1px solid ${C.line}` }}>
             <div style={{ fontSize: 11, letterSpacing: 2, color: C.dim, marginBottom: 10 }}>
-              {perfSampleOk ? `近 ${chronological.length} 筆已結算信號` : "信號績效"}
+              {signals === null ? "信號績效" : perfSampleOk ? `近 ${chronological.length} 筆已結算信號` : "信號績效"}
             </div>
-            {perfSampleOk ? (
+            {signals === null ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12 }}>
+                {[0, 1, 2].map((i) => (
+                  <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                    <Skeleton className="h-4 w-10" />
+                    <Skeleton className="h-2.5 w-8" />
+                  </div>
+                ))}
+              </div>
+            ) : perfSampleOk ? (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, textAlign: "center" }}>
                 <div><div style={{ fontFamily: MONO, fontSize: 18, fontWeight: 800, color: C.green }}>{perfWinRate}%</div><div style={{ fontSize: 10, color: C.dim }}>勝率</div></div>
                 <div><div style={{ fontFamily: MONO, fontSize: 18, fontWeight: 800, color: perfAvgPct >= 0 ? C.green : C.rose }}>{perfAvgPct >= 0 ? "+" : ""}{perfAvgPct.toFixed(1)}%</div><div style={{ fontSize: 10, color: C.dim }}>平均報酬</div></div>

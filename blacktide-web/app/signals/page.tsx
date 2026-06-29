@@ -8,6 +8,8 @@ import Corner from "@/components/site/Corner";
 import { Crown, Radio, Send, Bell, ArrowRight, ExternalLink, Lock } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useSession } from "next-auth/react";
+import { Skeleton, SkeletonCard, EmptyState, PullIndicator } from "@/components/ui";
+import { usePullToRefresh } from "@/lib/usePullToRefresh";
 
 const TG_CHANNEL = "https://t.me/KuroshioSignal";
 const TG_VIP = "https://t.me/+G1wwlviXQaE2NDRl";
@@ -86,7 +88,18 @@ function LiveFeed({ userTier }: { userTier: string }) {
       </div>
 
       {loading ? (
-        <div className="space-y-2">{[1, 2].map((i) => <div key={i} className="h-14 animate-pulse rounded-xl" style={{ background: "rgba(255,255,255,0.04)" }} />)}</div>
+        <div className="space-y-2">
+          {[0, 1].map((i) => (
+            <div key={i} className="rounded-xl p-3" style={{ border: `1px solid ${C.line}` }}>
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-3 w-12" />
+                <Skeleton className="h-3 w-10" />
+                <Skeleton className="ml-auto h-3 w-14" />
+              </div>
+              <Skeleton className="mt-2 h-3 w-2/3" />
+            </div>
+          ))}
+        </div>
       ) : activeSignals.length > 0 ? (
         <div className="space-y-2">
           {activeSignals.map((sig) => {
@@ -122,13 +135,7 @@ function LiveFeed({ userTier }: { userTier: string }) {
           })}
         </div>
       ) : (
-        <div className="flex items-center gap-3 rounded-xl px-4 py-4" style={{ border: `1px solid ${C.line}`, fontSize: 13, color: C.dim }}>
-          <span style={{ fontSize: 18 }}>📡</span>
-          <div>
-            <div style={{ fontWeight: 700, color: C.mut }}>目前無持倉信號</div>
-            <div style={{ fontSize: 11, marginTop: 2 }}>持續掃描 52 幣種中，新信號出現時即時顯示</div>
-          </div>
-        </div>
+        <EmptyState icon={<Radio size={22} />} title="目前無持倉信號" desc="持續掃描 52 幣種中，新信號出現時即時顯示。" />
       )}
 
       <div className="mt-3 flex flex-wrap gap-2" style={{ fontSize: 12 }}>
@@ -153,9 +160,11 @@ export default function SignalsPage() {
   const [tier, setTier] = useState<string>("all");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Signal | null>(null);
-  useEffect(() => {
-    fetch("/api/signals").then((r) => r.json()).then((d) => { setSignals(d.signals); setSource(d.source); }).catch(() => {}).finally(() => setLoading(false));
+  const fetchSignals = useCallback(() => {
+    return fetch("/api/signals").then((r) => r.json()).then((d) => { setSignals(d.signals); setSource(d.source); }).catch(() => {});
   }, []);
+  useEffect(() => { fetchSignals().finally(() => setLoading(false)); }, [fetchSignals]);
+  const { pullDistance, refreshing, threshold } = usePullToRefresh(fetchSignals);
   const filtered = useMemo(() => signals.filter((s) =>
     (dir === "all" || s.direction === dir) &&
     (tier === "all" || s.tier === tier) &&
@@ -168,6 +177,7 @@ export default function SignalsPage() {
   const shortN = signals.filter((s) => s.direction === "short").length;
   return (
     <div className="space-y-5">
+      <PullIndicator pullDistance={pullDistance} refreshing={refreshing} threshold={threshold} />
       {/* 黑潮船長 CTA */}
       <section style={{ position: "relative", overflow: "hidden", borderRadius: 18, padding: 22, border: `1px solid ${C.lineGold}`, background: "linear-gradient(135deg, rgba(232,198,110,0.1), rgba(10,12,18,0.5))" }}>
         <Corner pos="tl" /><Corner pos="br" />
@@ -233,11 +243,19 @@ export default function SignalsPage() {
           style={{ border: `1px solid ${C.line}`, background: "rgba(255,255,255,0.02)", color: C.ink }} />
       </div>
 
-      {loading && <div className="h-28 animate-pulse rounded-xl" style={{ background: "rgba(255,255,255,0.04)" }} />}
-      {!loading && filtered.length === 0 && <div className="rounded-xl p-8 text-center" style={{ border: `1px solid ${C.line}`, fontSize: 13, color: C.dim }}>沒有符合條件的信號</div>}
-      <div className="grid gap-4 lg:grid-cols-2">
-        {filtered.map((s) => <SignalCard key={s.id} s={s} onOpen={() => setOpen(s)} />)}
-      </div>
+      {loading && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {[0, 1, 2, 3].map((i) => <SkeletonCard key={i} lines={3} />)}
+        </div>
+      )}
+      {!loading && filtered.length === 0 && (
+        <EmptyState icon={<Radio size={22} />} title="沒有符合條件的信號" desc="試試調整方向、Tier 或搜尋的幣種代號。" />
+      )}
+      {!loading && filtered.length > 0 && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {filtered.map((s) => <SignalCard key={s.id} s={s} onOpen={() => setOpen(s)} />)}
+        </div>
+      )}
       {open && <SignalModal s={open} onClose={() => setOpen(null)} />}
     </div>
   );

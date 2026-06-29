@@ -4,6 +4,8 @@ import Corner from "@/components/site/Corner";
 import CTA from "@/components/site/CTA";
 import { Signal } from "@/lib/types";
 import Link from "next/link";
+import { Skeleton, EmptyState } from "@/components/ui";
+import { Radio } from "lucide-react";
 
 function fmtPrice(n?: number) {
   if (n == null) return "—";
@@ -43,8 +45,19 @@ export default function SignalShowcase({ signals }: { signals: Signal[] | null }
             </span>
           </div>
 
-          {rows.length === 0 && (
-            <div style={{ padding: "28px 8px", textAlign: "center", color: C.dim, fontSize: 12.5 }}>信號資料載入中…</div>
+          {signals === null && (
+            <div style={{ position: "relative", zIndex: 1 }}>
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 8px 13px 14px", borderBottom: `1px solid ${C.line}`, gap: 10 }}>
+                  <Skeleton className="h-4 w-10" />
+                  <Skeleton className="h-3 w-14 flex-1" />
+                  <Skeleton className="h-3 w-16" />
+                </div>
+              ))}
+            </div>
+          )}
+          {signals !== null && rows.length === 0 && (
+            <EmptyState icon={<Radio size={22} />} title="目前沒有信號資料" desc="AI 持續掃描 52 幣種中，有新信號會立即顯示在這裡。" />
           )}
 
           {rows.map((s) => {
