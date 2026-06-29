@@ -37,7 +37,7 @@ _USE_REDIS = bool(_REDIS_URL and _REDIS_TOKEN)
 BYBIT_WS_URL = "wss://stream.bybit.com/v5/public/linear"
 
 # 門檻全部可用環境變數調整，不用重新部署改 code
-LIQ_MIN_USD = float(os.getenv("MARKET_LIQ_MIN_USD", "50000"))
+LIQ_MIN_USD = float(os.getenv("MARKET_LIQ_MIN_USD", "10000"))  # v65b：$50k 兩天 0 筆太嚴，調低到 $10k
 FUNDING_ABS_THRESHOLD = float(os.getenv("MARKET_FUNDING_ABS_THRESHOLD", "0.005"))  # 0.5%
 VOLUME_WINDOW_SEC = int(os.getenv("MARKET_VOLUME_WINDOW_SEC", "300"))  # 5 分鐘窗口
 VOLUME_MIN_USD = float(os.getenv("MARKET_VOLUME_MIN_USD", "3000000"))  # 窗口內累計門檻

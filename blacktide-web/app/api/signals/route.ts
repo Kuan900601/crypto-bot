@@ -105,10 +105,16 @@ export async function GET() {
       // bot 實際寫小寫鍵 active_signals / signal_results；同時相容大寫
       const act = data?.active_signals ?? data?.ACTIVE_SIGNALS;
       if (act && typeof act === "object") {
+        const actSignals: Signal[] = [];
         for (const [sym, sig] of Object.entries(act)) {
           const m = mapActive(sym, sig);
-          if (m) out.push(m);
+          if (m) actSignals.push(m);
         }
+        // Object.entries 是 bot 寫入順序（最舊的先），不是新到舊——
+        // 首頁的「今日信號預覽卡」只取第一個 status==="active" 的當預覽，
+        // 沒排序的話永遠抓到最舊的進行中信號，新信號補的 win_rate 等欄位看起來像沒生效。
+        actSignals.sort((a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime());
+        out.push(...actSignals);
       }
       const hist = data?.signal_results ?? data?.SIGNAL_RESULTS;
       if (Array.isArray(hist)) {
