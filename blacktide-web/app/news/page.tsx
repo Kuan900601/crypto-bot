@@ -2,7 +2,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { NewsItem } from "@/lib/types";
-import { SectionTitle, Card, Badge, Chip } from "@/components/ui";
+import { SectionTitle, Card, Badge, Chip, Skeleton, EmptyState } from "@/components/ui";
+import { Newspaper } from "lucide-react";
 import { C } from "@/lib/theme";
 import Corner from "@/components/site/Corner";
 const SENT: Record<NewsItem["sentiment"], { label: string; tone: "up" | "down" | "slate" }> = {
@@ -17,8 +18,9 @@ export default function NewsPage() {
   const [src, setSrc] = useState("");
   const [f, setF] = useState<"all" | NewsItem["sentiment"]>("all");
   const [q, setQ] = useState("");
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
-    fetch("/api/news").then((r) => r.json()).then((d) => { setNews(d.news || []); setSrc(d.source || ""); }).catch(() => {});
+    fetch("/api/news").then((r) => r.json()).then((d) => { setNews(d.news || []); setSrc(d.source || ""); }).catch(() => {}).finally(() => setLoading(false));
   }, []);
   const filtered = useMemo(() => news.filter((n) =>
     (f === "all" || n.sentiment === f) &&
@@ -37,8 +39,17 @@ export default function NewsPage() {
           className="ml-auto w-40 rounded-lg border border-white/5 bg-ink-800 px-3 py-1.5 text-sm outline-none focus:border-tide-500/40" />
       </div>
       <div className="space-y-3">
-        {filtered.length === 0 && <div className="rounded-xl border border-white/5 p-8 text-center text-sm text-slate-500">沒有符合條件的新聞</div>}
-        {filtered.map((n) => (
+        {loading && [0, 1, 2].map((i) => (
+          <Card key={i} className="p-4">
+            <Skeleton className="h-4 w-16" />
+            <Skeleton className="mt-2 h-4 w-3/4" />
+            <Skeleton className="mt-2 h-3 w-1/2" />
+          </Card>
+        ))}
+        {!loading && filtered.length === 0 && (
+          <EmptyState icon={<Newspaper size={22} />} title="沒有符合條件的新聞" desc="換個分類或搜尋關鍵字試試。" />
+        )}
+        {!loading && filtered.map((n) => (
           <a key={n.id} href={hrefOf(n)} target="_blank" rel="noreferrer" className="block">
             <Card className="sigrow relative overflow-hidden p-4 transition hover:border-tide-500/30 hover:bg-white/[0.03]">
               <span className="accent-bar" style={{ background: `linear-gradient(${SENT[n.sentiment].tone === "up" ? C.green : SENT[n.sentiment].tone === "down" ? C.rose : C.dim},transparent)` }} />

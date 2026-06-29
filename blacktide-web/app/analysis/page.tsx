@@ -4,6 +4,7 @@ import { ANALYSES } from "@/lib/mock";
 import { fmtPrice } from "@/lib/format";
 import { C, MONO } from "@/lib/theme";
 import Corner from "@/components/site/Corner";
+import { Skeleton } from "@/components/ui";
 import { X } from "lucide-react";
 interface RA {
   symbol: string; price: number; change24h: number; rsi: number; ma20: number; ma50: number;
@@ -140,7 +141,17 @@ export default function AnalysisPage() {
       )}
 
       {loading
-        ? <div className="grid gap-4 lg:grid-cols-2">{[0, 1, 2, 3].map((i) => <div key={i} className="h-52 animate-pulse rounded-2xl" style={{ background: "rgba(255,255,255,0.04)" }} />)}</div>
+        ? (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="rounded-2xl p-4" style={{ border: `1px solid ${C.line}`, background: "rgba(255,255,255,0.02)" }}>
+                <Skeleton className="h-4 w-20" />
+                <div className="mt-3 space-y-2"><Skeleton className="h-3 w-full" /><Skeleton className="h-3 w-4/5" /></div>
+                <div className="mt-3 grid grid-cols-3 gap-2">{[0, 1, 2].map((j) => <Skeleton key={j} className="h-10" />)}</div>
+              </div>
+            ))}
+          </div>
+        )
         : (
           <div className="grid gap-4 lg:grid-cols-2">
             {display.map((a) => (

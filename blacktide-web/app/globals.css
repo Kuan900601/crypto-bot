@@ -177,3 +177,19 @@ a:active { -webkit-tap-highlight-color: transparent; }
   .press-feedback { transition: none !important; }
   .ptr-spinner { animation: none !important; }
 }
+
+/* ============ 階段二批次5：彈窗手機版改底部彈出（bottom sheet） ============ */
+@keyframes sheetUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.modal-sheet {
+  border-radius: 20px 20px 0 0;
+  max-height: 88vh;
+  animation: sheetUp .28s cubic-bezier(0.22, 0.8, 0.26, 1) both;
+}
+.legal-overlay { display: flex; align-items: flex-end; }
+@media (min-width: 640px) {
+  .modal-sheet { border-radius: 20px; max-height: 85vh; animation: popIn .22s cubic-bezier(0.22, 0.8, 0.26, 1) both; }
+  .legal-overlay { align-items: center; padding-bottom: max(20px, env(safe-area-inset-bottom)) !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .modal-sheet { animation: none !important; }
+}

@@ -17,16 +17,18 @@ export default function LegalModal({ docKey, onClose }: { docKey: LegalDocKey | 
   }, [docKey, onClose]);
   if (!doc) return null;
   return (
-    <div onClick={onClose} style={{
-      position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center",
-      padding: 20, paddingTop: "max(20px, env(safe-area-inset-top))", paddingBottom: "max(20px, env(safe-area-inset-bottom))",
+    <div onClick={onClose} className="legal-overlay" style={{
+      position: "fixed", inset: 0, zIndex: 200, justifyContent: "center",
+      padding: 20, paddingTop: "max(20px, env(safe-area-inset-top))", paddingBottom: 0,
       background: "rgba(2,4,9,0.7)", backdropFilter: "blur(5px)", animation: "fadeIn .25s",
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
-        position: "relative", width: "100%", maxWidth: 640, maxHeight: "85vh", display: "flex", flexDirection: "column",
-        borderRadius: 20, background: "linear-gradient(180deg, rgba(10,20,34,0.98), rgba(4,9,16,0.98))",
+      <div onClick={(e) => e.stopPropagation()} className="legal-panel modal-sheet" style={{
+        position: "relative", width: "100%", maxWidth: 640, display: "flex", flexDirection: "column",
+        background: "linear-gradient(180deg, rgba(10,20,34,0.98), rgba(4,9,16,0.98))",
         border: `1px solid ${C.lineGold}`, boxShadow: "0 30px 80px rgba(0,0,0,.6)", overflow: "hidden",
+        paddingBottom: "max(8px, env(safe-area-inset-bottom))",
       }}>
+        <div className="mx-auto mb-1 mt-2 h-1 w-10 shrink-0 rounded-full bg-white/10 sm:hidden" />
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${C.gold}, ${C.teal}, transparent)` }} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 24px", borderBottom: `1px solid ${C.line}`, flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>

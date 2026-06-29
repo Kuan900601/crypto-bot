@@ -116,9 +116,11 @@ export default function PricingModal() {
   );
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ paddingTop: "max(16px, env(safe-area-inset-top))", paddingBottom: "max(16px, env(safe-area-inset-bottom))" }}>
+    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center sm:p-4" style={{ paddingTop: "max(16px, env(safe-area-inset-top))" }}>
       <div className="absolute inset-0 backdrop-blur-md bg-ink-950/60" onClick={() => setPricingOpen(false)} />
-      <div className="pop-in relative max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-ink-800 p-5 shadow-2xl">
+      <div className="modal-sheet relative max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-t-2xl border border-white/10 bg-ink-800 p-5 shadow-2xl sm:max-h-[85vh] sm:rounded-2xl"
+        style={{ paddingBottom: "max(20px, env(safe-area-inset-bottom))" }}>
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/10 sm:hidden" />
         <div className="flex items-center">
           <div>
             <div className="text-base font-bold">解鎖黑潮 BLACKTIDE</div>

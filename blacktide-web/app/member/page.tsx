@@ -146,8 +146,8 @@ export default function MemberPage() {
             </div>
           </div>
           <div className="ml-auto flex flex-col gap-2">
-            {me.tier !== "pro" && <button onClick={() => setPricingOpen(true)} className="flex items-center gap-1 rounded-lg bg-amber-500/15 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/25"><Crown size={13} /> 升級</button>}
-            {me.isAdmin && <a href="/admin" className="rounded-lg border border-tide-500/30 px-3 py-1.5 text-center text-xs text-tide-300 hover:bg-tide-500/10">後台</a>}
+            {me.tier !== "pro" && <button onClick={() => setPricingOpen(true)} className="flex items-center gap-1 rounded-lg bg-amber-500/15 px-3 py-2 text-xs font-semibold text-amber-300 hover:bg-amber-500/25"><Crown size={13} /> 升級</button>}
+            {me.isAdmin && <a href="/admin" className="rounded-lg border border-tide-500/30 px-3 py-2 text-center text-xs text-tide-300 hover:bg-tide-500/10">後台</a>}
           </div>
         </div>
       </Card>
@@ -158,7 +158,7 @@ export default function MemberPage() {
             <span className="text-xs text-slate-500">信箱</span>
             <span className="text-sm text-slate-300">{me.email}</span>
             {me.emailVerified ? <Badge tone="up"><BadgeCheck size={12} /> 已驗證</Badge> : <Badge tone="amber"><ShieldAlert size={12} /> 未驗證</Badge>}
-            {!me.emailVerified && <button disabled={vBusy} onClick={sendCode} className="ml-auto rounded-lg bg-tide-500/15 px-3 py-1 text-xs font-semibold text-tide-300 hover:bg-tide-500/25 disabled:opacity-50">發送驗證碼</button>}
+            {!me.emailVerified && <button disabled={vBusy} onClick={sendCode} className="ml-auto rounded-lg bg-tide-500/15 px-3 py-2 text-xs font-semibold text-tide-300 hover:bg-tide-500/25 disabled:opacity-50">發送驗證碼</button>}
           </div>
           {!me.emailVerified && vSent && (
             <div className="flex items-center gap-2">
@@ -175,18 +175,18 @@ export default function MemberPage() {
         </div>
       </Card>
       <Card className="p-5">
-        <div className="flex items-center justify-between">
+        <label className="flex min-h-[44px] cursor-pointer items-center justify-between">
           <div className="flex items-center gap-2 text-sm font-semibold"><Bell size={15} className="text-tide-300" /> 推播通知</div>
-          <label className="relative inline-flex cursor-pointer items-center">
+          <span className="relative inline-flex items-center">
             <input type="checkbox" checked={notifyOn} onChange={(e) => setNotifyOn(e.target.checked)} className="peer sr-only" />
-            <div className="h-6 w-11 rounded-full bg-white/10 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-tide-500 peer-checked:after:translate-x-5" />
-          </label>
-        </div>
+            <span className="h-6 w-11 rounded-full bg-white/10 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-tide-500 peer-checked:after:translate-x-5" />
+          </span>
+        </label>
         <p className="mt-1 text-xs text-slate-500">開啟後，新訊號與重要提醒會推播到你的裝置。</p>
         {notifyOn && (
           <div className="mt-3 space-y-3">
-            <label className="flex items-center gap-2 text-sm text-slate-300">
-              <input type="checkbox" checked={quietOn} onChange={(e) => setQuietOn(e.target.checked)} className="accent-tide-500" />
+            <label className="flex min-h-[44px] items-center gap-2 text-sm text-slate-300">
+              <input type="checkbox" checked={quietOn} onChange={(e) => setQuietOn(e.target.checked)} className="h-4 w-4 accent-tide-500" />
               夜間勿擾（此時段不推播）
             </label>
             {quietOn && (
@@ -230,8 +230,8 @@ export default function MemberPage() {
       <Card className="p-5">
         <div className="flex items-center justify-between">
           <div className="text-sm font-semibold">意見反饋</div>
-          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-400">
-            <input type="checkbox" checked={anon} onChange={(e) => setAnon(e.target.checked)} className="accent-tide-500" />
+          <label className="flex min-h-[44px] cursor-pointer items-center gap-1.5 text-xs text-slate-400">
+            <input type="checkbox" checked={anon} onChange={(e) => setAnon(e.target.checked)} className="h-4 w-4 accent-tide-500" />
             匿名反饋
           </label>
         </div>

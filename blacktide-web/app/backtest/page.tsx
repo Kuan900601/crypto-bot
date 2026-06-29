@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Card, Stat } from "@/components/ui";
+import { Card, Stat, Skeleton } from "@/components/ui";
 import { makeRng } from "@/lib/format";
 import { Play, TrendingUp, FlaskConical, AlertTriangle } from "lucide-react";
 import { C, SERIF } from "@/lib/theme";
@@ -137,7 +137,12 @@ export default function BacktestPage() {
           <div className="mt-1 text-[11px] text-slate-600">勝率 · 期望值 · Sharpe · 資金曲線 · 12 項指標</div>
         </div>
       )}
-      {loading && <div className="h-56 animate-pulse rounded-xl bg-white/5" />}
+      {loading && (
+        <Card className="p-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-14" />)}</div>
+          <Skeleton className="mt-4 h-32 w-full" />
+        </Card>
+      )}
 
       {/* Results */}
       {res && !loading && (

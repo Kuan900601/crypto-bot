@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { TrendingUp, TrendingDown, Minus, RefreshCw, BarChart2, Activity } from "lucide-react";
-import { Card } from "@/components/ui";
+import { Card, Skeleton } from "@/components/ui";
 import { fmtPrice } from "@/lib/format";
 import { C, MONO, SERIF } from "@/lib/theme";
 import Corner from "@/components/site/Corner";
@@ -91,7 +91,12 @@ export default function StocksPage() {
         ))}
       </div>
 
-      {loading && <div className="space-y-3"><div className="h-32 animate-pulse rounded-xl bg-white/5" /><div className="h-48 animate-pulse rounded-xl bg-white/5" /></div>}
+      {loading && (
+        <div className="space-y-3">
+          <Card className="p-5"><Skeleton className="h-6 w-28" /><Skeleton className="mt-3 h-4 w-20" /></Card>
+          <Card className="p-4"><Skeleton className="h-40 w-full" /></Card>
+        </div>
+      )}
       {error && !loading && (
         <div className="flex items-center gap-3 rounded-xl border border-down/20 bg-down/[0.06] px-4 py-3 text-sm text-down">
           {error} <button onClick={() => load(symbol)} className="ml-auto flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200"><RefreshCw size={12} /> 重試</button>
