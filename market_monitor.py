@@ -39,10 +39,12 @@ BYBIT_WS_URL = "wss://stream.bybit.com/v5/public/linear"
 # 門檻全部可用環境變數調整，不用重新部署改 code
 LIQ_MIN_USD = float(os.getenv("MARKET_LIQ_MIN_USD", "10000"))  # v65b：$50k 兩天 0 筆太嚴，調低到 $10k
 FUNDING_ABS_THRESHOLD = float(os.getenv("MARKET_FUNDING_ABS_THRESHOLD", "0.005"))  # 0.5%
+FUNDING_COOLDOWN_SEC = int(os.getenv("MARKET_FUNDING_COOLDOWN_SEC", "3600"))  # 同幣種最短間隔，防洗版
 VOLUME_WINDOW_SEC = int(os.getenv("MARKET_VOLUME_WINDOW_SEC", "300"))  # 5 分鐘窗口
 VOLUME_MIN_USD = float(os.getenv("MARKET_VOLUME_MIN_USD", "3000000"))  # 窗口內累計門檻
 
 _RECONNECT_DELAY_SEC = 10
+_last_funding_ts: dict = {}  # symbol -> 上次寫入 Redis 的 time.time()，冷卻用
 
 
 def _redis_cmd(args):
@@ -133,8 +135,13 @@ async def _handle_ticker(it):
         funding = float(funding)
         if abs(funding) < FUNDING_ABS_THRESHOLD:
             return
+        symbol = str(it.get("symbol", "")).replace("USDT", "")
+        now = time.time()
+        if now - _last_funding_ts.get(symbol, 0) < FUNDING_COOLDOWN_SEC:
+            return  # 同幣種冷卻中，避免每秒重複洗版
+        _last_funding_ts[symbol] = now
         _push_list("market:funding", {
-            "symbol": str(it.get("symbol", "")).replace("USDT", ""),
+            "symbol": symbol,
             "fundingRate": funding,
             "time": datetime.now(timezone.utc).isoformat(),
         }, max_len=100)

@@ -7,6 +7,8 @@ export default function Counter({ to, dur = 1400 }: { to: number; dur?: number }
   const ref = useRef<HTMLSpanElement>(null);
   const done = useRef(false);
   useEffect(() => {
+    done.current = false; // to 變化時（如非同步資料載入後）允許動畫重新執行
+    setV(0);
     const el = ref.current;
     if (!el) return;
     const io = new IntersectionObserver((es) => {

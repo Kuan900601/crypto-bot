@@ -32,7 +32,7 @@ export default function Topbar({ onMenu }: { onMenu?: () => void }) {
   const pick = (s: SymbolLite) => { setDetail(s); setQ(""); setOpen(false); };
   return (
     <>
-      <header className="sticky top-0 z-40 backdrop-blur" style={{ background: "rgba(4,9,16,0.86)", borderBottom: `1px solid ${C.lineGold}` }}>
+      <header className="sticky top-0 z-40 backdrop-blur" style={{ background: "rgba(4,9,16,0.86)", borderBottom: `1px solid ${C.lineGold}`, paddingTop: "env(safe-area-inset-top)" }}>
         <div className="flex h-14 items-center justify-between gap-3 px-4">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <div className="flex items-center gap-2 md:hidden">

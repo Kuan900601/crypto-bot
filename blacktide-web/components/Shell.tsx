@@ -63,8 +63,6 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         </div>
       )}
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* PWA 安全區 */}
-        <div className="shrink-0" style={{ height: "env(safe-area-inset-top, 0px)", background: "rgba(6,7,11,0.97)" }} />
         <Topbar onMenu={() => setOpen(true)} />
 
         {/* Content wrapper — relative so lock overlay can be anchored here, NOT inside scroll */}
@@ -75,7 +73,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             <motion.div key={pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
               {children}
             </motion.div>
-            {!partialLocked && <Footer />}
+            {!partialLocked && <div className="hidden md:block"><Footer /></div>}
           </main>
 
           {/* ── Partial lock overlay ──
