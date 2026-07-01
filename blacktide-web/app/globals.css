@@ -193,3 +193,27 @@ a:active { -webkit-tap-highlight-color: transparent; }
 @media (prefers-reduced-motion: reduce) {
   .modal-sheet { animation: none !important; }
 }
+
+/* ============ 階段二批次A：底部 Tab Bar 動效 ============ */
+@keyframes tabPop { 0% { transform: scale(1); } 40% { transform: scale(1.22); } 100% { transform: scale(1.13); } }
+.tabnav-icon { will-change: transform; }
+/* active 切換時彈跳——只在元素帶 active 縮放的 inline style 上疊加 */
+.tabnav-item:active .tabnav-icon { transform: scale(0.9) !important; }
+/* active dot 指示器 */
+.tabnav-dot {
+  position: absolute;
+  bottom: 6px;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: #E8C66E;
+  box-shadow: 0 0 6px #E8C66E;
+  animation: tabDotIn .22s cubic-bezier(0.22, 0.8, 0.26, 1) both;
+}
+@keyframes tabDotIn { from { opacity: 0; transform: scale(0); } to { opacity: 1; transform: scale(1); } }
+/* active icon 入場彈跳 */
+.tabnav-item .tabnav-icon { transition: transform .2s cubic-bezier(0.34, 1.56, 0.64, 1), background .2s, color .2s; }
+@media (prefers-reduced-motion: reduce) {
+  .tabnav-icon { transition: background .15s, color .15s !important; animation: none !important; }
+  .tabnav-dot { animation: none !important; }
+  .tabnav-item:active .tabnav-icon { transform: none !important; }
+}

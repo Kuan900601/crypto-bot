@@ -20,12 +20,20 @@ export default function MobileNav() {
           const active = pathname === it.href;
           const Icon = it.icon;
           return (
-            <Link key={it.href} href={it.href} className="flex flex-col items-center gap-1 py-2">
-              <span className="flex h-7 w-12 items-center justify-center rounded-full" style={{
+            <Link key={it.href} href={it.href} className="tabnav-item relative flex flex-col items-center gap-1 py-2 press-feedback">
+              <span className="tabnav-icon flex h-7 w-12 items-center justify-center rounded-full" style={{
                 background: active ? "rgba(232,198,110,0.14)" : "transparent",
                 color: active ? C.gold : C.mut,
+                transition: "background .2s, color .2s",
+                transform: active ? "scale(1.13)" : "scale(1)",
               }}><Icon size={18} /></span>
-              <span style={{ fontSize: 10, color: active ? C.gold : C.mut }}>{it.label}</span>
+              <span className="tabnav-label" style={{
+                fontSize: 10,
+                color: active ? C.gold : C.mut,
+                transition: "color .2s",
+                fontWeight: active ? 700 : 400,
+              }}>{it.label}</span>
+              {active && <span className="tabnav-dot" />}
             </Link>
           );
         })}
