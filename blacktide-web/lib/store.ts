@@ -2,10 +2,12 @@
 import { create } from "zustand";
 import { SymbolLite } from "./types";
 export interface Notif { id: string; title: string; body: string; time: string; read: boolean; }
+export interface Toast { id: string; msg: string; type: "success" | "error" | "info"; }
 interface AppState {
   watchlist: string[]; toggleWatch: (s: string) => void;
   selectedSymbol: string; setSymbol: (s: string) => void;
   notifs: Notif[]; pushNotif: (n: Omit<Notif, "read">) => void; markAllRead: () => void;
+  toasts: Toast[]; pushToast: (t: Omit<Toast, "id">) => void; dismissToast: (id: string) => void;
   pricingOpen: boolean; setPricingOpen: (v: boolean) => void;
   detail: SymbolLite | null; setDetail: (s: SymbolLite | null) => void;
 }
@@ -22,6 +24,13 @@ export const useApp = create<AppState>((set) => ({
   ],
   pushNotif: (n) => set((st) => ({ notifs: [{ ...n, read: false }, ...st.notifs].slice(0, 30) })),
   markAllRead: () => set((st) => ({ notifs: st.notifs.map((n) => ({ ...n, read: true })) })),
+  toasts: [],
+  pushToast: (t) => {
+    const id = Math.random().toString(36).slice(2);
+    set((st) => ({ toasts: [...st.toasts, { ...t, id }].slice(-5) }));
+    setTimeout(() => set((st) => ({ toasts: st.toasts.filter((x) => x.id !== id) })), 2500);
+  },
+  dismissToast: (id) => set((st) => ({ toasts: st.toasts.filter((x) => x.id !== id) })),
   pricingOpen: false,
   setPricingOpen: (v) => set({ pricingOpen: v }),
   detail: null,

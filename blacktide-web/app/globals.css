@@ -217,3 +217,13 @@ a:active { -webkit-tap-highlight-color: transparent; }
   .tabnav-dot { animation: none !important; }
   .tabnav-item:active .tabnav-icon { transform: none !important; }
 }
+
+/* ============ 階段二批次B：Toast 滑入動畫 ============ */
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+.toast-enter { animation: toastIn .22s cubic-bezier(0.22, 0.8, 0.26, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .toast-enter { animation: none !important; }
+}

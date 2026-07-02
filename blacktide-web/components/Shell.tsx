@@ -12,6 +12,7 @@ import PricingModal from "./PricingModal";
 import Footer from "./Footer";
 import Analytics from "./Analytics";
 import VerifyBanner from "./VerifyBanner";
+import Toast from "./Toast";
 import { useApp } from "@/lib/store";
 import { canAccess, requiredTier, Tier } from "@/lib/access";
 import { C } from "@/lib/theme";
@@ -147,6 +148,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         <MobileNav />
       </div>
       <PricingModal />
+      <Toast />
       <Analytics />
     </div>
   );

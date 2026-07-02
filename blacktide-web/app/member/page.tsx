@@ -19,14 +19,13 @@ export default function MemberPage() {
   const { status } = useSession();
   const router = useRouter();
   const setPricingOpen = useApp((s) => s.setPricingOpen);
+  const pushToast = useApp((s) => s.pushToast);
   const [me, setMe] = useState<Me | null>(null);
   const [nickname, setNickname] = useState("");
   const [phone, setPhone] = useState("");
   const [avatar, setAvatar] = useState("");
-  const [saved, setSaved] = useState("");
   const [fb, setFb] = useState("");
   const [anon, setAnon] = useState(false);
-  const [fbMsg, setFbMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [paid, setPaid] = useState(false);
   const [vSent, setVSent] = useState(false);
@@ -37,7 +36,6 @@ export default function MemberPage() {
   const [quietOn, setQuietOn] = useState(false);
   const [quietStart, setQuietStart] = useState("23:00");
   const [quietEnd, setQuietEnd] = useState("08:00");
-  const [notifyMsg, setNotifyMsg] = useState("");
   useEffect(() => { if (status === "unauthenticated") router.replace("/login"); }, [status, router]);
   useEffect(() => {
     try {
@@ -70,27 +68,28 @@ export default function MemberPage() {
     reader.readAsDataURL(file);
   };
   const saveProfile = async () => {
-    setBusy(true); setSaved("");
+    setBusy(true);
     try {
       const r = await fetch("/api/me", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nickname, phone, avatar }) });
-      setSaved(r.ok ? "已儲存" : "儲存失敗");
-    } catch { setSaved("儲存失敗"); } finally { setBusy(false); }
+      pushToast({ msg: r.ok ? "個人資料已儲存" : "儲存失敗，請稍後再試", type: r.ok ? "success" : "error" });
+    } catch { pushToast({ msg: "儲存失敗，請稍後再試", type: "error" }); } finally { setBusy(false); }
   };
   const saveNotify = async () => {
-    setBusy(true); setNotifyMsg("");
+    setBusy(true);
     try {
       const r = await fetch("/api/me", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notify: { enabled: notifyOn, quietStart: quietOn ? quietStart : "", quietEnd: quietOn ? quietEnd : "" } }) });
-      setNotifyMsg(r.ok ? "通知設定已儲存" : "儲存失敗");
-    } catch { setNotifyMsg("儲存失敗"); } finally { setBusy(false); }
+      pushToast({ msg: r.ok ? "通知設定已儲存" : "儲存失敗，請稍後再試", type: r.ok ? "success" : "error" });
+    } catch { pushToast({ msg: "儲存失敗，請稍後再試", type: "error" }); } finally { setBusy(false); }
   };
   const sendFeedback = async () => {
-    if (!fb.trim()) { setFbMsg("請先填寫反饋內容"); return; }
-    setBusy(true); setFbMsg("");
+    if (!fb.trim()) { pushToast({ msg: "請先填寫反饋內容", type: "info" }); return; }
+    setBusy(true);
     try {
       const r = await fetch("/api/feedback", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: fb, anonymous: anon }) });
-      if (r.ok) { setFbMsg("已送出，感謝你的回饋！"); setFb(""); } else setFbMsg(((await r.json()).error) || "送出失敗");
-    } catch { setFbMsg("送出失敗"); } finally { setBusy(false); }
+      if (r.ok) { pushToast({ msg: "已送出，感謝你的回饋！", type: "success" }); setFb(""); }
+      else pushToast({ msg: ((await r.json()).error) || "送出失敗", type: "error" });
+    } catch { pushToast({ msg: "送出失敗，請稍後再試", type: "error" }); } finally { setBusy(false); }
   };
   const sendCode = async () => {
     setVBusy(true); setVMsg("");
@@ -200,7 +199,6 @@ export default function MemberPage() {
         )}
         <div className="mt-4 flex items-center gap-3">
           <button disabled={busy} onClick={saveNotify} className="flex items-center gap-1.5 rounded-lg bg-tide-500/20 px-4 py-2 text-sm font-semibold text-tide-300 hover:bg-tide-500/30 disabled:opacity-50"><Save size={14} /> 儲存通知設定</button>
-          {notifyMsg && <span className="text-xs text-slate-400">{notifyMsg}</span>}
         </div>
         <div className="mt-2 text-[10px] leading-relaxed text-slate-600">註：實際推播到手機需後續接通推播服務，此處先保存你的偏好。</div>
       </Card>
@@ -214,7 +212,6 @@ export default function MemberPage() {
         </div>
         <div className="mt-4 flex items-center gap-3">
           <button disabled={busy} onClick={saveProfile} className="flex items-center gap-1.5 rounded-lg bg-tide-500/20 px-4 py-2 text-sm font-semibold text-tide-300 hover:bg-tide-500/30 disabled:opacity-50"><Save size={14} /> 儲存</button>
-          {saved && <span className="text-xs text-slate-400">{saved}</span>}
         </div>
       </Card>
       <Link href="/activity" className="block">
@@ -248,7 +245,6 @@ export default function MemberPage() {
           className="mt-3 w-full rounded-lg border border-white/10 bg-ink-900 px-3 py-2.5 text-sm outline-none focus:border-tide-500/40" />
         <div className="mt-3 flex items-center gap-3">
           <button disabled={busy} onClick={sendFeedback} className="flex items-center gap-1.5 rounded-lg bg-tide-500/20 px-4 py-2 text-sm font-semibold text-tide-300 hover:bg-tide-500/30 disabled:opacity-50"><Send size={14} /> 送出反饋</button>
-          {fbMsg && <span className="text-xs text-slate-400">{fbMsg}</span>}
         </div>
       </Card>
       <button onClick={() => signOut({ callbackUrl: "/login" })} className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/10 py-2.5 text-sm text-slate-300 hover:bg-white/5"><LogOut size={14} /> 登出</button>
