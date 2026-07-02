@@ -151,6 +151,8 @@ pytest   # 有測試條件時
 
 註（v62）：`SIZING_MODE` / `RISK_PER_TRADE_PCT` 已**棄用**——倉位改為固定等額 `淨值 ÷ AT_MAX_POSITIONS`，全 code 不再讀這兩個變數（保留名稱僅為歷史相容）。
 
+止損強平硬約束（v65）：止損價絕不可超過強平線——必須落在強平線內側並留安全緩衝（LIQ_BUFFER，止損距離最多用「進場→強平」距離的 85%）。強平價優先讀 Bybit 實際 liquidationPrice，讀不到用公式保守估。止損計算優先級：①不超強平（最高）②落在結構位外側 ③盈虧比 RR 達標；衝突時安全優先，湊不出合理組合就放棄該單。
+
 ---
 
 ## 8. SaaS 安全規則（未經作者確認不可改）
@@ -181,6 +183,8 @@ TP 拆分    : 40 / 35 / 25（TP4 停用）
 `bot.py close_signal()` 採分段加權結算，權重 `_weights = {1:0.40, 2:0.35, 3:0.25}`：每個達成過的 TP 按權重結算，剩餘倉位用最終出場價結算。
 - `is_win` 由 `final_pct > 0` 判定（不是看 `exit_type`）；`result` 可能是 `SL_HIT` 但 `final_pct` 仍可能為正。
 - 達過 TP 後剩餘倉位出場價鉗制成「不差於成本」避免重複計虧。
+
+⚠️ 紙上追蹤 vs 真錢單（重要）：SIGNAL_RESULTS 記錄的是「所有推播信號的紙上追蹤結算」——`close_signal()` 對每個 ACTIVE_SIGNALS 信號結算，完全不管 auto_trader 有沒有真的在 Bybit 下單（滿倉排隊/tier過濾/drift拒絕的信號也照算）。因此 SIGNAL_RESULTS 的勝率/期望值代表「信號質量」（假設每個信號都開的表現），不等於真錢實際損益；真錢實際損益看 `at:pnl_ledger`（含手續費）。兩套數據分開看：分析信號邏輯用 SIGNAL_RESULTS，看實際賺賠用 `at:pnl_ledger`。兩系統完全解耦，auto_trader 不回寫交易狀態給 bot.py。`was_real_trade` 欄位（v65）用來在 SIGNAL_RESULTS 內標記該筆是否真有 Bybit 開倉，供篩選。
 
 ---
 
