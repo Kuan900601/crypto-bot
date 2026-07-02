@@ -3312,6 +3312,8 @@ def register_signal(sig, watchers):
         # v65 新增
         "entry_vs_ema_at_entry": sig.get("entry_vs_ema"),
         "price_change_before_entry": sig.get("price_change_before_entry"),
+        "dist_from_recent_high_at_entry": sig.get("dist_from_recent_high_pct"),
+        "dist_from_recent_low_at_entry": sig.get("dist_from_recent_low_pct"),
         "session_at_entry": "Asia" if now.hour < 8 else ("Europe" if now.hour < 16 else "America"),
     }
     save_data()
@@ -3500,18 +3502,49 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
         _dur_min = (datetime.now(timezone.utc) - datetime.fromisoformat(_created)).total_seconds() / 60 if _created else 0
     except Exception:
         _dur_min = 0
+
+    # v65 P2：exit_reason — 比 result 更細的出場原因分類
+    _exit_reason_map = {
+        "SL_HIT": "SL", "TP3_HIT": "TP3", "EXPIRED": "EXPIRED",
+        "REVERSED": "reversal", "RECHECK_EXIT": "structure_exit",
+    }
+    exit_reason = _exit_reason_map.get(reason_code, reason_code)
+
+    # v65 P2：was_real_trade — 方案 A：查 at:trades 比對，讀不到存 None（不填 False 假值）
+    was_real_trade = None
+    if _USE_REDIS:
+        try:
+            _at_trades = _redis_get_json_key("auto_trades.json", None)
+            if _at_trades is not None:
+                _created_ts = datetime.fromisoformat(sig.get("created", "1970-01-01T00:00:00+00:00")).timestamp()
+                _closed_ts = datetime.now(timezone.utc).timestamp()
+                _sym_norm = symbol.replace(":USDT", "")  # 統一成 "SEI/USDT" 格式比對
+                was_real_trade = False
+                for _tr in _at_trades:
+                    _tr_sym = (_tr.get("symbol") or "").replace(":USDT", "")
+                    _tr_ts = float(_tr.get("opened_at") or 0)
+                    if (_tr_sym == _sym_norm and _tr.get("ok") and
+                            _created_ts - 120 <= _tr_ts <= _closed_ts):
+                        was_real_trade = True
+                        break
+        except Exception as _wrt_e:
+            logger.warning("was_real_trade 查詢失敗（不影響結算）: " + str(_wrt_e)[:100])
+            was_real_trade = None
+
     SIGNAL_RESULTS.append({
         "symbol": symbol, "direction": direction, "entry": entry,
-        "result": reason_code, "final_pct": round(final_pct, 2),
+        "result": reason_code, "exit_reason": exit_reason,  # v65 P2：細分出場原因
+        "final_pct": round(final_pct, 2),
         "tp_hit_count": len(sig.get("tp_hit", [])),
         "score": sig.get("score", 0),
         "tier": sig.get("tier", "B"),  # v38 新增
         "entry_grade": sig.get("entry_grade", ""),  # v53：為真實勝率校準
-        "sl": sig.get("sl", 0),  # v65 修：開倉時就存在 ACTIVE_SIGNALS 裡，平倉時漏複製進歷史紀錄
+        "sl": sig.get("sl", 0),
         "tp1": sig.get("tp1", 0),
         "tp2": sig.get("tp2", 0),
         "tp3": sig.get("tp3", 0),
         "is_win": is_win,  # v38 新增
+        "was_real_trade": was_real_trade,  # v65 P2：True/False/None(讀取失敗)
         "closed_at": datetime.now(timezone.utc).isoformat(),
         "duration_min": _dur_min,
         "sl_at_entry": sig.get("sl_at_entry", 0),
@@ -3532,6 +3565,8 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
         # v65 新增
         "entry_vs_ema_at_entry": sig.get("entry_vs_ema_at_entry"),
         "price_change_before_entry": sig.get("price_change_before_entry"),
+        "dist_from_recent_high_at_entry": sig.get("dist_from_recent_high_at_entry"),
+        "dist_from_recent_low_at_entry": sig.get("dist_from_recent_low_at_entry"),
         "session_at_entry": sig.get("session_at_entry"),
     })
     # 只保留最近 1000 筆

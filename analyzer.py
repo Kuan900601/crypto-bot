@@ -5887,6 +5887,15 @@ class CryptoAnalyzer:
             )
         except Exception:
             price_change_before_entry = None
+        try:
+            _tail24 = df1h.tail(24)
+            _h24 = float(_tail24["high"].max())
+            _l24 = float(_tail24["low"].min())
+            dist_from_recent_high_pct = round((current_price - _h24) / _h24 * 100, 2)  # 負=低於近高
+            dist_from_recent_low_pct = round((current_price - _l24) / _l24 * 100, 2)   # 正=高於近低
+        except Exception:
+            dist_from_recent_high_pct = None
+            dist_from_recent_low_pct = None
 
         plan = {
             "score": round(score, 1),
@@ -5908,6 +5917,8 @@ class CryptoAnalyzer:
             "ls_ratio": ls_ratio,
             "entry_vs_ema": entry_vs_ema,
             "price_change_before_entry": price_change_before_entry,
+            "dist_from_recent_high_pct": dist_from_recent_high_pct,
+            "dist_from_recent_low_pct": dist_from_recent_low_pct,
             "regime": sig1h.get("regime", ""),
             "adx": sig1h.get("adx", 0),
             "position": adjusted_position,
