@@ -15,6 +15,10 @@ import trader
 MAX_POSITIONS = int(os.getenv("AT_MAX_POSITIONS", "4"))
 LEVERAGE = int(os.getenv("AT_LEVERAGE", "20"))
 MAX_SL_PCT = float(os.getenv("AT_MAX_SL_PCT", "0.035"))
+# v65 P1 強平安全線
+LIQ_BUFFER = float(os.getenv("LIQ_BUFFER", "0.15"))          # 止損最多用距強平的 (1-LIQ_BUFFER) 比例
+MIN_SL_SPACE_PCT = float(os.getenv("MIN_SL_SPACE_PCT", "0.005"))   # 止損空間 < 此值 → 不開倉
+WARN_SL_SPACE_PCT = float(os.getenv("WARN_SL_SPACE_PCT", "0.015"))  # 止損空間 < 此值 → 告警但照開
 ALLOWED_TIERS = [t.strip() for t in os.getenv("AUTO_TRADE_TIERS", "S,A,B").split(",") if t.strip()]
 TP_SPLIT = {1: 0.40, 2: 0.35, 3: 0.25}  # v61：三段止盈 40/35/25，對齊 bot.py 結算與 Bybit 實際三段成交
 POLL_INTERVAL = 15
@@ -301,6 +305,49 @@ def _clamp_sl(side, ref_price, sl):
     return min(sl, ref_price * (1 + MAX_SL_PCT))
 
 
+def _get_safe_sl(side, entry, sl_price, liq_price=None):
+    """v65 P1：強平安全線保護。
+    確保止損不超過「距強平 (1-LIQ_BUFFER) 比例」，防止止損比強平線更近造成強平反先觸發。
+    liq_price=None → 用公式估算（保守取 entry × 1/LEVERAGE × 0.95）。
+    回傳 (safe_sl, safety_line, was_adjusted, liq_source, sl_space_pct)。
+    sl_space_pct = 安全後止損距離 / entry，供 MIN_SL_SPACE_PCT 判斷。"""
+    if not entry or not sl_price:
+        return sl_price, None, False, "none", None
+    entry = float(entry)
+    sl_price = float(sl_price)
+
+    if liq_price is not None:
+        try:
+            liq_price = float(liq_price)
+            liq_source = "bybit"
+        except Exception:
+            liq_price = None
+            liq_source = "formula"
+    else:
+        liq_source = "formula"
+
+    if liq_price is None:
+        # 保守公式：(1/leverage) × 0.95 做強平距離估算，給 5% 餘量防低估
+        est_pct = (1.0 / LEVERAGE) * 0.95
+        liq_price = entry * (1 - est_pct) if side == "buy" else entry * (1 + est_pct)
+
+    liq_distance = abs(entry - liq_price)
+    if liq_distance <= 0:
+        return sl_price, None, False, liq_source, None
+
+    # 安全線：從強平價往進場方向留 LIQ_BUFFER 倍的緩衝
+    if side == "buy":
+        safety_line = liq_price + liq_distance * LIQ_BUFFER
+        safe_sl = max(sl_price, safety_line)
+    else:
+        safety_line = liq_price - liq_distance * LIQ_BUFFER
+        safe_sl = min(sl_price, safety_line)
+
+    was_adjusted = safe_sl != sl_price
+    sl_space_pct = abs(entry - safe_sl) / entry
+    return safe_sl, safety_line, was_adjusted, liq_source, sl_space_pct
+
+
 def _attach_position_sl(ex, symbol, sl_price, total_amount, close_side):
     """對已存在的持倉設整倉止損：優先 Bybit V5 trading-stop，退回 reduceOnly 條件單。
     回傳 (ok, sl_used, msg, error)。"""
@@ -437,8 +484,29 @@ def open_batch_tp_position(ex, signal, equity, free_usdt=None):
         record["entry"] = entry_px
         return record
 
-    # 1) 市價開倉 + Bybit V5 原生附帶整倉止損（P1-1：開倉即附帶止損，無「開了卻沒止損」窗口）
+    # 1) 市價開倉 + Bybit V5 原生附帶整倉止損
     sl_price = _clamp_sl(side, price, signal.get("sl"))  # 不允許比 MAX_SL_PCT 更遠
+
+    # v65 P1 第一道：開倉前用公式估算強平價，確保止損在安全線內
+    sl_price, pre_safety, pre_adjusted, pre_src, sl_space = _get_safe_sl(side, price, sl_price)
+    if sl_space is not None:
+        if sl_space < MIN_SL_SPACE_PCT:
+            # 止損空間不足 → 拒絕開倉
+            _msg = "止損空間不足（{:.2%} < {:.2%}），放棄開倉防強平｜{}".format(
+                sl_space, MIN_SL_SPACE_PCT, symbol)
+            record["msg"] = "❌ " + _msg
+            push_event("❌ " + _msg)
+            log("❌", _msg)
+            return record
+        if sl_space < WARN_SL_SPACE_PCT:
+            # 止損空間偏小 → 照開但告警
+            _warn = "止損空間偏小（{:.2%}），可能易被掃出場，注意｜{}".format(sl_space, symbol)
+            push_event("⚠️ " + _warn)
+            log("⚠️", _warn)
+    if pre_adjusted:
+        log("⚠️ 止損縮緊到強平安全線（{}）{:.6f}→{:.6f}｜{}".format(
+            pre_src, float(signal.get("sl", 0) or 0), sl_price, symbol))
+
     prot = trader.open_position_with_protection(ex, symbol, side, total_amount, sl_price)
     record["order_id"] = prot.get("order_id")
     record["ok"] = prot.get("ok", False)
@@ -461,6 +529,38 @@ def open_batch_tp_position(ex, signal, equity, free_usdt=None):
             record["msg"] += " | ⚠️⚠️⚠️ 平倉也失敗，請立刻手動平倉！: " + str(e)[:120]
             push_event("🔴🔴🔴 止損失敗且緊急平倉也失敗，請立刻手動處理！｜" + symbol + " | " + str(e)[:80])
         return record
+
+    # v65 P1 第二道：開倉後讀 Bybit 真實 liquidationPrice，必要時修正止損
+    if sl_price and record["ok"] and record["sl_ok"]:
+        _liq_real = None
+        try:
+            _pos_check = trader.get_positions(ex, symbol)
+            for _p in _pos_check:
+                _lp = (_p.get("info") or {}).get("liquidationPrice")
+                if _lp and str(_lp) not in ("", "0", "0.0"):
+                    _liq_real = float(_lp)
+                    break
+        except Exception as _le:
+            log("⚠️ 開倉後讀強平價失敗，保留公式安全線（{}）：{}".format(pre_src, str(_le)[:100]))
+            push_event("⚠️ 強平價讀取失敗，已保留公式估算安全線｜{}".format(symbol))
+
+        if _liq_real is not None:
+            sl_adj, safety_adj, adj_r, _, space_r = _get_safe_sl(side, price, sl_price, _liq_real)
+            if adj_r:
+                # 真實強平比公式估算更近 → 修正止損
+                log("⚠️ 止損修正（Bybit 真實強平 {:.6f}，安全線 {:.6f}）{}→{}｜{}".format(
+                    _liq_real, safety_adj, sl_price, sl_adj, symbol))
+                _ok_fix, _sl_fix, _fix_msg, _ = _attach_position_sl(
+                    ex, symbol, sl_adj, total_amount, close_side)
+                if _ok_fix:
+                    record["sl_used"] = sl_adj
+                    push_event("⚠️ 止損已修正到真實強平安全線 {:.6f}｜{}".format(sl_adj, symbol))
+                else:
+                    push_event("🔴 止損修正失敗（強平安全），請手動確認止損！｜{}｜{}".format(
+                        symbol, _fix_msg[:80]))
+            elif space_r is not None and space_r < WARN_SL_SPACE_PCT:
+                push_event("⚠️ Bybit 真實止損空間偏小（{:.2%}），注意被掃出場風險｜{}".format(
+                    space_r, symbol))
 
     # 2) 整倉止損已附帶 → 掛分批止盈（TP1~3 獨立 reduceOnly；某段失敗不影響整倉止損）
     return _place_tp_orders(ex, symbol, side, close_side, total_amount, signal, record)
