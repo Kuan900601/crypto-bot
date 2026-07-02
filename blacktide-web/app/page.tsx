@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Lock } from "lucide-react";
+import { Lock, TrendingUp, TrendingDown, Radar, Radio, Clock, Trophy, BarChart2, AlertTriangle } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useMarket } from "@/lib/useMarket";
 import { Signal } from "@/lib/types";
@@ -17,6 +17,18 @@ import { Skeleton } from "@/components/ui";
 
 // 監測幣種數固定為 52（analyzer.py 實際掃描的幣種數，與站內既有文案一致，非首頁自行估算）
 const MONITORED_COINS = 52;
+
+const TIER_COLOR: Record<string, { color: string; bg: string; border: string }> = {
+  S: { color: "#E8C66E", bg: "rgba(232,198,110,0.18)", border: "rgba(232,198,110,0.45)" },
+  A: { color: "#37D6C4", bg: "rgba(55,214,196,0.12)",  border: "rgba(55,214,196,0.38)"  },
+  B: { color: "#64748b", bg: "rgba(100,116,139,0.12)", border: "rgba(100,116,139,0.38)" },
+  C: { color: "#566B7C", bg: "transparent",            border: "rgba(120,180,200,0.16)" },
+};
+function gradeColor(g: string) {
+  if (g === "S" || g === "A") return { color: "#37D6C4", label: "高品質進場" };
+  if (g === "B" || g === "C") return { color: "#8FA6B5", label: "一般品質"   };
+  return { color: "#566B7C", label: "低品質" };
+}
 
 function isToday(iso?: string) {
   if (!iso) return false;
@@ -97,15 +109,24 @@ export default function Home() {
                 <Link href="/login?register=1"><CTA big>免費註冊 · 送 3 日 Plus 體驗</CTA></Link>
               </div>
               <div style={{ display: "flex", gap: 30, marginTop: 44, flexWrap: "wrap" }}>
-                {[[MONITORED_COINS, "監測幣種"], [todaySignalCount, "今日信號"]].map(([n, l]) => (
-                  <div key={l as string}>
-                    <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 800, color: C.gold }}><Counter to={n as number} /></div>
-                    <div style={{ fontSize: 11, color: C.dim, marginTop: 2, letterSpacing: 1 }}>{l}</div>
+                {([
+                  { n: MONITORED_COINS, label: "監測幣種", sub: "永續合約", Icon: Radar },
+                  { n: todaySignalCount, label: "今日信號", sub: "已發出", Icon: Radio },
+                ] as const).map(({ n, label, sub, Icon }) => (
+                  <div key={label}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Icon size={14} color={C.gold} style={{ opacity: 0.7 }} />
+                      <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 800, color: C.gold }}><Counter to={n} /></div>
+                    </div>
+                    <div style={{ fontSize: 11, color: C.dim, marginTop: 2, letterSpacing: 1 }}>{label} <span style={{ opacity: 0.6 }}>· {sub}</span></div>
                   </div>
                 ))}
                 <div>
-                  <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 800, color: C.gold }}>24/7</div>
-                  <div style={{ fontSize: 11, color: C.dim, marginTop: 2, letterSpacing: 1 }}>AI 盯盤</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <Clock size={14} color={C.gold} style={{ opacity: 0.7 }} />
+                    <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 800, color: C.gold }}>24/7</div>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.dim, marginTop: 2, letterSpacing: 1 }}>AI 盯盤 <span style={{ opacity: 0.6 }}>· 不停機</span></div>
                 </div>
               </div>
             </div>
@@ -130,18 +151,55 @@ export default function Home() {
             {previewSignal && (
               <div ref={previewTiltRef} className="glass-sheen tilt-card" style={{ flex: "0 1 280px", minWidth: 240, borderRadius: 18, padding: 18, position: "relative", background: "rgba(6,16,30,0.78)", border: `1px solid ${C.lineGold}`, backdropFilter: "blur(10px)" }}>
                 <Corner pos="tl" /><Corner pos="tr" /><Corner pos="bl" /><Corner pos="br" />
-                <div style={{ fontSize: 10, letterSpacing: 2, color: C.dim, marginBottom: 8 }}>今日 AI 信號預覽</div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontSize: 10, letterSpacing: 2, color: C.dim, marginBottom: 10 }}>今日 AI 信號預覽</div>
+
+                {/* 幣種 + 方向 */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  {previewSignal.direction === "long"
+                    ? <TrendingUp size={20} color={C.green} />
+                    : <TrendingDown size={20} color={C.rose} />}
                   <span style={{ fontFamily: MONO, fontWeight: 800, fontSize: 18, color: C.ink }}>{previewSignal.symbol}/USDT</span>
-                  <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 99, color: previewSignal.direction === "long" ? C.green : C.rose, background: (previewSignal.direction === "long" ? C.green : C.rose) + "1A" }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 99, marginLeft: "auto",
+                    color: previewSignal.direction === "long" ? C.green : C.rose,
+                    background: (previewSignal.direction === "long" ? C.green : C.rose) + "1A" }}>
                     {previewSignal.direction === "long" ? "做多" : "做空"}
                   </span>
                 </div>
-                <div style={{ marginTop: 6, fontSize: 12, color: C.mut }}>
-                  AI 信心評分：<b style={{ color: C.gold }}>{Math.round(previewSignal.winRate ?? 0)}%</b>
-                  <span style={{ display: "block", fontSize: 10, color: C.dim, marginTop: 2 }}>模型評分，非已實現歷史勝率</span>
+
+                {/* Tier + 進場品質 badges */}
+                <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                  {(() => { const tc = TIER_COLOR[previewSignal.tier] ?? TIER_COLOR["C"]; return (
+                    <span style={{ fontSize: 9.5, fontWeight: 700, padding: "2px 8px", borderRadius: 6, color: tc.color, background: tc.bg, border: `1px solid ${tc.border}` }}>
+                      Tier {previewSignal.tier}
+                    </span>
+                  ); })()}
+                  {(() => { const gc = gradeColor(previewSignal.entryGrade); return (
+                    <span style={{ fontSize: 9.5, fontWeight: 600, padding: "2px 8px", borderRadius: 6, color: gc.color, background: gc.color + "18", border: `1px solid ${gc.color}44` }}>
+                      {gc.label}
+                    </span>
+                  ); })()}
+                  {previewSignal.leverage != null && (
+                    <span style={{ fontSize: 9.5, fontWeight: 600, padding: "2px 8px", borderRadius: 6, color: C.dim, border: `1px solid ${C.line}` }}>
+                      {previewSignal.leverage}x
+                    </span>
+                  )}
                 </div>
-                <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6, fontSize: 12 }}>
+
+                {/* AI 信心橫條 */}
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.mut, marginBottom: 4 }}>
+                    <span>AI 信心評分</span>
+                    <b style={{ color: C.gold }}>{Math.round(previewSignal.winRate ?? 0)}%</b>
+                  </div>
+                  <div style={{ height: 4, borderRadius: 99, background: "rgba(255,255,255,0.06)" }}>
+                    <div style={{ height: "100%", borderRadius: 99, width: `${Math.min(100, Math.round(previewSignal.winRate ?? 0))}%`,
+                      background: `linear-gradient(90deg, ${C.teal}, ${C.gold})` }} />
+                  </div>
+                  <div style={{ fontSize: 9, color: C.dim, marginTop: 3 }}>模型評分，非已實現歷史勝率</div>
+                </div>
+
+                {/* 價位列 */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12 }}>
                   {previewSignal.entryLow != null ? (
                     <Row label="進場價" value={"$" + previewSignal.entryLow} />
                   ) : (
@@ -183,9 +241,24 @@ export default function Home() {
               </div>
             ) : perfSampleOk ? (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, textAlign: "center" }}>
-                <div><div style={{ fontFamily: MONO, fontSize: 18, fontWeight: 800, color: C.green }}>{perfWinRate}%</div><div style={{ fontSize: 10, color: C.dim }}>勝率</div></div>
-                <div><div style={{ fontFamily: MONO, fontSize: 18, fontWeight: 800, color: perfAvgPct >= 0 ? C.green : C.rose }}>{perfAvgPct >= 0 ? "+" : ""}{perfAvgPct.toFixed(1)}%</div><div style={{ fontSize: 10, color: C.dim }}>平均報酬</div></div>
-                <div><div style={{ fontFamily: MONO, fontSize: 18, fontWeight: 800, color: C.rose }}>-{perfMaxDD.toFixed(1)}%</div><div style={{ fontSize: 10, color: C.dim }}>最大回撤</div></div>
+                <div>
+                  <div style={{ fontFamily: MONO, fontSize: 18, fontWeight: 800, color: C.green }}>{perfWinRate}%</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, fontSize: 10, color: C.dim, marginTop: 2 }}>
+                    <Trophy size={10} />勝率
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontFamily: MONO, fontSize: 18, fontWeight: 800, color: perfAvgPct >= 0 ? C.green : C.rose }}>{perfAvgPct >= 0 ? "+" : ""}{perfAvgPct.toFixed(1)}%</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, fontSize: 10, color: C.dim, marginTop: 2 }}>
+                    <BarChart2 size={10} />平均報酬
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontFamily: MONO, fontSize: 18, fontWeight: 800, color: C.rose }}>-{perfMaxDD.toFixed(1)}%</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, fontSize: 10, color: C.dim, marginTop: 2 }}>
+                    <AlertTriangle size={10} />最大回撤
+                  </div>
+                </div>
               </div>
             ) : (
               <div style={{ fontSize: 12.5, color: C.mut, lineHeight: 1.6, wordBreak: "keep-all", overflowWrap: "break-word" }}>
