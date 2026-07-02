@@ -227,3 +227,21 @@ a:active { -webkit-tap-highlight-color: transparent; }
 @media (prefers-reduced-motion: reduce) {
   .toast-enter { animation: none !important; }
 }
+
+/* ============ 階段二批次C：Signal card 狀態指示器 ============ */
+.pulse-live {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #37D6C4;
+  box-shadow: 0 0 0 0 rgba(55, 214, 196, 0.45);
+  flex-shrink: 0;
+  animation: pulseRing 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes pulseRing {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(55, 214, 196, 0.45); }
+  60%       { box-shadow: 0 0 0 6px rgba(55, 214, 196, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-live { animation: none !important; }
+}
