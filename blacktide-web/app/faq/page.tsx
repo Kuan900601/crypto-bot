@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { ChevronDown, HelpCircle, RefreshCw, Repeat2, Zap, Shield, DollarSign, Clock, TrendingUp, Lock, Bell } from "lucide-react";
-import { C, SERIF } from "@/lib/theme";
+import { C } from "@/lib/theme";
 
 interface Item { q: string; a: string; icon: typeof HelpCircle }
 const SECTIONS: { title: string; items: Item[] }[] = [
@@ -103,7 +103,7 @@ export default function FaqPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="accent-text" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700 }}>常見問題</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.01em", color: C.ink }}>常見問題</h1>
         <p className="mt-1" style={{ fontSize: 13, color: C.mut }}>關於黑潮信號、AI 分析、訂閱方案的常見疑問解答</p>
       </div>
       {SECTIONS.map((s) => (

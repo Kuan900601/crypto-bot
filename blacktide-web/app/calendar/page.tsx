@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Calendar, TrendingUp, DollarSign, Globe } from "lucide-react";
-import { C, MONO, SERIF } from "@/lib/theme";
+import { C, MONO } from "@/lib/theme";
 import Corner from "@/components/site/Corner";
 
 type Category = "all" | "crypto" | "macro" | "fed";
@@ -55,7 +55,7 @@ export default function CalendarPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="accent-text" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700 }}>重要事件行事曆</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.01em", color: C.ink }}>重要事件行事曆</h1>
         <p className="mt-1" style={{ fontSize: 13, color: C.mut }}>加密貨幣週期事件、美國總經數據、Fed 利率決策關鍵日期</p>
       </div>
 

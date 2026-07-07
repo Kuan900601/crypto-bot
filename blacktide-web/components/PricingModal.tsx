@@ -171,7 +171,7 @@ export default function PricingModal() {
             <div className="relative">
               <div className="flex items-center gap-2">
                 <Flame size={18} className="text-amber-400" />
-                <span className="font-display text-base font-bold text-amber-200">創始會員 · Founder Pro</span>
+                <span className="font-mono text-base font-bold text-amber-200">創始會員 · Founder Pro</span>
                 {soldOut ? (
                   <span className="ml-auto rounded-full bg-slate-700/60 px-2.5 py-0.5 text-[10px] text-slate-500">已售完</span>
                 ) : (

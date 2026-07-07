@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { SERIF } from "@/lib/theme";
+import { C } from "@/lib/theme";
 import LogoMark from "@/components/site/LogoMark";
 export default function LegalLayout({ title, updated, children }: { title: string; updated: string; children: React.ReactNode }) {
   return (
@@ -9,7 +9,7 @@ export default function LegalLayout({ title, updated, children }: { title: strin
       <div className="flex items-center gap-3">
         <LogoMark size={34} />
         <div>
-          <h1 className="accent-text" style={{ fontFamily: SERIF, fontSize: 22, fontWeight: 700 }}>{title}</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.01em", color: C.ink }}>{title}</h1>
           <div className="text-xs text-slate-500">最後更新：{updated}</div>
         </div>
       </div>

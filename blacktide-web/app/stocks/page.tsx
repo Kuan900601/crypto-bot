@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { TrendingUp, TrendingDown, Minus, RefreshCw, BarChart2, Activity } from "lucide-react";
 import { Card, Skeleton } from "@/components/ui";
 import { fmtPrice } from "@/lib/format";
-import { C, MONO, SERIF } from "@/lib/theme";
+import { C, MONO } from "@/lib/theme";
 import Corner from "@/components/site/Corner";
 const STOCKS = ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD"];
 
@@ -73,7 +73,7 @@ export default function StocksPage() {
           <BarChart2 size={14} color={C.teal} />
           <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: C.teal }}>美股 AI 分析</span>
         </div>
-        <h1 className="accent-text" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700 }}>美股技術分析</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.01em", color: C.ink }}>美股技術分析</h1>
         <p className="mt-1" style={{ fontSize: 13, color: C.mut }}>基於 Yahoo Finance 90 日數據 · RSI · 布林通道 · MACD · 均線 · 量能分析</p>
       </div>
 
@@ -111,7 +111,7 @@ export default function StocksPage() {
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-display text-xl font-bold">{data.symbol}</span>
+                  <span className="font-mono text-xl font-bold">{data.symbol}</span>
                   <span className="text-sm text-slate-400">{data.name}</span>
                   <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] text-blue-300">{data.sector}</span>
                 </div>
@@ -136,7 +136,7 @@ export default function StocksPage() {
               <div className="text-right">
                 <div className="flex items-center justify-end gap-2">
                   <BiasIcon b={data.bias} />
-                  <span className={`font-display text-2xl font-bold ${biasCls(data.bias)}`}>{biasLabel(data.bias)}</span>
+                  <span className={`font-mono text-2xl font-bold ${biasCls(data.bias)}`}>{biasLabel(data.bias)}</span>
                 </div>
                 <div className="mt-1 text-xs text-slate-500">信心 <span className="text-slate-300">{data.confidence}%</span></div>
                 <div className="mt-0.5 text-xs text-slate-500">風險 <span className={data.risk >= 60 ? "text-down" : data.risk >= 40 ? "text-amber-400" : "text-up"}>{data.risk}</span></div>

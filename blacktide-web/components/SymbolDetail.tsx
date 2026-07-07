@@ -44,7 +44,7 @@ export default function SymbolDetail() {
       <div className="pop-in relative flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl border border-white/10 bg-ink-800 sm:rounded-2xl">
         {/* Header */}
         <div className="flex items-center gap-2 border-b border-white/5 px-4 py-3">
-          <span className="font-display text-base font-bold">{detail.symbol}</span>
+          <span className="font-mono text-base font-bold">{detail.symbol}</span>
           <span className="text-xs text-slate-500">{detail.name}</span>
           <Badge tone={detail.type === "crypto" ? "tide" : "amber"}>{detail.type === "crypto" ? "加密" : "美股"}</Badge>
           <button onClick={() => toggleWatch(detail.symbol)} className="ml-auto text-slate-500">
@@ -102,7 +102,7 @@ export default function SymbolDetail() {
                   <div className={`flex items-center gap-4 rounded-xl border px-4 py-3 ${ai.bias === "long" ? "border-up/20 bg-up/[0.07]" : ai.bias === "short" ? "border-down/20 bg-down/[0.07]" : "border-white/10 bg-white/[0.02]"}`}>
                     <div>
                       <div className="text-[10px] uppercase tracking-widest text-slate-500">AI 綜合判斷</div>
-                      <div className={`mt-0.5 font-display text-2xl font-bold ${ai.bias === "long" ? "text-up" : ai.bias === "short" ? "text-down" : "text-slate-200"}`}>
+                      <div className={`mt-0.5 font-mono text-2xl font-bold ${ai.bias === "long" ? "text-up" : ai.bias === "short" ? "text-down" : "text-slate-200"}`}>
                         {biasLabel(ai.bias)}
                       </div>
                     </div>

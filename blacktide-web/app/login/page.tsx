@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { signIn, getProviders } from "next-auth/react";
 import { Camera, CheckCircle } from "lucide-react";
-import { C, SERIF } from "@/lib/theme";
+import { C } from "@/lib/theme";
 import LogoMark from "@/components/site/LogoMark";
 const input = "w-full rounded-lg border border-white/10 bg-ink-900 px-3 py-2.5 text-sm outline-none focus:border-tide-500/40";
 export default function LoginPage() {
@@ -78,8 +78,8 @@ export default function LoginPage() {
     <div className="mx-auto mt-[6vh] w-full max-w-sm">
       <div className="flex flex-col items-center">
         <LogoMark size={56} />
-        <div className="mt-3" style={{ fontFamily: SERIF, fontSize: 17, fontWeight: 700, letterSpacing: 1, color: C.ink }}>黑潮 BLACKTIDE</div>
-        <div style={{ fontFamily: SERIF, fontSize: 9.5, letterSpacing: 2.5, color: C.primary2 }}>SIGNALS · PRO TERMINAL</div>
+        <div className="mt-3" style={{ fontSize: 17, fontWeight: 800, letterSpacing: "0.04em", color: C.ink }}>黑潮 BLACKTIDE</div>
+        <div style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: "0.28em", color: C.primary, marginTop: 2 }}>SIGNALS · PRO TERMINAL</div>
       </div>
       <div className="mt-6 rounded-2xl p-5" style={{ border: `1px solid ${C.linePrimary}`, background: "linear-gradient(180deg, rgba(16,30,48,0.78), rgba(6,16,30,0.7))" }}>
         {notice && (

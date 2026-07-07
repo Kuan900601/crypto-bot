@@ -58,22 +58,22 @@ export default function AdminPage() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="rounded-xl border border-white/5 bg-ink-800/60 p-4">
           <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500"><Eye size={12} /> 總瀏覽次數</div>
-          <div className="mt-1.5 font-display text-2xl font-bold">{(analytics?.totalPV ?? 0).toLocaleString()}</div>
+          <div className="mt-1.5 font-mono text-2xl font-bold">{(analytics?.totalPV ?? 0).toLocaleString()}</div>
           <div className="mt-0.5 text-[11px] text-slate-500">今日 {analytics?.todayPV ?? 0} · 昨日 {analytics?.yesterdayPV ?? 0}</div>
         </div>
         <div className="rounded-xl border border-white/5 bg-ink-800/60 p-4">
           <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500"><Clock size={12} /> 平均停留時長</div>
-          <div className="mt-1.5 font-display text-2xl font-bold">{fmtDuration(analytics?.avgSessionSec ?? 0)}</div>
+          <div className="mt-1.5 font-mono text-2xl font-bold">{fmtDuration(analytics?.avgSessionSec ?? 0)}</div>
           <div className="mt-0.5 text-[11px] text-slate-500">樣本 {(analytics?.sampleCount ?? 0).toLocaleString()} 筆</div>
         </div>
         <div className="rounded-xl border border-white/5 bg-ink-800/60 p-4">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">今日 PV</div>
-          <div className="mt-1.5 font-display text-2xl font-bold text-tide-300">{analytics?.todayPV ?? 0}</div>
+          <div className="mt-1.5 font-mono text-2xl font-bold text-tide-300">{analytics?.todayPV ?? 0}</div>
           <div className="mt-0.5 text-[11px] text-slate-500">昨日對比 {analytics?.yesterdayPV ? (analytics.todayPV >= analytics.yesterdayPV ? "+" : "") + ((analytics.todayPV - analytics.yesterdayPV) / Math.max(1, analytics.yesterdayPV) * 100).toFixed(0) + "%" : "—"}</div>
         </div>
         <div className="rounded-xl border border-white/5 bg-ink-800/60 p-4">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">PV / 用戶比</div>
-          <div className="mt-1.5 font-display text-2xl font-bold">{s?.totalUsers ? ((analytics?.totalPV ?? 0) / s.totalUsers).toFixed(1) : "—"}</div>
+          <div className="mt-1.5 font-mono text-2xl font-bold">{s?.totalUsers ? ((analytics?.totalPV ?? 0) / s.totalUsers).toFixed(1) : "—"}</div>
           <div className="mt-0.5 text-[11px] text-slate-500">每位用戶平均頁面瀏覽</div>
         </div>
       </div>

@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Card, Stat, Skeleton } from "@/components/ui";
 import { makeRng } from "@/lib/format";
 import { Play, TrendingUp, FlaskConical, AlertTriangle } from "lucide-react";
-import { C, SERIF } from "@/lib/theme";
+import { C } from "@/lib/theme";
 import Corner from "@/components/site/Corner";
 const SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "SUI", "PEPE", "NVDA", "TSLA", "AAPL", "META"];
 const TFS = ["15m", "1h", "4h", "1d"];
@@ -93,7 +93,7 @@ export default function BacktestPage() {
             <TrendingUp size={15} color={C.teal} />
             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: C.teal }}>STRATEGY VALIDATION · 示意模擬</span>
           </div>
-          <h1 className="accent-text" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700 }}>策略驗證工具 · 示意模擬</h1>
+          <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.01em", color: C.ink }}>策略驗證工具 · 示意模擬</h1>
           <p className="mt-2 max-w-lg" style={{ fontSize: 13, lineHeight: 1.7, color: C.mut }}>
             這裡的勝率、期望值、最大回撤與 Sharpe 比率是<b style={{ color: C.primary }}>示意模擬數據</b>，用來示範介面與指標算法，
             <b style={{ color: C.primary }}>不是黑潮船長的真實歷史績效</b>。真實策略表現以 bot 歷史結算（SIGNAL_RESULTS）為準。
@@ -155,24 +155,24 @@ export default function BacktestPage() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Card className="p-4 text-center">
               <div className="text-[10px] uppercase tracking-wider text-slate-500">總報酬</div>
-              <div className={`mt-1 font-display text-3xl font-bold ${res.totalRet >= 0 ? "text-up" : "text-down"}`}>
+              <div className={`mt-1 font-mono text-3xl font-bold ${res.totalRet >= 0 ? "text-up" : "text-down"}`}>
                 {res.totalRet >= 0 ? "+" : ""}{res.totalRet}%
               </div>
               <div className="mt-0.5 text-[10px] text-slate-600">{period} 天 · {res.trades} 筆</div>
             </Card>
             <Card className="p-4 text-center">
               <div className="text-[10px] uppercase tracking-wider text-slate-500">勝率</div>
-              <div className={`mt-1 font-display text-3xl font-bold ${res.winRate >= 50 ? "text-up" : "text-slate-300"}`}>{res.winRate}%</div>
+              <div className={`mt-1 font-mono text-3xl font-bold ${res.winRate >= 50 ? "text-up" : "text-slate-300"}`}>{res.winRate}%</div>
               <div className="mt-0.5 text-[10px] text-slate-600">賺賠比 {res.payoff}×</div>
             </Card>
             <Card className="p-4 text-center">
               <div className="text-[10px] uppercase tracking-wider text-slate-500">Profit Factor</div>
-              <div className={`mt-1 font-display text-3xl font-bold ${res.pf >= 1.5 ? "text-up" : res.pf >= 1 ? "text-amber-400" : "text-down"}`}>{res.pf}</div>
+              <div className={`mt-1 font-mono text-3xl font-bold ${res.pf >= 1.5 ? "text-up" : res.pf >= 1 ? "text-amber-400" : "text-down"}`}>{res.pf}</div>
               <div className="mt-0.5 text-[10px] text-slate-600">≥ 1.5 為理想</div>
             </Card>
             <Card className="p-4 text-center">
               <div className="text-[10px] uppercase tracking-wider text-slate-500">最大回撤</div>
-              <div className="mt-1 font-display text-3xl font-bold text-down">-{res.maxDD}%</div>
+              <div className="mt-1 font-mono text-3xl font-bold text-down">-{res.maxDD}%</div>
               <div className="mt-0.5 text-[10px] text-slate-600">最長連虧 {res.maxConsecLoss} 筆</div>
             </Card>
           </div>

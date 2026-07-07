@@ -1,7 +1,7 @@
 "use client";
 import { useEffect } from "react";
 import { X } from "lucide-react";
-import { C, SERIF } from "@/lib/theme";
+import { C } from "@/lib/theme";
 import { LEGAL_DOCS, LegalDocKey } from "@/lib/legalContent";
 import LogoMark from "@/components/site/LogoMark";
 
@@ -34,7 +34,7 @@ export default function LegalModal({ docKey, onClose }: { docKey: LegalDocKey | 
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <LogoMark size={36} />
             <div>
-              <div style={{ fontFamily: SERIF, fontWeight: 700, fontSize: 18, color: C.ink, letterSpacing: 1 }}>{doc.title}</div>
+              <div style={{ fontWeight: 800, fontSize: 18, color: C.ink }}>{doc.title}</div>
               <div style={{ fontSize: 10.5, color: C.dim, marginTop: 2 }}>最後更新：{doc.updated}</div>
             </div>
           </div>
