@@ -25,13 +25,13 @@ export default function SignalModal({ s, onClose }: { s: Signal; onClose: () => 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(2,4,9,0.7)", backdropFilter: "blur(5px)" }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="relative max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl p-5" style={{
-        background: "linear-gradient(180deg, rgba(10,20,34,0.98), rgba(4,9,16,0.98))", border: `1px solid ${C.lineGold}`, boxShadow: "0 30px 80px rgba(0,0,0,.5)",
+        background: "linear-gradient(180deg, rgba(10,20,34,0.98), rgba(4,9,16,0.98))", border: `1px solid ${C.linePrimary}`, boxShadow: "0 30px 80px rgba(0,0,0,.5)",
       }}>
         <Corner pos="tl" /><Corner pos="tr" /><Corner pos="bl" /><Corner pos="br" />
         <div className="flex items-center gap-2">
           <span style={{ fontFamily: MONO, fontSize: 18, fontWeight: 800, color: C.ink }}>{s.symbol}</span>
           <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 9px", borderRadius: 99, color: sc, background: sc + "1A" }}>{long ? "做多" : "做空"}</span>
-          <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 9px", borderRadius: 6, color: s.tier === "S" ? C.gold : C.mut, border: `1px solid ${s.tier === "S" ? C.gold + "55" : C.line}` }}>Tier {s.tier}</span>
+          <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 9px", borderRadius: 6, color: s.tier === "S" ? C.primary : C.mut, border: `1px solid ${s.tier === "S" ? C.primary + "55" : C.line}` }}>Tier {s.tier}</span>
           <span style={{ fontSize: 10.5, color: C.mut }}>{entryGradeDisplay(s.entryGrade)}</span>
           <button onClick={onClose} className="ml-auto ham rounded-lg p-1.5" style={{ color: C.mut }}><X size={18} /></button>
         </div>
@@ -69,7 +69,7 @@ export default function SignalModal({ s, onClose }: { s: Signal; onClose: () => 
           <span>策略投票 <span style={{ fontFamily: MONO, color: C.ink }}>{s.votes}</span>/8</span>
           <span>新聞票：{s.newsVote === 1 ? "看多 +1" : s.newsVote === -1 ? "看空 +1" : "無"}</span>
         </div>
-        {s.note && <div className="mt-2 rounded-lg px-3 py-2" style={{ background: "rgba(232,198,110,0.08)", fontSize: 11.5, color: C.gold }}>{s.note}</div>}
+        {s.note && <div className="mt-2 rounded-lg px-3 py-2" style={{ background: "rgba(0,212,255,0.08)", fontSize: 11.5, color: C.primary }}>{s.note}</div>}
         {s.finalPct !== undefined && (
           <div className="mt-3" style={{ fontFamily: MONO, fontSize: 13.5, fontWeight: 700, color: s.finalPct >= 0 ? C.green : C.rose }}>
             歷史結算：{s.finalPct >= 0 ? "+" : ""}{s.finalPct}%（依倉位權重加權，與帳面浮盈不同屬正常）
@@ -77,7 +77,7 @@ export default function SignalModal({ s, onClose }: { s: Signal; onClose: () => 
         )}
         <button onClick={copy} disabled={locked} className="cta mt-5 flex w-full items-center justify-center gap-2 rounded-xl py-3" style={{
           fontSize: 13.5, fontWeight: 700, color: locked ? C.dim : C.abyss,
-          background: locked ? "rgba(255,255,255,0.04)" : `linear-gradient(135deg,#FFF4D2,${C.gold} 45%,${C.gold2})`,
+          background: locked ? "rgba(255,255,255,0.04)" : `linear-gradient(135deg,#FFF4D2,${C.primary} 45%,${C.primary2})`,
           opacity: locked ? 1 : undefined, cursor: locked ? "not-allowed" : "pointer", animation: locked ? "none" : undefined,
         }}>
           {copied ? <Check size={15} /> : <Copy size={15} />}{copied ? "已複製" : locked ? "升級解鎖後可複製" : "複製完整下單計畫"}

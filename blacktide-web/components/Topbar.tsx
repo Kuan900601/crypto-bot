@@ -32,11 +32,11 @@ export default function Topbar({ onMenu }: { onMenu?: () => void }) {
   const pick = (s: SymbolLite) => { setDetail(s); setQ(""); setOpen(false); };
   return (
     <>
-      <header className="sticky top-0 z-40 backdrop-blur" style={{ background: "rgba(4,9,16,0.86)", borderBottom: `1px solid ${C.lineGold}`, paddingTop: "env(safe-area-inset-top)" }}>
+      <header className="sticky top-0 z-40 backdrop-blur" style={{ background: "rgba(4,9,16,0.86)", borderBottom: `1px solid ${C.linePrimary}`, paddingTop: "env(safe-area-inset-top)" }}>
         <div className="flex h-14 items-center justify-between gap-3 px-4">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <div className="flex items-center gap-2 md:hidden">
-              <button onClick={onMenu} aria-label="選單" className="ham rounded-lg p-1.5" style={{ color: C.gold, border: `1px solid ${C.line}` }}><Menu size={19} /></button>
+              <button onClick={onMenu} aria-label="選單" className="ham rounded-lg p-1.5" style={{ color: C.primary, border: `1px solid ${C.line}` }}><Menu size={19} /></button>
               <LogoMark size={30} />
             </div>
             <div ref={boxRef} className="relative min-w-0 flex-1 md:max-w-md">
@@ -87,7 +87,7 @@ export default function Topbar({ onMenu }: { onMenu?: () => void }) {
             {status !== "authenticated" && (
               <Link href="/login?register=1" className="cta shrink-0 whitespace-nowrap" style={{
                 borderRadius: 9, padding: "7px 14px", fontSize: 12.5, fontWeight: 800, color: C.abyss,
-                background: `linear-gradient(135deg,#FFF4D2,${C.gold} 45%,${C.gold2})`,
+                background: `linear-gradient(135deg,#FFF4D2,${C.primary} 45%,${C.primary2})`,
               }}>
                 免費註冊
               </Link>

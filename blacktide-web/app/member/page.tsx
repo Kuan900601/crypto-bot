@@ -122,7 +122,7 @@ export default function MemberPage() {
       <Card className="relative overflow-hidden p-5">
         <Corner pos="tl" /><Corner pos="br" />
         <div className="flex items-center gap-4">
-          <label className="relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-full" style={{ boxShadow: me.isFounder ? `0 0 0 2px ${C.gold}, 0 0 14px ${C.gold}99` : `0 0 0 1px ${C.lineGold}` }}>
+          <label className="relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-full" style={{ boxShadow: me.isFounder ? `0 0 0 2px ${C.primary}, 0 0 14px ${C.primary}99` : `0 0 0 1px ${C.linePrimary}` }}>
             {avatar ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={avatar} alt="頭像" className="h-full w-full object-cover" />
@@ -132,7 +132,7 @@ export default function MemberPage() {
             <span className="absolute bottom-0 right-0 rounded-full bg-ink-900 p-1 text-tide-300"><Camera size={11} /></span>
             <input type="file" accept="image/*" className="hidden" onChange={(e) => onAvatar(e.target.files?.[0])} />
             {me.isFounder && (
-              <span aria-label="創始會員" className="absolute -top-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full text-[10px]" style={{ background: C.gold }}>🔥</span>
+              <span aria-label="創始會員" className="absolute -top-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full text-[10px]" style={{ background: C.primary }}>🔥</span>
             )}
           </label>
           <div className="min-w-0">

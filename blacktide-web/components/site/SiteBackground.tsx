@@ -103,8 +103,8 @@ function Plankton({ count = 24 }: { count?: number }) {
       {dots.map((d, i) => (
         <div key={i} style={{
           position: "absolute", left: d.left + "%", top: d.top + "%", width: d.size, height: d.size,
-          borderRadius: "50%", background: d.teal ? C.teal : C.gold,
-          boxShadow: `0 0 ${d.size * 4}px ${d.teal ? C.teal : C.gold}`,
+          borderRadius: "50%", background: d.teal ? C.teal : C.primary,
+          boxShadow: `0 0 ${d.size * 4}px ${d.teal ? C.teal : C.primary}`,
           animation: `bob ${d.dur}s ease-in-out ${d.delay}s infinite, glowPulse ${d.dur * 0.6}s ease-in-out ${d.delay}s infinite`,
           opacity: 0.75,
         }} />
@@ -126,7 +126,7 @@ function ScrollBar() {
   }, []);
   return (
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, height: 2.5, zIndex: 100 }}>
-      <div style={{ height: "100%", width: p * 100 + "%", background: `linear-gradient(90deg,${C.teal},${C.gold})`, boxShadow: `0 0 10px ${C.gold}`, transition: "width .1s" }} />
+      <div style={{ height: "100%", width: p * 100 + "%", background: `linear-gradient(90deg,${C.teal},${C.primary})`, boxShadow: `0 0 10px ${C.primary}`, transition: "width .1s" }} />
     </div>
   );
 }

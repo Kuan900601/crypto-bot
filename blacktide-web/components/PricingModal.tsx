@@ -166,7 +166,7 @@ export default function PricingModal() {
         ) : (
           /* Founder 創始會員卡 */
           <div className={`mt-4 relative overflow-hidden rounded-2xl border p-6 ${soldOut ? "border-white/10 opacity-60" : "border-amber-500/40 bg-gradient-to-b from-amber-500/[0.10] to-transparent shadow-2xl shadow-amber-500/10"}`}
-            style={soldOut ? {} : { background: "linear-gradient(135deg, rgba(212,175,55,0.12), rgba(10,12,18,0.6))" }}>
+            style={soldOut ? {} : { background: "linear-gradient(135deg, rgba(0,212,255,0.12), rgba(10,12,18,0.6))" }}>
             <div className="pointer-events-none absolute -right-8 -top-8 h-40 w-40 rounded-full bg-amber-500/10 blur-3xl" />
             <div className="relative">
               <div className="flex items-center gap-2">

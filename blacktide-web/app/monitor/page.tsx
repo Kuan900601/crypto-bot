@@ -97,7 +97,7 @@ export default function MonitorPage() {
         )}
         {!loading && filtered.map((a) => {
           const Icon = META[a.type].icon;
-          const sevColor = a.severity === "critical" ? C.rose : a.severity === "warn" ? C.gold : C.dim;
+          const sevColor = a.severity === "critical" ? C.rose : a.severity === "warn" ? C.primary : C.dim;
           return (
             <Card key={a.id} className="sigrow relative flex items-start gap-3 overflow-hidden p-3.5">
               <span className="accent-bar" style={{ background: `linear-gradient(${sevColor},transparent)`, boxShadow: `0 0 6px ${sevColor}` }} />

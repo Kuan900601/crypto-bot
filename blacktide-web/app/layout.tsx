@@ -2,10 +2,10 @@ import "./globals.css";
 import Providers from "@/components/Providers";
 import SiteBackground from "@/components/site/SiteBackground";
 import Shell from "@/components/Shell";
-import { Geist } from "next/font/google";
+import { Inter } from "next/font/google";
 import { cn } from "@/lib/utils";
 
-const geist = Geist({subsets:['latin'],variable:'--font-sans'});
+const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata = {
   title: "黑潮 BLACKTIDE | 專業交易分析平台",
@@ -14,10 +14,10 @@ export const metadata = {
   appleWebApp: { capable: true, title: "黑潮 BLACKTIDE", statusBarStyle: "black-translucent" as const },
   icons: { icon: "/brand/logo.png", apple: "/brand/logo.png" },
 };
-export const viewport = { themeColor: "#06070b", width: "device-width", initialScale: 1, viewportFit: "cover" as const };
+export const viewport = { themeColor: "#05070A", width: "device-width", initialScale: 1, viewportFit: "cover" as const };
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="zh-Hant" className={cn("font-sans", geist.variable)}>
+    <html lang="zh-Hant" className={cn("font-sans", inter.variable)}>
       <body>
         <div className="brand-hero" aria-hidden />
         <Providers>

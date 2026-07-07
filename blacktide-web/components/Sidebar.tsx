@@ -31,9 +31,9 @@ function TierTag({ href }: { href: string }) {
   return (
     <span style={{
       marginLeft: "auto", fontSize: 9.5, fontWeight: 800, letterSpacing: 1, padding: "2px 8px", borderRadius: 7,
-      color: pro ? C.abyss : C.gold,
-      background: pro ? `linear-gradient(135deg,${C.gold},${C.gold2})` : "rgba(232,198,110,0.1)",
-      border: pro ? "none" : `1px solid ${C.gold}40`,
+      color: pro ? C.abyss : C.primary,
+      background: pro ? `linear-gradient(135deg,${C.primary},${C.primary2})` : "rgba(0,212,255,0.1)",
+      border: pro ? "none" : `1px solid ${C.primary}40`,
     }}>
       {pro ? "PRO" : "PLUS"}
     </span>
@@ -44,12 +44,12 @@ function NavLink({ href, label, Icon, active, onNavigate }: { href: string; labe
   return (
     <Link href={href} onClick={onNavigate} className="mrow" style={{
       display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 11,
-      background: active ? "linear-gradient(100deg, rgba(232,198,110,0.14), rgba(232,198,110,0.03))" : "transparent",
-      border: active ? `1px solid ${C.gold}30` : "1px solid transparent",
+      background: active ? "linear-gradient(100deg, rgba(0,212,255,0.14), rgba(0,212,255,0.03))" : "transparent",
+      border: active ? `1px solid ${C.primary}30` : "1px solid transparent",
       position: "relative", textDecoration: "none",
     }}>
-      {active && <div style={{ position: "absolute", left: 0, top: "50%", transform: "translateY(-50%)", width: 3, height: 18, borderRadius: 3, background: `linear-gradient(${C.gold},${C.teal})` }} />}
-      <Icon size={17} strokeWidth={1.8} color={active ? C.gold : C.mut} style={{ flexShrink: 0 }} />
+      {active && <div style={{ position: "absolute", left: 0, top: "50%", transform: "translateY(-50%)", width: 3, height: 18, borderRadius: 3, background: `linear-gradient(${C.primary},${C.teal})` }} />}
+      <Icon size={17} strokeWidth={1.8} color={active ? C.primary : C.mut} style={{ flexShrink: 0 }} />
       <span style={{ flex: 1, fontSize: 13.5, fontWeight: active ? 700 : 600, color: active ? C.ink : "#B9C7D2" }}>{label}</span>
       <TierTag href={href} />
     </Link>
@@ -69,11 +69,11 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 11, padding: "18px 18px 14px" }}>
         <LogoMark size={40} />
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontFamily: SERIF, fontWeight: 700, fontSize: 14, letterSpacing: 1, color: C.gold, lineHeight: 1.15 }}>黑潮 BLACKTIDE</div>
-          <div style={{ fontFamily: SERIF, fontSize: 8.5, letterSpacing: 2, color: C.gold2 }}>SIGNALS · PRO TERMINAL</div>
+          <div style={{ fontFamily: SERIF, fontWeight: 700, fontSize: 14, letterSpacing: 1, color: C.primary, lineHeight: 1.15 }}>黑潮 BLACKTIDE</div>
+          <div style={{ fontFamily: SERIF, fontSize: 8.5, letterSpacing: 2, color: C.primary2 }}>SIGNALS · PRO TERMINAL</div>
         </div>
       </div>
-      <div style={{ height: 1, margin: "0 16px", background: `linear-gradient(90deg, transparent, ${C.lineGold}, transparent)` }} />
+      <div style={{ height: 1, margin: "0 16px", background: `linear-gradient(90deg, transparent, ${C.linePrimary}, transparent)` }} />
       <nav style={{ position: "relative", marginTop: 10, flex: 1, overflowY: "auto", padding: "0 12px", display: "flex", flexDirection: "column", gap: 2 }}>
         {NAV_MAIN.map((n) => <NavLink key={n.href} href={n.href} label={n.label} Icon={n.icon} active={pathname === n.href} onNavigate={onNavigate} />)}
         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: C.dim, margin: "16px 12px 6px" }}>其他</div>
@@ -81,7 +81,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
       <div style={{ position: "relative", padding: "10px 12px" }}>
         <a href="https://t.me/KuroshioSignal" target="_blank" rel="noopener noreferrer" className="tg-btn"
-          style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 12px", borderRadius: 11, background: "rgba(55,214,196,0.06)", border: `1px solid ${C.teal}33`, color: C.ink, textDecoration: "none", fontSize: 12.5, fontWeight: 700 }}>
+          style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 12px", borderRadius: 11, background: "rgba(0,212,255,0.06)", border: `1px solid ${C.teal}33`, color: C.ink, textDecoration: "none", fontSize: 12.5, fontWeight: 700 }}>
           <Send size={14} color={C.teal} /><span style={{ flex: 1 }}>Telegram 社群頻道</span><ArrowRight size={13} color={C.teal} />
         </a>
       </div>

@@ -94,7 +94,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               >
                 <button
                   className="cta flex items-center gap-2 active:scale-95"
-                  style={{ borderRadius: 16, padding: "14px 26px", fontSize: 14, fontWeight: 800, color: C.abyss, background: `linear-gradient(135deg,#FFF4D2,${C.gold} 45%,${C.gold2})` }}
+                  style={{ borderRadius: 16, padding: "14px 26px", fontSize: 14, fontWeight: 800, color: C.abyss, background: `linear-gradient(135deg,#FFF4D2,${C.primary} 45%,${C.primary2})` }}
                   onClick={(e) => { e.stopPropagation(); router.push("/login?next=" + encodeURIComponent(pathname)); }}
                 >
                   <Unlock size={16} />
@@ -113,7 +113,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                     href="/login?register=1"
                     onClick={(e) => e.stopPropagation()}
                     className="rounded-xl px-4 py-2 text-xs"
-                    style={{ border: `1px solid ${C.gold}4D`, background: "rgba(232,198,110,0.1)", color: C.gold }}
+                    style={{ border: `1px solid ${C.primary}4D`, background: "rgba(0,212,255,0.1)", color: C.primary }}
                   >
                     免費註冊
                   </Link>
@@ -133,7 +133,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               >
                 <button
                   className="cta flex items-center gap-2"
-                  style={{ borderRadius: 16, padding: "14px 26px", fontSize: 14, fontWeight: 800, color: C.abyss, background: `linear-gradient(135deg,#FFF4D2,${C.gold} 45%,${C.gold2})` }}
+                  style={{ borderRadius: 16, padding: "14px 26px", fontSize: 14, fontWeight: 800, color: C.abyss, background: `linear-gradient(135deg,#FFF4D2,${C.primary} 45%,${C.primary2})` }}
                   onClick={(e) => { e.stopPropagation(); setPricingOpen(true); }}
                 >
                   <Lock size={16} />

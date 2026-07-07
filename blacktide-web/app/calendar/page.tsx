@@ -55,7 +55,7 @@ export default function CalendarPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="gold-text" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700 }}>重要事件行事曆</h1>
+        <h1 className="accent-text" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700 }}>重要事件行事曆</h1>
         <p className="mt-1" style={{ fontSize: 13, color: C.mut }}>加密貨幣週期事件、美國總經數據、Fed 利率決策關鍵日期</p>
       </div>
 
@@ -78,7 +78,7 @@ export default function CalendarPage() {
           </div>
           <div className="space-y-2">
             {high.map((e, i) => (
-              <div key={i} className="sigrow relative overflow-hidden rounded-xl p-4" style={{ border: `1px solid ${C.lineGold}`, background: "linear-gradient(180deg, rgba(16,30,48,0.7), rgba(6,16,30,0.5))" }}>
+              <div key={i} className="sigrow relative overflow-hidden rounded-xl p-4" style={{ border: `1px solid ${C.linePrimary}`, background: "linear-gradient(180deg, rgba(16,30,48,0.7), rgba(6,16,30,0.5))" }}>
                 <span className="accent-bar" style={{ background: `linear-gradient(${C.rose},transparent)`, boxShadow: `0 0 6px ${C.rose}` }} />
                 <div className="row-sweep" />
                 <Corner pos="tr" />
@@ -89,7 +89,7 @@ export default function CalendarPage() {
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${CAT_CLS[e.category]}`}>{CAT_LABEL[e.category]}</span>
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${IMPACT_CLS[e.impact]}`}>高影響</span>
                     </div>
-                    <div className="mt-1" style={{ fontFamily: MONO, fontSize: 11, color: C.gold }}>{e.date}</div>
+                    <div className="mt-1" style={{ fontFamily: MONO, fontSize: 11, color: C.primary }}>{e.date}</div>
                     <div className="mt-1.5" style={{ fontSize: 12, lineHeight: 1.7, color: C.mut }}>{e.desc}</div>
                   </div>
                 </div>

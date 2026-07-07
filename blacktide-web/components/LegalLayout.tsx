@@ -9,11 +9,11 @@ export default function LegalLayout({ title, updated, children }: { title: strin
       <div className="flex items-center gap-3">
         <LogoMark size={34} />
         <div>
-          <h1 className="gold-text" style={{ fontFamily: SERIF, fontSize: 22, fontWeight: 700 }}>{title}</h1>
+          <h1 className="accent-text" style={{ fontFamily: SERIF, fontSize: 22, fontWeight: 700 }}>{title}</h1>
           <div className="text-xs text-slate-500">最後更新：{updated}</div>
         </div>
       </div>
-      <div className="hairline-gold my-5" />
+      <div className="hairline-accent my-5" />
       <div className="space-y-5">{children}</div>
     </div>
   );

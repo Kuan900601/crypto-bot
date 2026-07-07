@@ -79,9 +79,9 @@ export default function LoginPage() {
       <div className="flex flex-col items-center">
         <LogoMark size={56} />
         <div className="mt-3" style={{ fontFamily: SERIF, fontSize: 17, fontWeight: 700, letterSpacing: 1, color: C.ink }}>黑潮 BLACKTIDE</div>
-        <div style={{ fontFamily: SERIF, fontSize: 9.5, letterSpacing: 2.5, color: C.gold2 }}>SIGNALS · PRO TERMINAL</div>
+        <div style={{ fontFamily: SERIF, fontSize: 9.5, letterSpacing: 2.5, color: C.primary2 }}>SIGNALS · PRO TERMINAL</div>
       </div>
-      <div className="mt-6 rounded-2xl p-5" style={{ border: `1px solid ${C.lineGold}`, background: "linear-gradient(180deg, rgba(16,30,48,0.78), rgba(6,16,30,0.7))" }}>
+      <div className="mt-6 rounded-2xl p-5" style={{ border: `1px solid ${C.linePrimary}`, background: "linear-gradient(180deg, rgba(16,30,48,0.78), rgba(6,16,30,0.7))" }}>
         {notice && (
           <div className="mb-3 flex items-center gap-2 rounded-lg border border-up/20 bg-up/10 px-3 py-2 text-xs text-up">
             <CheckCircle size={13} /> {notice}
@@ -90,8 +90,8 @@ export default function LoginPage() {
         <div className="mb-4 grid grid-cols-2 gap-1 rounded-lg p-1" style={{ background: "rgba(255,255,255,0.04)", fontSize: 12.5, fontWeight: 700 }}>
           {(["login", "register"] as const).map((m) => (
             <button key={m} onClick={() => { setMode(m); setErr(""); }} className="rounded-md py-1.5" style={{
-              background: mode === m ? "rgba(232,198,110,0.14)" : "transparent",
-              color: mode === m ? C.gold : C.mut,
+              background: mode === m ? "rgba(0,212,255,0.14)" : "transparent",
+              color: mode === m ? C.primary : C.mut,
             }}>
               {m === "login" ? "登入" : "註冊"}
             </button>
@@ -139,7 +139,7 @@ export default function LoginPage() {
         <button disabled={busy || !canSubmit} onClick={submit} className={busy || !canSubmit ? "" : "cta"} style={{
           marginTop: 16, width: "100%", borderRadius: 10, padding: "11px 0", fontSize: 14, fontWeight: 800,
           color: busy || !canSubmit ? C.mut : C.abyss,
-          background: busy || !canSubmit ? "rgba(255,255,255,0.06)" : `linear-gradient(135deg,#FFF4D2,${C.gold} 45%,${C.gold2})`,
+          background: busy || !canSubmit ? "rgba(255,255,255,0.06)" : `linear-gradient(135deg,#FFF4D2,${C.primary} 45%,${C.primary2})`,
         }}>
           {busy ? "處理中…" : mode === "login" ? "登入" : "建立帳號"}
         </button>

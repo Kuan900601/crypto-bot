@@ -63,7 +63,7 @@ function LiveFeed({ userTier }: { userTier: string }) {
   const isLive = liveSource === "redis";
 
   return (
-    <section style={{ position: "relative", overflow: "hidden", borderRadius: 18, padding: 20, border: `1px solid ${C.lineGold}`, background: "linear-gradient(180deg, rgba(16,30,48,0.7), rgba(6,16,30,0.55))" }}>
+    <section style={{ position: "relative", overflow: "hidden", borderRadius: 18, padding: 20, border: `1px solid ${C.linePrimary}`, background: "linear-gradient(180deg, rgba(16,30,48,0.7), rgba(6,16,30,0.55))" }}>
       <Corner pos="tl" /><Corner pos="tr" />
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-2">
@@ -72,11 +72,11 @@ function LiveFeed({ userTier }: { userTier: string }) {
           {lastUpdate > 0 && <span style={{ fontSize: 10.5, color: C.dim }}>更新 {relTime(lastUpdate)}</span>}
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <a href={TG_CHANNEL} target="_blank" rel="noopener noreferrer" className="tg-btn flex items-center gap-1.5 rounded-lg px-2.5 py-1" style={{ fontSize: 11, fontWeight: 700, border: `1px solid ${C.teal}40`, background: "rgba(55,214,196,0.08)", color: C.teal }}>
+          <a href={TG_CHANNEL} target="_blank" rel="noopener noreferrer" className="tg-btn flex items-center gap-1.5 rounded-lg px-2.5 py-1" style={{ fontSize: 11, fontWeight: 700, border: `1px solid ${C.teal}40`, background: "rgba(0,212,255,0.08)", color: C.teal }}>
             <Send size={11} /> 公開頻道
           </a>
           {userTier === "pro" ? (
-            <a href={TG_VIP} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 rounded-lg px-2.5 py-1" style={{ fontSize: 11, fontWeight: 700, border: `1px solid ${C.gold}55`, background: "rgba(232,198,110,0.1)", color: C.gold }}>
+            <a href={TG_VIP} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 rounded-lg px-2.5 py-1" style={{ fontSize: 11, fontWeight: 700, border: `1px solid ${C.primary}55`, background: "rgba(0,212,255,0.1)", color: C.primary }}>
               <Crown size={11} /> VIP 群
             </a>
           ) : (
@@ -113,7 +113,7 @@ function LiveFeed({ userTier }: { userTier: string }) {
                   {isNew && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1, padding: "2px 7px", borderRadius: 99, color: C.green, background: "rgba(70,214,160,0.18)", animation: "pulseDot 1.4s infinite" }}>NEW</span>}
                   <span style={{ fontSize: 11, fontWeight: 700, color: sc }}>{sig.direction === "long" ? "▲ LONG" : "▼ SHORT"}</span>
                   <span style={{ fontFamily: MONO, fontWeight: 800, fontSize: 14, color: C.ink }}>{sig.symbol}</span>
-                  <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6, color: sig.tier === "S" ? C.gold : C.mut, border: `1px solid ${sig.tier === "S" ? C.gold + "55" : C.line}` }}>Tier {sig.tier}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6, color: sig.tier === "S" ? C.primary : C.mut, border: `1px solid ${sig.tier === "S" ? C.primary + "55" : C.line}` }}>Tier {sig.tier}</span>
                   {hitCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, color: C.green, background: "rgba(70,214,160,0.15)" }}>TP{hitCount} 已達</span>}
                   <span style={{ marginLeft: "auto", fontSize: 10.5, color: C.dim }}>持倉中</span>
                 </div>
@@ -139,11 +139,11 @@ function LiveFeed({ userTier }: { userTier: string }) {
       )}
 
       <div className="mt-3 flex flex-wrap gap-2" style={{ fontSize: 12 }}>
-        <a href={TG_CHANNEL} target="_blank" rel="noopener noreferrer" className="tg-btn flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5" style={{ fontWeight: 700, border: `1px solid ${C.teal}33`, background: "rgba(55,214,196,0.06)", color: C.teal }}>
+        <a href={TG_CHANNEL} target="_blank" rel="noopener noreferrer" className="tg-btn flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5" style={{ fontWeight: 700, border: `1px solid ${C.teal}33`, background: "rgba(0,212,255,0.06)", color: C.teal }}>
           <Bell size={13} /> 訂閱 Telegram 推播通知<ArrowRight size={11} className="ml-auto" />
         </a>
         {userTier === "pro" && (
-          <a href={TG_VIP} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 rounded-xl px-4 py-2.5" style={{ fontWeight: 700, border: `1px solid ${C.gold}40`, background: "rgba(232,198,110,0.08)", color: C.gold }}>
+          <a href={TG_VIP} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 rounded-xl px-4 py-2.5" style={{ fontWeight: 700, border: `1px solid ${C.primary}40`, background: "rgba(0,212,255,0.08)", color: C.primary }}>
             <Crown size={13} /> 進入 VIP 群<ExternalLink size={11} className="ml-1" />
           </a>
         )}
@@ -179,26 +179,26 @@ export default function SignalsPage() {
     <div className="space-y-5">
       <PullIndicator pullDistance={pullDistance} refreshing={refreshing} threshold={threshold} />
       {/* 黑潮船長 CTA */}
-      <section style={{ position: "relative", overflow: "hidden", borderRadius: 18, padding: 22, border: `1px solid ${C.lineGold}`, background: "linear-gradient(135deg, rgba(232,198,110,0.1), rgba(10,12,18,0.5))" }}>
+      <section style={{ position: "relative", overflow: "hidden", borderRadius: 18, padding: 22, border: `1px solid ${C.linePrimary}`, background: "linear-gradient(135deg, rgba(0,212,255,0.1), rgba(10,12,18,0.5))" }}>
         <Corner pos="tl" /><Corner pos="br" />
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="mb-1.5 flex items-center gap-2">
-              <Radio size={14} color={C.gold} />
-              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: C.gold2 }}>黑潮船長 · 信號中心</span>
+              <Radio size={14} color={C.primary} />
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: C.primary2 }}>黑潮船長 · 信號中心</span>
             </div>
-            <h1 className="gold-text" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700, letterSpacing: 0.5 }}>黑潮 BLACKTIDE · 交易信號</h1>
+            <h1 className="accent-text" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700, letterSpacing: 0.5 }}>黑潮 BLACKTIDE · 交易信號</h1>
             <p className="mt-1.5 max-w-md" style={{ fontSize: 13.5, lineHeight: 1.7, color: C.mut }}>
               七大技術策略加新聞情緒投票，過五維評分與盈虧比硬門檻才出手。三段止盈 40/35/25，波動自適應止損。
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:shrink-0 sm:flex-row sm:items-center sm:gap-3">
             {userTier !== "pro" ? (
-              <button onClick={() => setPricingOpen(true)} className="cta flex items-center justify-center gap-1.5 rounded-xl px-6 py-3" style={{ fontSize: 14, fontWeight: 800, color: C.abyss, background: `linear-gradient(135deg,#FFF4D2,${C.gold} 45%,${C.gold2})` }}>
+              <button onClick={() => setPricingOpen(true)} className="cta flex items-center justify-center gap-1.5 rounded-xl px-6 py-3" style={{ fontSize: 14, fontWeight: 800, color: C.abyss, background: `linear-gradient(135deg,#FFF4D2,${C.primary} 45%,${C.primary2})` }}>
                 <Crown size={15} /> 加入船長艙
               </button>
             ) : (
-              <div className="inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5" style={{ fontSize: 13.5, fontWeight: 700, border: `1px solid ${C.gold}40`, background: "rgba(232,198,110,0.08)", color: C.gold }}>
+              <div className="inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5" style={{ fontSize: 13.5, fontWeight: 700, border: `1px solid ${C.primary}40`, background: "rgba(0,212,255,0.08)", color: C.primary }}>
                 <Crown size={14} /> 已訂閱 · 完整信號解鎖
               </div>
             )}
@@ -213,7 +213,7 @@ export default function SignalsPage() {
           <h2 style={{ fontSize: 16, fontWeight: 700, color: C.ink }}>黑潮船長 · 信號中心</h2>
           <p className="mt-0.5" style={{ fontSize: 11.5, color: C.dim }}>進出場計畫、分批止盈與動態止損</p>
         </div>
-        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "3px 9px", borderRadius: 99, color: source === "redis" ? C.green : C.gold, background: source === "redis" ? "rgba(70,214,160,0.12)" : "rgba(232,198,110,0.1)" }}>
+        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "3px 9px", borderRadius: 99, color: source === "redis" ? C.green : C.primary, background: source === "redis" ? "rgba(70,214,160,0.12)" : "rgba(0,212,255,0.1)" }}>
           {source === "redis" ? "Bot 即時資料" : "展示資料"}
         </span>
       </div>
@@ -229,13 +229,13 @@ export default function SignalsPage() {
 
       <div className="flex flex-wrap items-center gap-2">
         {(["all", "long", "short"] as const).map((d) => (
-          <button key={d} onClick={() => setDir(d)} className="rounded-full px-3 py-1" style={{ fontSize: 12, border: `1px solid ${dir === d ? C.gold + "70" : C.line}`, background: dir === d ? "rgba(232,198,110,0.12)" : "transparent", color: dir === d ? C.gold : C.mut }}>
+          <button key={d} onClick={() => setDir(d)} className="rounded-full px-3 py-1" style={{ fontSize: 12, border: `1px solid ${dir === d ? C.primary + "70" : C.line}`, background: dir === d ? "rgba(0,212,255,0.12)" : "transparent", color: dir === d ? C.primary : C.mut }}>
             {d === "all" ? "全部" : d === "long" ? "做多" : "做空"}
           </button>
         ))}
         <span style={{ margin: "0 4px", width: 1, height: 16, background: C.line }} />
         {["all", "S", "A", "B", "C"].map((t) => (
-          <button key={t} onClick={() => setTier(t)} className="rounded-full px-3 py-1" style={{ fontSize: 12, border: `1px solid ${tier === t ? C.gold + "70" : C.line}`, background: tier === t ? "rgba(232,198,110,0.12)" : "transparent", color: tier === t ? C.gold : C.mut }}>
+          <button key={t} onClick={() => setTier(t)} className="rounded-full px-3 py-1" style={{ fontSize: 12, border: `1px solid ${tier === t ? C.primary + "70" : C.line}`, background: tier === t ? "rgba(0,212,255,0.12)" : "transparent", color: tier === t ? C.primary : C.mut }}>
             {t === "all" ? "全部 Tier" : "Tier " + t}
           </button>
         ))}

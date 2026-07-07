@@ -73,7 +73,7 @@ export default function StocksPage() {
           <BarChart2 size={14} color={C.teal} />
           <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: C.teal }}>美股 AI 分析</span>
         </div>
-        <h1 className="gold-text" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700 }}>美股技術分析</h1>
+        <h1 className="accent-text" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700 }}>美股技術分析</h1>
         <p className="mt-1" style={{ fontSize: 13, color: C.mut }}>基於 Yahoo Finance 90 日數據 · RSI · 布林通道 · MACD · 均線 · 量能分析</p>
       </div>
 
@@ -83,7 +83,7 @@ export default function StocksPage() {
           <button key={s} onClick={() => setSymbol(s)} className="rounded-full px-3.5 py-1.5" style={{
             fontFamily: MONO, fontSize: 12, fontWeight: 700,
             border: `1px solid ${symbol === s ? C.teal + "70" : C.line}`,
-            background: symbol === s ? "rgba(55,214,196,0.12)" : "transparent",
+            background: symbol === s ? "rgba(0,212,255,0.12)" : "transparent",
             color: symbol === s ? C.teal : C.mut,
           }}>
             {s}

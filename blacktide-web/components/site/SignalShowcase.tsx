@@ -22,19 +22,19 @@ export default function SignalShowcase({ signals }: { signals: Signal[] | null }
     <section style={{ padding: "60px 18px", position: "relative", overflow: "hidden" }}>
       <div style={{ maxWidth: 1180, margin: "0 auto", position: "relative", zIndex: 1 }}>
         <div className="reveal in" style={{ textAlign: "center", marginBottom: 28 }}>
-          <div style={{ fontSize: 12, letterSpacing: 4, color: C.gold2, fontWeight: 700, marginBottom: 14, display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <div style={{ fontSize: 12, letterSpacing: 4, color: C.primary2, fontWeight: 700, marginBottom: 14, display: "inline-flex", alignItems: "center", gap: 8 }}>
             <span style={{ width: 7, height: 7, borderRadius: 99, background: C.green, boxShadow: `0 0 8px ${C.green}`, animation: "pulseDot 1.4s infinite" }} />
             LIVE · 黑潮船長信號流
           </div>
           <h2 style={{ fontFamily: "inherit", fontSize: "clamp(28px,4.6vw,46px)", fontWeight: 800, color: C.ink, margin: 0, letterSpacing: "-1px", lineHeight: 1.1 }}>
-            照實呈現每一筆<span className="gold-text">輸贏</span>
+            照實呈現每一筆<span className="accent-text">輸贏</span>
           </h2>
           <p style={{ color: C.mut, fontSize: 15, marginTop: 14, maxWidth: 460, margin: "14px auto 0", lineHeight: 1.6 }}>
             已結算信號的損益％為真實數據，有賺有賠照實顯示。進場 / 止損 / TP 價位依方案開放，<br />未付費僅能看方向與結果。
           </p>
         </div>
 
-        <div className="reveal in glass-sheen" style={{ maxWidth: 600, margin: "0 auto", borderRadius: 20, padding: 20, position: "relative", overflow: "hidden", background: "linear-gradient(180deg, rgba(16,30,48,0.9), rgba(6,16,30,0.78))", border: `1px solid ${C.lineGold}`, boxShadow: "0 20px 60px rgba(0,0,0,.4)" }}>
+        <div className="reveal in glass-sheen" style={{ maxWidth: 600, margin: "0 auto", borderRadius: 20, padding: 20, position: "relative", overflow: "hidden", background: "linear-gradient(180deg, rgba(16,30,48,0.9), rgba(6,16,30,0.78))", border: `1px solid ${C.linePrimary}`, boxShadow: "0 20px 60px rgba(0,0,0,.4)" }}>
           <div className="scanline" />
           <Corner pos="tl" /><Corner pos="tr" /><Corner pos="bl" /><Corner pos="br" />
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, position: "relative", zIndex: 1 }}>
@@ -72,7 +72,7 @@ export default function SignalShowcase({ signals }: { signals: Signal[] | null }
                 <div style={{ display: "flex", alignItems: "center", gap: 10, position: "relative", zIndex: 1, minWidth: 0 }}>
                   <span style={{ fontFamily: MONO, fontWeight: 800, fontSize: 15, color: C.ink, width: 44 }}>{s.symbol}</span>
                   <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, color: sc, background: sc + "1A" }}>{s.direction === "long" ? "做多" : "做空"}</span>
-                  <span className="grade-pill" style={{ fontSize: 9.5, fontWeight: 700, padding: "2px 7px", borderRadius: 6, color: s.entryGrade === "S" || s.entryGrade === "A" ? C.gold : C.dim, border: `1px solid ${s.entryGrade === "S" || s.entryGrade === "A" ? C.gold + "55" : C.line}` }}>{s.entryGrade}</span>
+                  <span className="grade-pill" style={{ fontSize: 9.5, fontWeight: 700, padding: "2px 7px", borderRadius: 6, color: s.entryGrade === "S" || s.entryGrade === "A" ? C.primary : C.dim, border: `1px solid ${s.entryGrade === "S" || s.entryGrade === "A" ? C.primary + "55" : C.line}` }}>{s.entryGrade}</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 9, position: "relative", zIndex: 1 }}>
                   {unlocked ? (

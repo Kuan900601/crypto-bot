@@ -17,7 +17,7 @@ export default function CTA({ big, children, style, ...rest }: { big?: boolean }
         color: C.abyss,
         border: "none",
         fontFamily: SANS,
-        background: `linear-gradient(135deg,#FFF4D2,${C.gold} 45%,${C.gold2})`,
+        background: `linear-gradient(135deg,#FFF4D2,${C.primary} 45%,${C.primary2})`,
         ...style,
       }}
       {...rest}

@@ -10,15 +10,15 @@ export default function LogoMark({ size = 42 }: { size?: number }) {
         <svg viewBox="0 0 48 48" style={{ position: "absolute", inset: 0, zIndex: 2 }}>
           <defs>
             <linearGradient id="lgWave" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#8A6E22" />
-              <stop offset="45%" stopColor="#E8C66E" />
-              <stop offset="55%" stopColor="#FFF6D6" />
-              <stop offset="100%" stopColor="#C9A24B" />
+              <stop offset="0%" stopColor="#075985" />
+              <stop offset="45%" stopColor="#00D4FF" />
+              <stop offset="55%" stopColor="#BAF3FF" />
+              <stop offset="100%" stopColor="#00A3CC" />
             </linearGradient>
             <linearGradient id="lgWave2" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#1B8A82" />
-              <stop offset="50%" stopColor="#37D6C4" />
-              <stop offset="100%" stopColor="#1B8A82" />
+              <stop offset="0%" stopColor="#0891B2" />
+              <stop offset="50%" stopColor="#67E8F9" />
+              <stop offset="100%" stopColor="#0891B2" />
             </linearGradient>
           </defs>
           <path d="M10,19 Q17,13 24,19 T38,19" fill="none" stroke="url(#lgWave2)" strokeWidth="1.6" strokeLinecap="round" opacity="0.75" />

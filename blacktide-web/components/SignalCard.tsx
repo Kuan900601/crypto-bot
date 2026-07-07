@@ -8,11 +8,12 @@ import { useTilt } from "@/lib/useTilt";
 
 const STATUS_LABEL: Record<Signal["status"], string> = { active: "進行中", tp: "已止盈", sl: "已止損", closed: "已平倉" };
 
+// Tier 層級：同一青色主色用強度分級（S 最亮最實、C 最淡），符合單一 accent 原則
 const TIER_STYLE: Record<string, React.CSSProperties> = {
-  S: { color: C.gold,    border: `1px solid ${C.gold}88`,   background: `${C.gold}22`          },
-  A: { color: C.teal,    border: `1px solid ${C.teal}66`,   background: `${C.teal}18`          },
-  B: { color: "#64748b", border: "1px solid #64748b55",     background: "rgba(100,116,139,0.1)" },
-  C: { color: C.dim,     border: `1px solid ${C.line}`,     background: "transparent"           },
+  S: { color: C.primary, border: `1px solid ${C.primary}80`, background: `${C.primary}29`        },
+  A: { color: "#67E8F9", border: "1px solid #67E8F959",      background: "#67E8F91A"             },
+  B: { color: "#64748B", border: "1px solid #64748B55",      background: "rgba(100,116,139,0.1)" },
+  C: { color: C.dim,     border: `1px solid ${C.line}`,      background: "transparent"           },
 };
 
 /** 信號卡：locked 完全依 s.entryLow == null（後端 sanitizeSignal 是否放行）判斷，
@@ -94,7 +95,7 @@ function SonarScore({ value }: { value: number }) {
       <span style={{ position: "relative", width: 16, height: 16, flexShrink: 0 }}>
         <span style={{ position: "absolute", inset: 0, borderRadius: "50%", border: `1.5px solid ${C.line}` }} />
         <svg width="16" height="16" viewBox="0 0 16 16" style={{ position: "absolute", inset: 0, transform: "rotate(-90deg)" }}>
-          <circle cx="8" cy="8" r="6.4" fill="none" stroke={C.gold} strokeWidth="2.2" strokeDasharray={`${(pct / 100) * 40.2} 40.2`} strokeLinecap="round" />
+          <circle cx="8" cy="8" r="6.4" fill="none" stroke={C.primary} strokeWidth="2.2" strokeDasharray={`${(pct / 100) * 40.2} 40.2`} strokeLinecap="round" />
         </svg>
       </span>
       評分 <span style={{ fontFamily: MONO, color: C.ink }}>{value}</span>/100

@@ -11,7 +11,7 @@ const ICON = {
 const COLOR = {
   success: { border: "#22c55e55", bg: "rgba(22,163,74,0.18)", text: "#86efac" },
   error:   { border: "#ef444455", bg: "rgba(239,68,68,0.18)",  text: "#fca5a5" },
-  info:    { border: `${C.gold}55`, bg: "rgba(232,198,110,0.12)", text: C.gold },
+  info:    { border: `${C.primary}55`, bg: "rgba(0,212,255,0.12)", text: C.primary },
 };
 
 export default function Toast() {

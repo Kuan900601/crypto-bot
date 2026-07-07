@@ -25,11 +25,11 @@ export default function LegalModal({ docKey, onClose }: { docKey: LegalDocKey | 
       <div onClick={(e) => e.stopPropagation()} className="legal-panel modal-sheet" style={{
         position: "relative", width: "100%", maxWidth: 640, display: "flex", flexDirection: "column",
         background: "linear-gradient(180deg, rgba(10,20,34,0.98), rgba(4,9,16,0.98))",
-        border: `1px solid ${C.lineGold}`, boxShadow: "0 30px 80px rgba(0,0,0,.6)", overflow: "hidden",
+        border: `1px solid ${C.linePrimary}`, boxShadow: "0 30px 80px rgba(0,0,0,.6)", overflow: "hidden",
         paddingBottom: "max(8px, env(safe-area-inset-bottom))",
       }}>
         <div className="mx-auto mb-1 mt-2 h-1 w-10 shrink-0 rounded-full bg-white/10 sm:hidden" />
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${C.gold}, ${C.teal}, transparent)` }} />
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${C.primary}, ${C.teal}, transparent)` }} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 24px", borderBottom: `1px solid ${C.line}`, flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <LogoMark size={36} />
@@ -45,7 +45,7 @@ export default function LegalModal({ docKey, onClose }: { docKey: LegalDocKey | 
         <div style={{ overflowY: "auto", padding: "20px 24px 28px" }}>
           {doc.sections.map(([h, p]) => (
             <div key={h} style={{ marginBottom: 20 }}>
-              <h3 style={{ fontFamily: "inherit", fontSize: 14.5, fontWeight: 800, color: C.gold, margin: "0 0 8px" }}>{h}</h3>
+              <h3 style={{ fontFamily: "inherit", fontSize: 14.5, fontWeight: 800, color: C.primary, margin: "0 0 8px" }}>{h}</h3>
               <p style={{ fontSize: 13.5, lineHeight: 1.85, color: "#B9C7D2", margin: 0 }}>{p}</p>
             </div>
           ))}

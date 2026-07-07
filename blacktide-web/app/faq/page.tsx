@@ -86,7 +86,7 @@ function AccordionItem({ item }: { item: Item }) {
         onClick={() => setOpen(!open)}
         className="flex w-full items-start gap-3 py-4 text-left transition-colors hover:text-slate-200"
       >
-        <Icon size={15} className="mt-0.5 shrink-0" style={{ color: C.gold2 }} />
+        <Icon size={15} className="mt-0.5 shrink-0" style={{ color: C.primary2 }} />
         <span className="flex-1 text-sm font-medium text-slate-200">{item.q}</span>
         <ChevronDown size={15} className={`mt-0.5 shrink-0 text-slate-500 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
@@ -103,7 +103,7 @@ export default function FaqPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="gold-text" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700 }}>常見問題</h1>
+        <h1 className="accent-text" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700 }}>常見問題</h1>
         <p className="mt-1" style={{ fontSize: 13, color: C.mut }}>關於黑潮信號、AI 分析、訂閱方案的常見疑問解答</p>
       </div>
       {SECTIONS.map((s) => (

@@ -29,7 +29,7 @@ function toRA(a: (typeof ANALYSES)[number]): RA {
   };
 }
 
-function EnergyBar({ value, tone = C.gold }: { value: number; tone?: string }) {
+function EnergyBar({ value, tone = C.primary }: { value: number; tone?: string }) {
   return (
     <div style={{ height: 6, width: "100%", borderRadius: 99, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
       <div style={{ height: "100%", width: Math.min(100, Math.max(0, value)) + "%", borderRadius: 99, background: `linear-gradient(90deg, ${tone}88, ${tone})`, boxShadow: `0 0 8px ${tone}66`, transition: "width .5s" }} />
@@ -47,7 +47,7 @@ function DetailModal({ a, demo, onClose }: { a: RA; demo: boolean; onClose: () =
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center p-0 sm:items-center sm:p-4" style={{ background: "rgba(2,4,9,0.7)", backdropFilter: "blur(5px)" }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="pop-in relative max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-t-2xl p-5 sm:rounded-2xl" style={{
-        background: "linear-gradient(180deg, rgba(10,20,34,0.98), rgba(4,9,16,0.98))", border: `1px solid ${C.lineGold}`,
+        background: "linear-gradient(180deg, rgba(10,20,34,0.98), rgba(4,9,16,0.98))", border: `1px solid ${C.linePrimary}`,
       }}>
         <Corner pos="tl" /><Corner pos="tr" /><Corner pos="bl" /><Corner pos="br" />
         <div className="flex items-center gap-2">
@@ -71,7 +71,7 @@ function DetailModal({ a, demo, onClose }: { a: RA; demo: boolean; onClose: () =
           </div>
         )}
         <div className="mt-4 space-y-2.5">
-          <EnergyRow label="信心" value={a.confidence} tone={C.gold} />
+          <EnergyRow label="信心" value={a.confidence} tone={C.primary} />
           <EnergyRow label="風險" value={a.risk} tone={a.risk >= 60 ? C.rose : C.teal} />
           <EnergyRow label="情緒" value={a.sentiment} tone={a.sentiment >= 55 ? C.green : a.sentiment <= 45 ? C.rose : C.teal} />
         </div>
@@ -85,7 +85,7 @@ function DetailModal({ a, demo, onClose }: { a: RA; demo: boolean; onClose: () =
         <div className="mt-3">
           <div style={{ fontSize: 12, fontWeight: 700, color: C.mut }}>判讀依據</div>
           <ul className="mt-1.5 space-y-1" style={{ fontSize: 11, color: C.dim }}>
-            {a.basis.map((b, i) => <li key={i} className="flex gap-1.5"><span style={{ color: C.gold2 }}>·</span>{b}</li>)}
+            {a.basis.map((b, i) => <li key={i} className="flex gap-1.5"><span style={{ color: C.primary2 }}>·</span>{b}</li>)}
           </ul>
         </div>
         <div className="mt-3" style={{ fontSize: 10.5, lineHeight: 1.7, color: C.dim }}>{demo ? "目前為展示資料（即時指標暫時無法取得）。" : "以上為技術指標即時計算結果，僅供參考，不構成投資建議。"}</div>
@@ -135,7 +135,7 @@ export default function AnalysisPage() {
       </div>
 
       {demo && !loading && (
-        <div className="rounded-xl px-4 py-2.5" style={{ border: `1px solid ${C.gold}33`, background: "rgba(232,198,110,0.06)", fontSize: 12, color: C.gold }}>
+        <div className="rounded-xl px-4 py-2.5" style={{ border: `1px solid ${C.primary}33`, background: "rgba(0,212,255,0.06)", fontSize: 12, color: C.primary }}>
           即時指標暫時無法取得，以下為展示資料（仍可點開查看範例分析）。
         </div>
       )}
@@ -174,7 +174,7 @@ export default function AnalysisPage() {
                   </div>
                 )}
                 <div className="mt-3 space-y-2" style={{ position: "relative", zIndex: 1 }}>
-                  <EnergyRow label="信心" value={a.confidence} tone={C.gold} />
+                  <EnergyRow label="信心" value={a.confidence} tone={C.primary} />
                   <EnergyRow label="風險" value={a.risk} tone={a.risk >= 60 ? C.rose : C.teal} />
                 </div>
                 <div className="mt-3 flex flex-wrap gap-1.5" style={{ position: "relative", zIndex: 1, fontSize: 11 }}>

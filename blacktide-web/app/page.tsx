@@ -18,16 +18,17 @@ import { Skeleton } from "@/components/ui";
 // 監測幣種數固定為 52（analyzer.py 實際掃描的幣種數，與站內既有文案一致，非首頁自行估算）
 const MONITORED_COINS = 52;
 
+// Tier 層級：同一青色主色，用強度做層級（S 最亮最實、C 最淡），符合單一 accent 原則
 const TIER_COLOR: Record<string, { color: string; bg: string; border: string }> = {
-  S: { color: "#E8C66E", bg: "rgba(232,198,110,0.18)", border: "rgba(232,198,110,0.45)" },
-  A: { color: "#37D6C4", bg: "rgba(55,214,196,0.12)",  border: "rgba(55,214,196,0.38)"  },
-  B: { color: "#64748b", bg: "rgba(100,116,139,0.12)", border: "rgba(100,116,139,0.38)" },
-  C: { color: "#566B7C", bg: "transparent",            border: "rgba(120,180,200,0.16)" },
+  S: { color: "#00D4FF", bg: "rgba(0,212,255,0.16)",   border: "rgba(0,212,255,0.5)"    },
+  A: { color: "#67E8F9", bg: "rgba(103,232,249,0.1)",  border: "rgba(103,232,249,0.35)" },
+  B: { color: "#64748B", bg: "rgba(100,116,139,0.12)", border: "rgba(100,116,139,0.38)" },
+  C: { color: "#64748B", bg: "transparent",            border: "rgba(255,255,255,0.08)" },
 };
 function gradeColor(g: string) {
-  if (g === "S" || g === "A") return { color: "#37D6C4", label: "高品質進場" };
-  if (g === "B" || g === "C") return { color: "#8FA6B5", label: "一般品質"   };
-  return { color: "#566B7C", label: "低品質" };
+  if (g === "S" || g === "A") return { color: "#10B981", label: "高品質進場" };
+  if (g === "B" || g === "C") return { color: "#94A3B8", label: "一般品質"   };
+  return { color: "#64748B", label: "低品質" };
 }
 
 function isToday(iso?: string) {
@@ -93,12 +94,12 @@ export default function Home() {
         <div ref={heroContentRef} className="parallax-layer" style={{ position: "relative", zIndex: 5, maxWidth: 1180, margin: "0 auto", padding: "48px 22px", width: "100%" }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 32, alignItems: "flex-start" }}>
             <div style={{ maxWidth: 600, flex: "1 1 360px" }}>
-              <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 22, padding: "7px 15px", borderRadius: 999, fontSize: 12, fontWeight: 600, color: C.gold, border: `1px solid ${C.gold}45`, background: `${C.gold}10`, backdropFilter: "blur(4px)" }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 22, padding: "7px 15px", borderRadius: 999, fontSize: 12, fontWeight: 600, color: C.primary, border: `1px solid ${C.primary}45`, background: `${C.primary}10`, backdropFilter: "blur(4px)" }}>
                 <span style={{ width: 6, height: 6, borderRadius: 99, background: C.teal, boxShadow: `0 0 8px ${C.teal}`, animation: "pulseDot 2s infinite" }} />
                 {MONITORED_COINS} 幣種 · 24/7 AI 盯盤
               </div>
               <h1 style={{ fontFamily: SANS, fontWeight: 800, lineHeight: 1.32, margin: 0, paddingRight: 4, fontSize: "clamp(36px,6vw,64px)", letterSpacing: "-0.3px", color: C.ink, textShadow: "0 2px 40px rgba(0,0,0,.6)", wordBreak: "keep-all", overflowWrap: "break-word" }}>
-                AI 24 小時盯盤<br /><span className="gold-text">幫你抓加密貨幣交易信號</span>
+                AI 24 小時盯盤<br /><span className="accent-text">幫你抓加密貨幣交易信號</span>
               </h1>
               <p style={{ fontFamily: SANS, fontSize: "clamp(15px,1.8vw,18px)", lineHeight: 1.65, color: C.mut, margin: "22px 0 0", maxWidth: 480, wordBreak: "keep-all", overflowWrap: "break-word" }}>
                 {session
@@ -115,16 +116,16 @@ export default function Home() {
                 ] as const).map(({ n, label, sub, Icon }) => (
                   <div key={label}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <Icon size={14} color={C.gold} style={{ opacity: 0.7 }} />
-                      <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 800, color: C.gold }}><Counter to={n} /></div>
+                      <Icon size={14} color={C.primary} style={{ opacity: 0.7 }} />
+                      <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 800, color: C.primary }}><Counter to={n} /></div>
                     </div>
                     <div style={{ fontSize: 11, color: C.dim, marginTop: 2, letterSpacing: 1 }}>{label} <span style={{ opacity: 0.6 }}>· {sub}</span></div>
                   </div>
                 ))}
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <Clock size={14} color={C.gold} style={{ opacity: 0.7 }} />
-                    <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 800, color: C.gold }}>24/7</div>
+                    <Clock size={14} color={C.primary} style={{ opacity: 0.7 }} />
+                    <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 800, color: C.primary }}>24/7</div>
                   </div>
                   <div style={{ fontSize: 11, color: C.dim, marginTop: 2, letterSpacing: 1 }}>AI 盯盤 <span style={{ opacity: 0.6 }}>· 不停機</span></div>
                 </div>
@@ -133,7 +134,7 @@ export default function Home() {
 
             {/* 今日 AI 信號預覽（真實資料；信心為模型評分，非已實現歷史勝率） */}
             {signals === null && (
-              <div style={{ flex: "0 1 280px", minWidth: 240, borderRadius: 18, padding: 18, position: "relative", background: "rgba(6,16,30,0.78)", border: `1px solid ${C.lineGold}`, backdropFilter: "blur(10px)" }}>
+              <div style={{ flex: "0 1 280px", minWidth: 240, borderRadius: 18, padding: 18, position: "relative", background: "rgba(6,16,30,0.78)", border: `1px solid ${C.linePrimary}`, backdropFilter: "blur(10px)" }}>
                 <Corner pos="tl" /><Corner pos="tr" /><Corner pos="bl" /><Corner pos="br" />
                 <Skeleton className="h-2.5 w-24" />
                 <div style={{ marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -149,7 +150,7 @@ export default function Home() {
               </div>
             )}
             {previewSignal && (
-              <div ref={previewTiltRef} className="glass-sheen tilt-card" style={{ flex: "0 1 280px", minWidth: 240, borderRadius: 18, padding: 18, position: "relative", background: "rgba(6,16,30,0.78)", border: `1px solid ${C.lineGold}`, backdropFilter: "blur(10px)" }}>
+              <div ref={previewTiltRef} className="glass-sheen tilt-card" style={{ flex: "0 1 280px", minWidth: 240, borderRadius: 18, padding: 18, position: "relative", background: "rgba(6,16,30,0.78)", border: `1px solid ${C.linePrimary}`, backdropFilter: "blur(10px)" }}>
                 <Corner pos="tl" /><Corner pos="tr" /><Corner pos="bl" /><Corner pos="br" />
                 <div style={{ fontSize: 10, letterSpacing: 2, color: C.dim, marginBottom: 10 }}>今日 AI 信號預覽</div>
 
@@ -189,11 +190,11 @@ export default function Home() {
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.mut, marginBottom: 4 }}>
                     <span>AI 信心評分</span>
-                    <b style={{ color: C.gold }}>{Math.round(previewSignal.winRate ?? 0)}%</b>
+                    <b style={{ color: C.primary }}>{Math.round(previewSignal.winRate ?? 0)}%</b>
                   </div>
                   <div style={{ height: 4, borderRadius: 99, background: "rgba(255,255,255,0.06)" }}>
                     <div style={{ height: "100%", borderRadius: 99, width: `${Math.min(100, Math.round(previewSignal.winRate ?? 0))}%`,
-                      background: `linear-gradient(90deg, ${C.teal}, ${C.gold})` }} />
+                      background: `linear-gradient(90deg, ${C.teal}, ${C.primary})` }} />
                   </div>
                   <div style={{ fontSize: 9, color: C.dim, marginTop: 3 }}>模型評分，非已實現歷史勝率</div>
                 </div>
@@ -284,7 +285,7 @@ export default function Home() {
           <div key={i} style={{
             position: "absolute", top: "38%", left: "50%", width: 180 + i * 150, height: 180 + i * 150,
             marginLeft: -(90 + i * 75), marginTop: -(90 + i * 75), borderRadius: "50%",
-            border: `1.5px solid ${i % 2 ? C.teal : C.gold}`, opacity: 0.14, animation: `sonarPing 5s ease-out ${i * 1}s infinite`,
+            border: `1.5px solid ${i % 2 ? C.teal : C.primary}`, opacity: 0.14, animation: `sonarPing 5s ease-out ${i * 1}s infinite`,
             pointerEvents: "none",
           }} />
         ))}

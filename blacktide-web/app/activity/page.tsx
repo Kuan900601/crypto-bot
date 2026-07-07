@@ -32,7 +32,7 @@ export default function ActivityPage() {
       </div>
       <Card className="relative overflow-hidden p-0">
         <Corner pos="tl" /><Corner pos="br" />
-        <div className="flex items-center gap-3 border-b border-white/5 bg-gradient-to-r from-amber-500/10 to-transparent px-5 py-4" style={{ borderBottom: `1px solid ${C.lineGold}` }}>
+        <div className="flex items-center gap-3 border-b border-white/5 bg-gradient-to-r from-amber-500/10 to-transparent px-5 py-4" style={{ borderBottom: `1px solid ${C.linePrimary}` }}>
           <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-300"><Gift size={22} /></span>
           <div>
             <div className="text-sm font-bold text-amber-100">邀請好友註冊</div>

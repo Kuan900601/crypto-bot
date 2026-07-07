@@ -21,7 +21,7 @@ export default function Footer() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="flex items-center gap-2">
           <LogoMark size={26} />
-          <span style={{ fontFamily: SERIF, fontWeight: 700, fontSize: 14, color: C.gold }}>黑潮 BLACKTIDE</span>
+          <span style={{ fontFamily: SERIF, fontWeight: 700, fontSize: 14, color: C.primary }}>黑潮 BLACKTIDE</span>
         </div>
         <nav className="flex flex-wrap gap-x-4 gap-y-1 sm:ml-auto">
           {LEGAL_LINKS.map(([label, key]) => (
