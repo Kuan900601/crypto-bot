@@ -94,7 +94,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               >
                 <button
                   className="cta flex items-center gap-2 active:scale-95"
-                  style={{ borderRadius: 16, padding: "14px 26px", fontSize: 14, fontWeight: 800, color: C.abyss, background: `linear-gradient(135deg,#FFF4D2,${C.primary} 45%,${C.primary2})` }}
+                  style={{ borderRadius: 16, padding: "14px 26px", fontSize: 14, fontWeight: 800, color: C.abyss, background: C.primary }}
                   onClick={(e) => { e.stopPropagation(); router.push("/login?next=" + encodeURIComponent(pathname)); }}
                 >
                   <Unlock size={16} />
@@ -133,7 +133,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               >
                 <button
                   className="cta flex items-center gap-2"
-                  style={{ borderRadius: 16, padding: "14px 26px", fontSize: 14, fontWeight: 800, color: C.abyss, background: `linear-gradient(135deg,#FFF4D2,${C.primary} 45%,${C.primary2})` }}
+                  style={{ borderRadius: 16, padding: "14px 26px", fontSize: 14, fontWeight: 800, color: C.abyss, background: C.primary }}
                   onClick={(e) => { e.stopPropagation(); setPricingOpen(true); }}
                 >
                   <Lock size={16} />

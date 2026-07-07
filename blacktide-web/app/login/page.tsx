@@ -139,7 +139,7 @@ export default function LoginPage() {
         <button disabled={busy || !canSubmit} onClick={submit} className={busy || !canSubmit ? "" : "cta"} style={{
           marginTop: 16, width: "100%", borderRadius: 10, padding: "11px 0", fontSize: 14, fontWeight: 800,
           color: busy || !canSubmit ? C.mut : C.abyss,
-          background: busy || !canSubmit ? "rgba(255,255,255,0.06)" : `linear-gradient(135deg,#FFF4D2,${C.primary} 45%,${C.primary2})`,
+          background: busy || !canSubmit ? "rgba(255,255,255,0.06)" : C.primary,
         }}>
           {busy ? "處理中…" : mode === "login" ? "登入" : "建立帳號"}
         </button>

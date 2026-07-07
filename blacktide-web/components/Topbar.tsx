@@ -87,7 +87,7 @@ export default function Topbar({ onMenu }: { onMenu?: () => void }) {
             {status !== "authenticated" && (
               <Link href="/login?register=1" className="cta shrink-0 whitespace-nowrap" style={{
                 borderRadius: 9, padding: "7px 14px", fontSize: 12.5, fontWeight: 800, color: C.abyss,
-                background: `linear-gradient(135deg,#FFF4D2,${C.primary} 45%,${C.primary2})`,
+                background: C.primary,
               }}>
                 免費註冊
               </Link>

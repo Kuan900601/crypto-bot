@@ -77,7 +77,7 @@ export default function SignalModal({ s, onClose }: { s: Signal; onClose: () => 
         )}
         <button onClick={copy} disabled={locked} className="cta mt-5 flex w-full items-center justify-center gap-2 rounded-xl py-3" style={{
           fontSize: 13.5, fontWeight: 700, color: locked ? C.dim : C.abyss,
-          background: locked ? "rgba(255,255,255,0.04)" : `linear-gradient(135deg,#FFF4D2,${C.primary} 45%,${C.primary2})`,
+          background: locked ? "rgba(255,255,255,0.04)" : C.primary,
           opacity: locked ? 1 : undefined, cursor: locked ? "not-allowed" : "pointer", animation: locked ? "none" : undefined,
         }}>
           {copied ? <Check size={15} /> : <Copy size={15} />}{copied ? "已複製" : locked ? "升級解鎖後可複製" : "複製完整下單計畫"}

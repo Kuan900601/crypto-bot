@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, Radio, BrainCircuit, Newspaper, Activity, FlaskConical, Gift, UserCircle, BookOpen, Send, ArrowRight, HelpCircle, CalendarDays, LineChart } from "lucide-react";
 import { requiredTier } from "@/lib/access";
-import { C, SERIF } from "@/lib/theme";
+import { C } from "@/lib/theme";
 import LogoMark from "@/components/site/LogoMark";
 
 const NAV_MAIN = [
@@ -69,8 +69,8 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 11, padding: "18px 18px 14px" }}>
         <LogoMark size={40} />
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontFamily: SERIF, fontWeight: 700, fontSize: 14, letterSpacing: 1, color: C.primary, lineHeight: 1.15 }}>黑潮 BLACKTIDE</div>
-          <div style={{ fontFamily: SERIF, fontSize: 8.5, letterSpacing: 2, color: C.primary2 }}>SIGNALS · PRO TERMINAL</div>
+          <div style={{ fontWeight: 800, fontSize: 14, letterSpacing: "0.04em", color: C.ink, lineHeight: 1.15 }}>黑潮 BLACKTIDE</div>
+          <div style={{ fontSize: 8.5, fontWeight: 600, letterSpacing: "0.28em", color: C.primary, marginTop: 2 }}>SIGNALS · PRO TERMINAL</div>
         </div>
       </div>
       <div style={{ height: 1, margin: "0 16px", background: `linear-gradient(90deg, transparent, ${C.linePrimary}, transparent)` }} />

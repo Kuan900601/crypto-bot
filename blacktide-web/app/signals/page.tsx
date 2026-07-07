@@ -194,7 +194,7 @@ export default function SignalsPage() {
           </div>
           <div className="flex flex-col gap-2 sm:shrink-0 sm:flex-row sm:items-center sm:gap-3">
             {userTier !== "pro" ? (
-              <button onClick={() => setPricingOpen(true)} className="cta flex items-center justify-center gap-1.5 rounded-xl px-6 py-3" style={{ fontSize: 14, fontWeight: 800, color: C.abyss, background: `linear-gradient(135deg,#FFF4D2,${C.primary} 45%,${C.primary2})` }}>
+              <button onClick={() => setPricingOpen(true)} className="cta flex items-center justify-center gap-1.5 rounded-xl px-6 py-3" style={{ fontSize: 14, fontWeight: 800, color: C.abyss, background: C.primary }}>
                 <Crown size={15} /> 加入船長艙
               </button>
             ) : (
