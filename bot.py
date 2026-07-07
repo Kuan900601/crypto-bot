@@ -3315,6 +3315,14 @@ def register_signal(sig, watchers):
         "dist_from_recent_high_at_entry": sig.get("dist_from_recent_high_pct"),
         "dist_from_recent_low_at_entry": sig.get("dist_from_recent_low_pct"),
         "session_at_entry": "Asia" if now.hour < 8 else ("Europe" if now.hour < 16 else "America"),
+        # v65 P3：結構式 SL/TP 欄位
+        "sltp_method_at_entry": sig.get("sltp_method_at_entry", "fixed_atr"),
+        "sl_structure_type": sig.get("sl_structure_type"),
+        "sl_used_pct": (round(abs(sig.get("sl", 0) - sig.get("entry", 0)) / sig["entry"] * 100, 2)
+                        if sig.get("entry") else None),
+        # min/max_seen_price：持倉期間最不利價（供 close_signal 計算 max_adverse_pct）
+        "min_seen_price": sig.get("entry"),  # LONG 用
+        "max_seen_price": sig.get("entry"),  # SHORT 用
     }
     save_data()
     logger.info("註冊信號: " + sym + " " + sig["direction"] + " 評分 " + str(sig.get("score")) + " 等級 " + str(sig.get("entry_grade", "C")) + " 訂閱 " + str(len(watchers)))
@@ -3332,6 +3340,7 @@ def register_signal(sig, watchers):
                 "tp1": sig["tp1"], "tp2": sig.get("tp2", 0),
                 "tp3": sig.get("tp3", 0), "tp4": sig.get("tp4", 0),
                 "created": now.isoformat(),
+                "sltp_method_at_entry": sig.get("sltp_method_at_entry", "fixed_atr"),  # v65 P3
             }
             _sig_json = json.dumps(_sig_obj, ensure_ascii=False)
             _body = json.dumps(["RPUSH", "signal_queue", _sig_json]).encode("utf-8")
@@ -3568,6 +3577,16 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
         "dist_from_recent_high_at_entry": sig.get("dist_from_recent_high_at_entry"),
         "dist_from_recent_low_at_entry": sig.get("dist_from_recent_low_at_entry"),
         "session_at_entry": sig.get("session_at_entry"),
+        # v65 P3：結構式 SL/TP 分析欄位
+        "sltp_method_at_entry": sig.get("sltp_method_at_entry", "fixed_atr"),
+        "sl_structure_type": sig.get("sl_structure_type"),
+        "sl_used_pct": sig.get("sl_used_pct"),
+        "max_adverse_pct": (
+            round((sig.get("entry", 0) - (sig.get("min_seen_price") or sig.get("entry", 0))) / sig.get("entry", 1) * 100, 2)
+            if direction == "LONG" and sig.get("entry") else
+            round(((sig.get("max_seen_price") or sig.get("entry", 0)) - sig.get("entry", 0)) / sig.get("entry", 1) * 100, 2)
+            if direction == "SHORT" and sig.get("entry") else None
+        ),
     })
     # 只保留最近 1000 筆
     if len(SIGNAL_RESULTS) > 1000:
@@ -3720,6 +3739,16 @@ async def check_active_signals(ctx):
             if not direction or not entry or sl is None:
                 logger.warning("TP侦测: " + sym + " 缺關鍵字段，本輪跳過")
                 continue
+
+            # v65 P3：追蹤最大浮虧（max_adverse_pct 於 close_signal 時計算）
+            if direction == "LONG":
+                _ms = sig.get("min_seen_price")
+                if _ms is None or price < _ms:
+                    sig["min_seen_price"] = price
+            elif direction == "SHORT":
+                _ms = sig.get("max_seen_price")
+                if _ms is None or price > _ms:
+                    sig["max_seen_price"] = price
 
             # === 止損 ===
             if direction == "LONG" and price <= sl:

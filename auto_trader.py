@@ -16,7 +16,7 @@ MAX_POSITIONS = int(os.getenv("AT_MAX_POSITIONS", "4"))
 LEVERAGE = int(os.getenv("AT_LEVERAGE", "20"))
 MAX_SL_PCT = float(os.getenv("AT_MAX_SL_PCT", "0.035"))
 # v65 P1 強平安全線
-LIQ_BUFFER = float(os.getenv("LIQ_BUFFER", "0.15"))          # 止損最多用距強平的 (1-LIQ_BUFFER) 比例
+LIQ_BUFFER = float(os.getenv("LIQ_BUFFER", "0.20"))          # 止損最多用距強平的 (1-LIQ_BUFFER) 比例；v65 P3 從 0.15→0.20，結構式止損日常貼安全線需更厚緩衝
 MIN_SL_SPACE_PCT = float(os.getenv("MIN_SL_SPACE_PCT", "0.005"))   # 止損空間 < 此值 → 不開倉
 WARN_SL_SPACE_PCT = float(os.getenv("WARN_SL_SPACE_PCT", "0.015"))  # 止損空間 < 此值 → 告警但照開
 ALLOWED_TIERS = [t.strip() for t in os.getenv("AUTO_TRADE_TIERS", "S,A,B").split(",") if t.strip()]
@@ -485,7 +485,11 @@ def open_batch_tp_position(ex, signal, equity, free_usdt=None):
         return record
 
     # 1) 市價開倉 + Bybit V5 原生附帶整倉止損
-    sl_price = _clamp_sl(side, price, signal.get("sl"))  # 不允許比 MAX_SL_PCT 更遠
+    # v65 P3：結構式止損跳過靜態 AT_MAX_SL_PCT 限制，唯一硬上限為強平安全線
+    if signal.get("sltp_method_at_entry") == "structure":
+        sl_price = float(signal.get("sl") or 0) or None
+    else:
+        sl_price = _clamp_sl(side, price, signal.get("sl"))  # 不允許比 MAX_SL_PCT 更遠
 
     # v65 P1 第一道：開倉前用公式估算強平價，確保止損在安全線內
     sl_price, pre_safety, pre_adjusted, pre_src, sl_space = _get_safe_sl(side, price, sl_price)

@@ -24,6 +24,12 @@ _ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 _CRYPTOPANIC_TOKEN = os.environ.get("CRYPTOPANIC_TOKEN", "")  # 可選，沒有也能用免費端點
 _NEWS_ENABLED = bool(_ANTHROPIC_KEY)  # 至少要有 Claude key 才啟用
 
+# v65 P3：結構式止損/止盈開關（預設關；作者手動設 STRUCTURE_SLTP=true 才啟用）
+_STRUCTURE_SLTP = os.getenv("STRUCTURE_SLTP", "false").lower() == "true"
+_RR_MIN_TP1 = float(os.getenv("RR_MIN_TP1", "1.2"))        # 結構模式 TP1 最低 RR 篩門
+_AT_LEVERAGE_FOR_LIQ = int(os.getenv("AT_LEVERAGE", "20"))  # 與 auto_trader 同 env，用於公式估強平
+_LIQ_BUFFER_FOR_SL = float(os.getenv("LIQ_BUFFER", "0.20"))  # 與 auto_trader 同 env
+
 
 async def _fetch_crypto_news(session, limit=10):
     """抓最近的加密新聞標題。失敗回傳空列表，不拋錯。
@@ -5686,6 +5692,80 @@ class CryptoAnalyzer:
                 "SHORT", entry, sl, df1h, ref_res, ref_sup, ref_atr
             )
 
+        # ⭐ v65 P3：結構式 SL/TP 覆蓋（STRUCTURE_SLTP=true 才執行，預設關）
+        sltp_method_at_entry = "fixed_atr"
+        sl_structure_type = None
+        if _STRUCTURE_SLTP:
+            try:
+                _lev_est_pct = (1.0 / _AT_LEVERAGE_FOR_LIQ) * 0.95   # 保守估強平距離（e.g. 20x→4.75%）
+                if direction == "LONG":
+                    _struct_ref = sw_sup_1h[0] if sw_sup_1h else None
+                    if _struct_ref and _struct_ref > 0:
+                        _struct_sl = _struct_ref - 0.3 * atr_1h
+                        # 公式安全線上限
+                        _liq_est = entry * (1 - _lev_est_pct)
+                        _safety_est = _liq_est + (entry - _liq_est) * _LIQ_BUFFER_FOR_SL
+                        if _struct_sl < _safety_est:
+                            _struct_sl = _safety_est
+                            sl_structure_type = "capped_liq"
+                        else:
+                            sl_structure_type = "swing_sup"
+                        if 0 < _struct_sl < entry:
+                            # 嘗試對齊 TP1 到最近阻力
+                            _struct_tp1 = tp1
+                            if sw_res_1h and sw_res_1h[0] > entry:
+                                _r1_risk = entry - _struct_sl
+                                if _r1_risk > 0 and (sw_res_1h[0] - entry) / _r1_risk >= _RR_MIN_TP1:
+                                    _struct_tp1 = sw_res_1h[0]
+                            sl = _struct_sl
+                            tp1 = _struct_tp1
+                            # 用新 risk 重算 TP2/TP3（對齊結構位）
+                            _nr = abs(entry - sl)
+                            tp2 = (sw_res_1h[0] if sw_res_1h and sw_res_1h[0] > entry
+                                   and (sw_res_1h[0] - entry) / _nr >= 2.0
+                                   else entry + _nr * 2.5)
+                            tp3 = (sw_res_1h[1] if len(sw_res_1h) > 1 and sw_res_1h[1] > tp2
+                                   and (sw_res_1h[1] - entry) / _nr >= 3.0
+                                   else entry + _nr * 3.5)
+                            sltp_method_at_entry = "structure"
+                        else:
+                            sl_structure_type = "atr_fallback"
+                else:  # SHORT
+                    _struct_ref = sw_res_1h[0] if sw_res_1h else None
+                    if _struct_ref and _struct_ref > 0:
+                        _struct_sl = _struct_ref + 0.3 * atr_1h
+                        # 公式安全線上限（SHORT: 強平在 entry 上方）
+                        _liq_est = entry * (1 + _lev_est_pct)
+                        _safety_est = _liq_est - (_liq_est - entry) * _LIQ_BUFFER_FOR_SL
+                        if _struct_sl > _safety_est:
+                            _struct_sl = _safety_est
+                            sl_structure_type = "capped_liq"
+                        else:
+                            sl_structure_type = "swing_res"
+                        if _struct_sl > entry:
+                            # 嘗試對齊 TP1 到最近支撐
+                            _struct_tp1 = tp1
+                            if sw_sup_1h and sw_sup_1h[0] < entry:
+                                _r1_risk = _struct_sl - entry
+                                if _r1_risk > 0 and (entry - sw_sup_1h[0]) / _r1_risk >= _RR_MIN_TP1:
+                                    _struct_tp1 = sw_sup_1h[0]
+                            sl = _struct_sl
+                            tp1 = _struct_tp1
+                            _nr = abs(sl - entry)
+                            tp2 = (sw_sup_1h[0] if sw_sup_1h and sw_sup_1h[0] < entry
+                                   and (entry - sw_sup_1h[0]) / _nr >= 2.0
+                                   else entry - _nr * 2.5)
+                            tp3 = (sw_sup_1h[1] if len(sw_sup_1h) > 1 and sw_sup_1h[1] < tp2
+                                   and (entry - sw_sup_1h[1]) / _nr >= 3.0
+                                   else entry - _nr * 3.5)
+                            sltp_method_at_entry = "structure"
+                        else:
+                            sl_structure_type = "atr_fallback"
+            except Exception as _struc_e:
+                logger.warning("[STRUCTURE_SLTP] 計算失敗，fallback to fixed_atr: " + str(_struc_e)[:120])
+                sltp_method_at_entry = "fixed_atr"
+                sl_structure_type = None
+
         # ⭐ v57 防呆：低價幣精度異常（entry/sl 被砍成 0 或重合）直接放棄
         if entry <= 0 or sl <= 0 or abs(entry - sl) <= 0:
             return None, "價格精度異常"
@@ -5696,7 +5776,8 @@ class CryptoAnalyzer:
         rr3 = round(abs(tp3 - entry) / risk, 2) if risk > 0 else 0
         rr4 = round(abs(tp4 - entry) / risk, 2) if risk > 0 else 0
 
-        if rr2 < 1.5:  # v46 平衡：TP2 1.5+ 即可
+        # v65 P3：結構模式已在塊內驗證 TP1 RR，跳過固定模式的 rr2 ≥ 1.5 gate
+        if sltp_method_at_entry != "structure" and rr2 < 1.5:
             return None, "TP2風報比過低 (<1.5)"
 
         # ⭐ v49 暫定值（會在 entry_grade 之後重算）
@@ -5911,6 +5992,8 @@ class CryptoAnalyzer:
             "tp1": tp1, "tp2": tp2, "tp3": tp3, "tp4": tp4,
             "sl": sl,
             "rr1": rr1, "rr2": rr2, "rr3": rr3, "rr4": rr4,
+            "sltp_method_at_entry": sltp_method_at_entry,  # v65 P3: "structure"/"fixed_atr"
+            "sl_structure_type": sl_structure_type,         # v65 P3: swing_sup/capped_liq/swing_res/atr_fallback/None
             "news_vote": news_vote,  # v55：這單有沒有吃到新聞情緒票（供事後驗證新聞準不準）
             # v65 進場情境快照（複用本次掃描已抓的 funding/ls_ratio，不重抓；抓不到一律 None）
             "funding": funding,
