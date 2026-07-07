@@ -3323,6 +3323,9 @@ def register_signal(sig, watchers):
         # min/max_seen_price：持倉期間最不利價（供 close_signal 計算 max_adverse_pct）
         "min_seen_price": sig.get("entry"),  # LONG 用
         "max_seen_price": sig.get("entry"),  # SHORT 用
+        # v65 P4：短線止損診斷
+        "sl_source_at_entry": sig.get("sl_label"),          # ATR/結構/Chandelier/近期低點
+        "market_health_at_entry": sig.get("market_health"),  # BTC 市場健康（幫助分析空頭偏誤背景）
     }
     save_data()
     logger.info("註冊信號: " + sym + " " + sig["direction"] + " 評分 " + str(sig.get("score")) + " 等級 " + str(sig.get("entry_grade", "C")) + " 訂閱 " + str(len(watchers)))
@@ -3587,6 +3590,9 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
             round(((sig.get("max_seen_price") or sig.get("entry", 0)) - sig.get("entry", 0)) / sig.get("entry", 1) * 100, 2)
             if direction == "SHORT" and sig.get("entry") else None
         ),
+        # v65 P4：止損診斷欄位
+        "sl_source_at_entry": sig.get("sl_source_at_entry"),
+        "market_health_at_entry": sig.get("market_health_at_entry"),
     })
     # 只保留最近 1000 筆
     if len(SIGNAL_RESULTS) > 1000:
