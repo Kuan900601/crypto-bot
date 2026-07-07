@@ -2,7 +2,6 @@
 import { Signal } from "@/lib/types";
 import { fmtPrice, entryGradeDisplay } from "@/lib/format";
 import { C, MONO } from "@/lib/theme";
-import Corner from "@/components/site/Corner";
 import { TrendingUp, TrendingDown, Lock } from "lucide-react";
 import { useTilt } from "@/lib/useTilt";
 
@@ -26,13 +25,11 @@ export default function SignalCard({ s, onOpen }: { s: Signal; onOpen: () => voi
   const tierStyle = TIER_STYLE[s.tier] ?? TIER_STYLE["C"];
 
   return (
-    <div ref={tiltRef} onClick={onOpen} className="sigrow glass-sheen tilt-card" style={{
+    <div ref={tiltRef} onClick={onOpen} className="sigrow tilt-card" style={{
       cursor: "pointer", position: "relative", overflow: "hidden", padding: "16px 16px 14px 20px", borderRadius: 16,
-      background: "linear-gradient(180deg, rgba(16,30,48,0.75), rgba(6,16,30,0.62))", border: `1px solid ${C.line}`,
+      background: C.deep, border: `1px solid ${C.line}`,
     }}>
       <span className="accent-bar" style={{ background: `linear-gradient(${sc},transparent)`, boxShadow: `0 0 6px ${sc}` }} />
-      <div className="row-sweep" />
-      <Corner pos="tr" /><Corner pos="br" />
 
       {/* ── 頂行：方向 / 幣種 / Tier pill / 狀態 ── */}
       <div className="flex flex-wrap items-center gap-2" style={{ position: "relative", zIndex: 1 }}>

@@ -3,8 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Signal } from "@/lib/types";
 import SignalCard from "@/components/SignalCard";
 import SignalModal from "@/components/SignalModal";
-import { C, MONO, SERIF } from "@/lib/theme";
-import Corner from "@/components/site/Corner";
+import { C, MONO } from "@/lib/theme";
 import { Crown, Radio, Send, Bell, ArrowRight, ExternalLink, Lock } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useSession } from "next-auth/react";
@@ -63,8 +62,7 @@ function LiveFeed({ userTier }: { userTier: string }) {
   const isLive = liveSource === "redis";
 
   return (
-    <section style={{ position: "relative", overflow: "hidden", borderRadius: 18, padding: 20, border: `1px solid ${C.linePrimary}`, background: "linear-gradient(180deg, rgba(16,30,48,0.7), rgba(6,16,30,0.55))" }}>
-      <Corner pos="tl" /><Corner pos="tr" />
+    <section style={{ position: "relative", overflow: "hidden", borderRadius: 16, padding: 20, border: `1px solid ${C.line}`, background: C.deep }}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-2">
           <span style={{ width: 8, height: 8, borderRadius: 99, background: isLive ? C.green : C.dim, boxShadow: isLive ? `0 0 6px ${C.green}` : "none", animation: isLive ? "pulseDot 1.5s infinite" : "none" }} />
@@ -179,15 +177,14 @@ export default function SignalsPage() {
     <div className="space-y-5">
       <PullIndicator pullDistance={pullDistance} refreshing={refreshing} threshold={threshold} />
       {/* 黑潮船長 CTA */}
-      <section style={{ position: "relative", overflow: "hidden", borderRadius: 18, padding: 22, border: `1px solid ${C.linePrimary}`, background: "linear-gradient(135deg, rgba(0,212,255,0.1), rgba(10,12,18,0.5))" }}>
-        <Corner pos="tl" /><Corner pos="br" />
+      <section style={{ position: "relative", overflow: "hidden", borderRadius: 16, padding: 22, border: `1px solid ${C.linePrimary}`, background: `radial-gradient(520px 220px at 0% 0%, rgba(0,212,255,0.08), transparent 62%), ${C.deep}` }}>
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="mb-1.5 flex items-center gap-2">
               <Radio size={14} color={C.primary} />
-              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: C.primary2 }}>黑潮船長 · 信號中心</span>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: C.primary }}>黑潮船長 · 信號中心</span>
             </div>
-            <h1 className="accent-text" style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700, letterSpacing: 0.5 }}>黑潮 BLACKTIDE · 交易信號</h1>
+            <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.01em", color: C.ink }}>黑潮 BLACKTIDE · <span style={{ color: C.primary }}>交易信號</span></h1>
             <p className="mt-1.5 max-w-md" style={{ fontSize: 13.5, lineHeight: 1.7, color: C.mut }}>
               七大技術策略加新聞情緒投票，過五維評分與盈虧比硬門檻才出手。三段止盈 40/35/25，波動自適應止損。
             </p>
