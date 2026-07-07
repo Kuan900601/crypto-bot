@@ -10,7 +10,8 @@ html { scroll-behavior: smooth; }
 * { -webkit-tap-highlight-color: transparent; }
 body {
   color: #F8FAFC;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+  /* Inter（next/font 注入 --font-sans）優先，CJK 落回 PingFang/Noto */
+  font-family: var(--font-sans, -apple-system), -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
   font-feature-settings: "tnum" 1;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -79,12 +80,11 @@ a:active { -webkit-tap-highlight-color: transparent; }
 
 .accent-text { background: linear-gradient(92deg,#075985,#00D4FF 38%,#BAF3FF 50%,#00D4FF 62%,#075985); background-size: 200% auto; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: shimmer 6s linear infinite; }
 .teal-text { background: linear-gradient(92deg,#0891B2,#00D4FF 50%,#BAF3FF,#00D4FF,#0891B2); background-size: 200% auto; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: shimmer 7s linear infinite; }
-.cta { position: relative; overflow: hidden; transition: transform .25s; animation: ctaPulse 2.6s ease-in-out infinite; }
-.cta:hover { transform: translateY(-3px) scale(1.02); }
-.cta::after { content: ''; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.45) 50%, transparent 70%); background-size: 200% 100%; animation: shimmer 2.8s linear infinite; }
-.cta-big { position: relative; overflow: hidden; transition: transform .25s; animation: ctaBigPulse 2.4s ease-in-out infinite; }
-.cta-big:hover { transform: translateY(-3px) scale(1.04); }
-.cta-big::after { content: ''; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 28%, rgba(255,255,255,.5) 50%, transparent 72%); background-size: 200% 100%; animation: shimmer 2.6s linear infinite; }
+/* REDESIGN V1：CTA 從「無限脈衝+掃光」降噪為沉穩 premium——靜態柔影，hover 才提起 */
+.cta { position: relative; overflow: hidden; transition: transform .2s, box-shadow .2s; box-shadow: 0 4px 20px rgba(0,212,255,.25); }
+.cta:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,212,255,.38); }
+.cta-big { position: relative; overflow: hidden; transition: transform .2s, box-shadow .2s; box-shadow: 0 6px 28px rgba(0,212,255,.3); }
+.cta-big:hover { transform: translateY(-2px); box-shadow: 0 12px 44px rgba(0,212,255,.42); }
 .ham { transition: background .2s, border-color .2s; cursor: pointer; }
 .ham:hover { background: rgba(0,212,255,.1) !important; border-color: rgba(0,212,255,.4) !important; }
 .mrow { transition: background .2s, padding-left .2s; cursor: pointer; }

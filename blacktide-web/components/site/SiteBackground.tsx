@@ -52,12 +52,12 @@ function GlobalCurrent() {
     const draw = (t: number) => {
       if (!running) return;
       const dt = Math.min(40, t - t0); t0 = t;
-      ctx.fillStyle = "rgba(3,6,14,0.085)";
+      ctx.fillStyle = "rgba(5,7,10,0.085)";
       ctx.fillRect(0, 0, W, H);
       for (const p of parts) {
         const a = field(p.x, p.y, t), vx = Math.cos(a) * p.sp, vy = Math.sin(a) * p.sp - 0.25;
         const nx = p.x + vx * dt * 0.06, ny = p.y + vy * dt * 0.06;
-        ctx.strokeStyle = p.hue === "g" ? `rgba(235,200,115,${p.a})` : `rgba(70,224,205,${p.a})`;
+        ctx.strokeStyle = p.hue === "g" ? `rgba(0,212,255,${p.a})` : `rgba(103,232,249,${p.a})`;
         ctx.lineWidth = p.hue === "g" ? 1.8 : 1.4;
         ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(nx, ny); ctx.stroke();
         p.x = nx; p.y = ny;
@@ -69,7 +69,7 @@ function GlobalCurrent() {
         if (age > RIPPLE_LIFE) { ripples.splice(i, 1); continue; }
         const k = age / RIPPLE_LIFE;
         const rad = k * RIPPLE_MAX_R;
-        ctx.strokeStyle = `rgba(70,224,205,${0.32 * (1 - k)})`;
+        ctx.strokeStyle = `rgba(103,232,249,${0.32 * (1 - k)})`;
         ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(r.x, r.y, rad, 0, Math.PI * 2); ctx.stroke();
       }
