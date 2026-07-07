@@ -392,7 +392,8 @@ def admin_menu():
         [InlineKeyboardButton("🛡 情境閘門記錄", callback_data="admin_gate_stats")],
         [InlineKeyboardButton("📤 匯出歷史", callback_data="admin_export"),
          InlineKeyboardButton("🧪 測試推播", callback_data="admin_testpush")],
-        [InlineKeyboardButton("🗑 清空戰績", callback_data="admin_reset_stats")],
+        [InlineKeyboardButton("🗑 清空戰績", callback_data="admin_reset_stats"),
+         InlineKeyboardButton("🧹 清空紙上追蹤", callback_data="admin_clear_paper")],
         [InlineKeyboardButton("⬅️ 返回主選單", callback_data="home")],
     ])
 
@@ -1422,7 +1423,16 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     elif d == "history":
         result = show_history(chat_id)
-        await q.edit_message_text(result, parse_mode="Markdown", reply_markup=back_btn())
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🗑 清除推播歷史", callback_data="history_clear")],
+            [InlineKeyboardButton("🏠 返回主選單", callback_data="home")],
+        ])
+        await q.edit_message_text(result, parse_mode="Markdown", reply_markup=kb)
+
+    elif d == "history_clear":
+        PUSH_HISTORY.pop(chat_id, None)
+        save_data()
+        await q.edit_message_text("✅ 推播歷史已清除", reply_markup=back_btn())
 
     elif d == "auto_on":
         HUNTER_WATCHERS.add(chat_id)
@@ -2160,15 +2170,65 @@ async def button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 "⚠️ 將清空 " + str(n) + " 筆歷史戰績與連虧紀錄，此動作不可復原。確定嗎？",
                 reply_markup=kb
             )
+        elif action == "reset_confirm":
+            # v65 P5 修：原 handler 在 elif d=="admin_reset_confirm" 因 startswith("admin_") 先攔截而變 dead code
+            await cmd_reset_stats(update, ctx)
+            await q.message.reply_text("⬅️ 返回", reply_markup=admin_menu())
+        elif action == "clear_paper":
+            # v65 P5：清空無真實倉位的紙上追蹤信號
+            real_trades = [t for t in _redis_get_json_key("at:trades", [])
+                           if t.get("ok") and not t.get("closed")]
+            real_syms = {(t.get("symbol") or "").replace(":USDT", "").replace("/USDT", "")
+                         for t in real_trades}
+            paper_syms = [sym for sym in ACTIVE_SIGNALS
+                          if sym.replace("/USDT", "") not in real_syms]
+            wl_items = _redis_lrange_raw("at:waitlist")
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    "⚠️ 確定清除 " + str(len(paper_syms)) + " 個紙上信號",
+                    callback_data="admin_clear_paper_confirm")],
+                [InlineKeyboardButton("取消", callback_data="menu_admin")],
+            ])
+            await q.edit_message_text(
+                "🧹 *清空紙上追蹤信號*\n\n"
+                "真實持倉（Bybit）：" + str(len(real_trades)) + " 張\n"
+                "信號追蹤總數：" + str(len(ACTIVE_SIGNALS)) + " 個\n"
+                "at:waitlist 候補：" + str(len(wl_items)) + " 個\n"
+                "━━━━━━━━━━━━━━━\n"
+                "將清除：" + str(len(paper_syms)) + " 個無真實倉位的信號\n"
+                "同步清空 at:waitlist 候補\n"
+                "保留：" + str(len(real_trades)) + " 個有 Bybit 真實倉位的信號\n\n"
+                "⚠️ 此操作不可復原",
+                reply_markup=kb, parse_mode="Markdown"
+            )
+        elif action == "clear_paper_confirm":
+            real_trades = [t for t in _redis_get_json_key("at:trades", [])
+                           if t.get("ok") and not t.get("closed")]
+            real_syms = {(t.get("symbol") or "").replace(":USDT", "").replace("/USDT", "")
+                         for t in real_trades}
+            removed = []
+            for sym in list(ACTIVE_SIGNALS.keys()):
+                if sym.replace("/USDT", "") not in real_syms:
+                    ACTIVE_SIGNALS.pop(sym, None)
+                    removed.append(sym)
+            wl_len = 0
+            try:
+                r = _redis_cmd_raw(["LLEN", "at:waitlist"])
+                wl_len = (r.get("result") or 0) if r else 0
+                _redis_cmd_raw(["DEL", "at:waitlist"])
+            except Exception as _wl_e:
+                logger.warning("清空 at:waitlist 失敗: " + str(_wl_e)[:80])
+            save_data()
+            await q.edit_message_text(
+                "✅ *清空完成*\n\n"
+                "已清除 " + str(len(removed)) + " 個紙上追蹤信號\n"
+                "已清空 at:waitlist " + str(wl_len) + " 個候補\n\n"
+                "_保留 " + str(len(real_trades)) + " 個有 Bybit 真實倉位的信號_",
+                parse_mode="Markdown"
+            )
+            await q.message.reply_text("⬅️ 返回", reply_markup=admin_menu())
         if action in ("at_debug", "at_status", "edge", "real_pnl", "gate_stats", "export", "testpush"):
             await q.message.reply_text("⬅️ 返回", reply_markup=admin_menu())
-
-    elif d == "admin_reset_confirm":
-        if not is_admin:
-            await q.answer("僅管理員可用", show_alert=True)
-            return
-        await cmd_reset_stats(update, ctx)
-        await q.message.reply_text("⬅️ 返回", reply_markup=admin_menu())
 
 
 async def text_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
