@@ -829,7 +829,17 @@ async def cmd_gate_stats(update, context):
         return
 
     blocked = getattr(analyzer, "_gate_blocked", [])
-    if not blocked:
+
+    # v66 P1：Redis gate_shadow 持久化計數
+    _gs_count = 0
+    if _USE_REDIS:
+        try:
+            _gs_resp = _redis_cmd_raw(["LLEN", "gate_shadow"])
+            _gs_count = int((_gs_resp or {}).get("result", 0))
+        except Exception:
+            pass
+
+    if not blocked and not _gs_count:
         await update.effective_message.reply_text("目前無情境閘門擋下記錄（存在記憶體、重啟會清空）。")
         return
 
@@ -838,16 +848,19 @@ async def cmd_gate_stats(update, context):
         r = b.get("reason", "")
         reason_counts[r] = reason_counts.get(r, 0) + 1
 
-    text = "🚧 *情境閘門擋下統計（v57）*\n"
+    text = "🚧 *情境閘門擋下統計（v66）*\n"
     text += "━━━━━━━━━━━━━━━━━━━━\n"
-    text += "存在記憶體、重啟會清空。共 " + str(len(blocked)) + " 筆\n\n"
-    text += "*原因統計*\n"
-    for r, c in sorted(reason_counts.items(), key=lambda x: -x[1]):
-        text += "• " + r + "：" + str(c) + "\n"
+    text += "記憶體（重啟清空）：" + str(len(blocked)) + " 筆\n"
+    text += "Redis gate_shadow（持久）：" + str(_gs_count) + " 筆\n\n"
+    if reason_counts:
+        text += "*原因統計*\n"
+        for r, c in sorted(reason_counts.items(), key=lambda x: -x[1]):
+            text += "• " + r + "：" + str(c) + "\n"
 
-    text += "\n*最近 10 筆*\n"
-    for b in blocked[-10:][::-1]:
-        text += "• " + b.get("sym", "") + " " + b.get("dir", "") + " — " + b.get("reason", "") + "\n"
+    if blocked:
+        text += "\n*最近 10 筆*\n"
+        for b in blocked[-10:][::-1]:
+            text += "• " + b.get("sym", "") + " " + b.get("dir", "") + " — " + b.get("reason", "") + "\n"
 
     await update.effective_message.reply_text(text, parse_mode="Markdown")
 
@@ -2602,6 +2615,18 @@ async def auto_broadcast(ctx: ContextTypes.DEFAULT_TYPE):
             logger.warning("3分推播：golden_hunter 回傳 None")
             return
         # ⭐ v54 完整重構：主路徑完全使用結構化 plan，不經過任何文字反解析
+        # v66 P1：flush gate_shadow_queue 到 Redis gate_shadow（RPUSH + LTRIM 300）
+        try:
+            _gsq = getattr(analyzer, "_gate_shadow_queue", [])
+            if _gsq and _USE_REDIS:
+                for _gs in _gsq:
+                    _redis_cmd_raw(["RPUSH", "gate_shadow", json.dumps(_gs, ensure_ascii=False)])
+                _redis_cmd_raw(["LTRIM", "gate_shadow", -300, -1])
+            if _gsq:
+                analyzer._gate_shadow_queue = []  # flush 後清空，避免重複寫入
+        except Exception as _gsq_e:
+            logger.warning("gate_shadow flush 失敗（不影響主流程）: " + str(_gsq_e)[:80])
+
         # entry_grade/rr1/win_rate 全部是真值；三種情況精確區分：
         #   ready=True + 有資料 → 正常使用
         #   ready=True + 空     → 本輪無機會（正常，靜默結束）
@@ -3386,6 +3411,7 @@ def register_signal(sig, watchers):
         # v65 P4：短線止損診斷
         "sl_source_at_entry": sig.get("sl_label"),          # ATR/結構/Chandelier/近期低點
         "market_health_at_entry": sig.get("market_health"),  # BTC 市場健康（幫助分析空頭偏誤背景）
+        "chase_flags_at_entry": sig.get("chase_flags", []),  # v66 P1：追入旗標
     }
     save_data()
     logger.info("註冊信號: " + sym + " " + sig["direction"] + " 評分 " + str(sig.get("score")) + " 等級 " + str(sig.get("entry_grade", "C")) + " 訂閱 " + str(len(watchers)))
@@ -3653,6 +3679,8 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
         # v65 P4：止損診斷欄位
         "sl_source_at_entry": sig.get("sl_source_at_entry"),
         "market_health_at_entry": sig.get("market_health_at_entry"),
+        # v66 P1：追入旗標
+        "chase_flags_at_entry": sig.get("chase_flags_at_entry", []),
     })
     # 只保留最近 1000 筆
     if len(SIGNAL_RESULTS) > 1000:
