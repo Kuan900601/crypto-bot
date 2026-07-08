@@ -65,7 +65,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       position: "relative", overflow: "hidden",
     }}>
       <div style={{ position: "absolute", inset: 0, background: "radial-gradient(360px 280px at 15% 0%, rgba(19,53,90,0.35), transparent 60%)", pointerEvents: "none" }} />
-      <div className="shrink-0" style={{ height: "env(safe-area-inset-top, 0px)" }} />
+      {/* safe-area 頂部內距已由 Shell 根容器統一處理 */}
       <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 11, padding: "18px 18px 14px" }}>
         <LogoMark size={40} />
         <div style={{ minWidth: 0 }}>

@@ -32,7 +32,8 @@ export default function Topbar({ onMenu }: { onMenu?: () => void }) {
   const pick = (s: SymbolLite) => { setDetail(s); setQ(""); setOpen(false); };
   return (
     <>
-      <header className="sticky top-0 z-40 backdrop-blur" style={{ background: "rgba(4,9,16,0.86)", borderBottom: `1px solid ${C.linePrimary}`, paddingTop: "env(safe-area-inset-top)" }}>
+      {/* safe-area 頂部內距已由 Shell 根容器統一處理，這裡不再重複補（避免雙重內距） */}
+      <header className="sticky top-0 z-40 backdrop-blur" style={{ background: "rgba(4,9,16,0.86)", borderBottom: `1px solid ${C.linePrimary}` }}>
         <div className="flex h-14 items-center justify-between gap-3 px-4">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <div className="flex items-center gap-2 md:hidden">
@@ -84,7 +85,8 @@ export default function Topbar({ onMenu }: { onMenu?: () => void }) {
                 )}
               </div>
             )}
-            {status !== "authenticated" && (
+            {/* 嚴格判 unauthenticated：loading 期間不閃現註冊鈕，已登入絕不顯示 */}
+            {status === "unauthenticated" && (
               <Link href="/login?register=1" className="cta shrink-0 whitespace-nowrap" style={{
                 borderRadius: 9, padding: "7px 14px", fontSize: 12.5, fontWeight: 800, color: C.abyss,
                 background: C.primary,

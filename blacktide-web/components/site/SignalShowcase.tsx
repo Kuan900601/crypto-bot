@@ -1,4 +1,5 @@
 "use client";
+import { useSession } from "next-auth/react";
 import { C, MONO } from "@/lib/theme";
 import Corner from "@/components/site/Corner";
 import CTA from "@/components/site/CTA";
@@ -17,6 +18,7 @@ function fmtPrice(n?: number) {
  *  free / 未登入會是 undefined（一律鎖），Plus / Pro 會是真實數字（直接顯示）。
  *  finalPct（已結算損益%）對 free 也是公開欄位，所以即使鎖價也照實顯示真實輸贏。 */
 export default function SignalShowcase({ signals }: { signals: Signal[] | null }) {
+  const { data: session } = useSession();
   const rows = (signals || []).slice(0, 8);
   return (
     <section style={{ padding: "60px 18px", position: "relative", overflow: "hidden" }}>
@@ -94,9 +96,11 @@ export default function SignalShowcase({ signals }: { signals: Signal[] | null }
           })}
 
           <div style={{ marginTop: 14, textAlign: "center", position: "relative", zIndex: 1 }}>
-            <Link href="/login?register=1">
-              <CTA>免費註冊 · 查看今日信號</CTA>
-            </Link>
+            {session ? (
+              <Link href="/signals"><CTA>前往信號中心 · 查看完整信號</CTA></Link>
+            ) : (
+              <Link href="/login?register=1"><CTA>免費註冊 · 查看今日信號</CTA></Link>
+            )}
           </div>
         </div>
       </div>

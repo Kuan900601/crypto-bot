@@ -85,7 +85,7 @@ function Faq() {
 
 export default function Home() {
   const { tickers, stats } = useMarket();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [signals, setSignals] = useState<Signal[] | null>(null);
   const previewTiltRef = useTilt<HTMLDivElement>(5);
 
@@ -146,11 +146,8 @@ export default function Home() {
                   : <>多策略投票產出可執行的交易信號——進場區間、止損、分批止盈一次給齊，每筆結果照實公開。</>}
               </p>
               <div style={{ display: "flex", gap: 12, marginTop: 30, flexWrap: "wrap", alignItems: "center" }}>
-                {session ? (
-                  <Link href="/signals"><CTA big>前往信號中心</CTA></Link>
-                ) : (
-                  <Link href="/login?register=1"><CTA big>免費註冊 · 送 3 日 Plus 體驗</CTA></Link>
-                )}
+                {status === "authenticated" && <Link href="/signals"><CTA big>前往信號中心</CTA></Link>}
+                {status === "unauthenticated" && <Link href="/login?register=1"><CTA big>免費註冊 · 送 3 日 Plus 體驗</CTA></Link>}
                 <Link href="/signals" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "15px 22px", borderRadius: 12, fontSize: 15, fontWeight: 600, color: C.ink, border: `1px solid ${C.line}`, background: "rgba(255,255,255,0.03)" }} className="press-feedback">
                   查看信號戰績 <ArrowRight size={15} />
                 </Link>
@@ -270,7 +267,7 @@ export default function Home() {
                     <LockedRow label="TP1" />
                   )}
                 </div>
-                {!session && (
+                {status === "unauthenticated" && (
                   <Link href="/login?register=1" style={{ display: "block", marginTop: 16 }}>
                     <CTA style={{ width: "100%", padding: "11px 0", fontSize: 13 }}>免費註冊 · 查看完整信號</CTA>
                   </Link>
@@ -405,8 +402,8 @@ export default function Home() {
           </h2>
           <p style={{ fontSize: "clamp(14px,1.9vw,17px)", color: C.mut, margin: "16px 0 0", wordBreak: "keep-all" }}>免費註冊即可開始查看今日信號。</p>
           <div style={{ marginTop: 34 }}>
-            {!session && <Link href="/login?register=1"><CTA big>免費註冊 · 送 3 日 Plus 體驗</CTA></Link>}
-            {session && <Link href="/signals"><CTA big>前往黑潮船長信號</CTA></Link>}
+            {status === "unauthenticated" && <Link href="/login?register=1"><CTA big>免費註冊 · 送 3 日 Plus 體驗</CTA></Link>}
+            {status === "authenticated" && <Link href="/signals"><CTA big>前往黑潮船長信號</CTA></Link>}
           </div>
           <div style={{ fontSize: 12, color: C.dim, marginTop: 16 }}>不需信用卡 · 隨時可取消</div>
         </div>

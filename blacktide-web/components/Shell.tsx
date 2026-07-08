@@ -43,19 +43,21 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const isPublic = pathname === "/login" || pathname.startsWith("/legal");
   const req = requiredTier(pathname);
 
-  // Partial lock: applies when page requires a tier and user can't access
-  const partialLocked = !isPublic && !!req && (
-    status === "unauthenticated" ||
-    (status === "authenticated" && !canAccess(pathname, tier))
-  );
-
-  // Tier upgrade lock (authenticated user with wrong tier, full page lock for UX)
-  // Replaced by partialLocked for V13
+  // Partial lock（未登入專用）：只在「未登入」時蓋登入/註冊鎖定層。
+  // 已登入但方案不足的人走下面的「升級解鎖」層——之前這裡把兩種情況混在一起，
+  // 導致已登入使用者也看到「免費註冊」按鈕。
+  const partialLocked = !isPublic && !!req && status === "unauthenticated";
+  // 已登入但方案不足 → 顯示「升級解鎖」層（不是免費註冊）
+  const upgradeLocked = !isPublic && !!req && status === "authenticated" && !canAccess(pathname, tier);
+  const anyLocked = partialLocked || upgradeLocked;
 
   void setPricingOpen; // kept for pricing modal trigger in other pages
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    // 全站 safe-area 由這層統一處理：paddingTop 讓內容避開手機狀態列（PWA/瀏海機），
+    // 高度用 100dvh（iOS 動態工具列正確高度），舊瀏覽器 fallback h-screen。
+    // 底部由 MobileNav 自身的 env(safe-area-inset-bottom) + main 的 pb 處理，不在這裡重複補。
+    <div className="flex h-screen overflow-hidden" style={{ height: "100dvh", paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="hidden h-full md:block"><Sidebar /></div>
       {open && (
         <div className="fixed inset-0 z-50 md:hidden">
@@ -68,13 +70,13 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
         {/* Content wrapper — relative so lock overlay can be anchored here, NOT inside scroll */}
         <div className="relative flex-1 overflow-hidden">
-          <main className={`h-full overflow-x-hidden px-4 pb-[calc(64px+env(safe-area-inset-bottom,0px))] pt-5 md:px-8 md:pb-8 md:pt-6 ${partialLocked ? "overflow-hidden" : "overflow-y-auto"}`}>
+          <main className={`h-full overflow-x-hidden px-4 pb-[calc(64px+env(safe-area-inset-bottom,0px))] pt-5 md:px-8 md:pb-8 md:pt-6 ${anyLocked ? "overflow-hidden" : "overflow-y-auto"}`}>
             {status === "authenticated" && <VerifyBanner />}
             {status === "authenticated" && <ExpiryBanner />}
             <motion.div key={pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
               {children}
             </motion.div>
-            {!partialLocked && <div className="hidden md:block"><Footer /></div>}
+            {!anyLocked && <div className="hidden md:block"><Footer /></div>}
           </main>
 
           {/* ── Partial lock overlay ──
@@ -123,7 +125,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           )}
 
           {/* Sidebar tier-lock (for authenticated users who need to upgrade) */}
-          {!partialLocked && status === "authenticated" && !!req && !canAccess(pathname, tier) && (
+          {upgradeLocked && (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 rounded-t-3xl overflow-hidden" style={{ top: "28%" }}>
               <div className="absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-transparent to-white/[0.01]" />
               <div className="absolute inset-0 top-8 backdrop-blur-xl bg-white/[0.015]" />
