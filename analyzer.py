@@ -6837,31 +6837,14 @@ class CryptoAnalyzer:
                     _sym = _c["symbol"]
                     _dir = _p.get("direction") or _c.get("sig1h", {}).get("direction_en", "LONG")
                     _key = _sym + "|" + _dir
-                    self._last_plans[_key] = {
-                        "symbol": _sym,
-                        "direction": _dir,
-                        "score": _p.get("score", 50),
-                        "entry": _p.get("entry"),
-                        "sl": _p.get("sl"),
-                        "tp1": _p.get("tp1", 0),
-                        "tp2": _p.get("tp2", 0),
-                        "tp3": _p.get("tp3", 0),
-                        "tp4": _p.get("tp4", 0),
-                        "tier": _p.get("tier", "C"),
-                        "entry_grade": _p.get("entry_grade", "C"),  # v54：真值，不再用 tier 頂替
-                        "position": _p.get("position", 5),
-                        "win_rate": _p.get("win_rate", 50),
-                        "real_win_rate": _p.get("real_win_rate"),
-                        "rr_ratio": _p.get("rr1", 0),  # v54：直接給 rr1
-                        "rr1": _p.get("rr1", 0),
-                        "timing_state": _p.get("timing_state", "NOW"),
-                        "timeframe": _p.get("timeframe", "短線"),
-                        "order_type": _p.get("order_type", "MARKET"),
-                        "regime": _p.get("regime", ""),
-                        "adx": _p.get("adx", 0),
-                        "consensus_count": _p.get("consensus_count", 0),
-                        "news_vote": _p.get("news_vote", False),
-                    }
+                    # v66 P2 Bug A：改用全量複製，以排除清單取代白名單
+                    # 原白名單每次加欄位都要同步更新，三次造成欄位中途丟失（range_pos/funding 等）
+                    # plan dict 全為 primitives/list/dict，無 DataFrame，直接 shallow copy 安全
+                    _entry = _p.copy()
+                    _entry["symbol"] = _sym          # plan dict 本身無這兩個 key
+                    _entry["direction"] = _dir
+                    _entry["rr_ratio"] = _p.get("rr1", 0)  # 向下相容（bot.py 舊路徑讀 rr_ratio）
+                    self._last_plans[_key] = _entry
                 self._last_plans_ready = True  # 掛載正常完成（即使 candidates 空，也是正常的「無機會」）
             except Exception as _e:
                 logger.error("v54 結構化掛載失敗: " + str(_e))

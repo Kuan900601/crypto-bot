@@ -3376,7 +3376,7 @@ def register_signal(sig, watchers):
         "dist_from_recent_low_at_entry": sig.get("dist_from_recent_low_pct"),
         "session_at_entry": "Asia" if now.hour < 8 else ("Europe" if now.hour < 16 else "America"),
         # v65 P3：結構式 SL/TP 欄位
-        "sltp_method_at_entry": sig.get("sltp_method_at_entry", "fixed_atr"),
+        "sltp_method_at_entry": sig.get("sltp_method_at_entry"),  # v66 P2：移除 "fixed_atr" 假預設
         "sl_structure_type": sig.get("sl_structure_type"),
         "sl_used_pct": (round(abs(sig.get("sl", 0) - sig.get("entry", 0)) / sig["entry"] * 100, 2)
                         if sig.get("entry") else None),
@@ -3403,7 +3403,7 @@ def register_signal(sig, watchers):
                 "tp1": sig["tp1"], "tp2": sig.get("tp2", 0),
                 "tp3": sig.get("tp3", 0), "tp4": sig.get("tp4", 0),
                 "created": now.isoformat(),
-                "sltp_method_at_entry": sig.get("sltp_method_at_entry", "fixed_atr"),  # v65 P3
+                "sltp_method_at_entry": sig.get("sltp_method_at_entry"),  # v66 P2：移除 "fixed_atr" 假預設
             }
             _sig_json = json.dumps(_sig_obj, ensure_ascii=False)
             _body = json.dumps(["RPUSH", "signal_queue", _sig_json]).encode("utf-8")
@@ -3586,7 +3586,7 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
     was_real_trade = None
     if _USE_REDIS:
         try:
-            _at_trades = _redis_get_json_key("auto_trades.json", None)
+            _at_trades = _redis_get_json_key("at:trades", None)  # v66 P2 Bug B：修正 Redis key
             if _at_trades is not None:
                 _created_ts = datetime.fromisoformat(sig.get("created", "1970-01-01T00:00:00+00:00")).timestamp()
                 _closed_ts = datetime.now(timezone.utc).timestamp()
@@ -3641,7 +3641,7 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
         "dist_from_recent_low_at_entry": sig.get("dist_from_recent_low_at_entry"),
         "session_at_entry": sig.get("session_at_entry"),
         # v65 P3：結構式 SL/TP 分析欄位
-        "sltp_method_at_entry": sig.get("sltp_method_at_entry", "fixed_atr"),
+        "sltp_method_at_entry": sig.get("sltp_method_at_entry"),  # v66 P2：移除 "fixed_atr" 假預設
         "sl_structure_type": sig.get("sl_structure_type"),
         "sl_used_pct": sig.get("sl_used_pct"),
         "max_adverse_pct": (
