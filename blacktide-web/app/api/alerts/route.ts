@@ -73,7 +73,8 @@ function mapMarketLiquidation(text: string, i: number): AlertItem | null {
     return {
       id: "mliq-" + i, type: "liquidation",
       severity: amount >= 200000 ? "critical" : "warn",
-      title: "全市場爆倉：" + d.symbol + " " + (d.side === "Buy" ? "空單" : "多單") + " " + fmtUsd(amount),
+      // Bybit 官方定義：S="Buy" 代表多單被清算、"Sell" 代表空單被清算（v66 修正，原本標反）
+      title: "全市場爆倉：" + d.symbol + " " + (d.side === "Buy" ? "多單爆倉" : "空單爆倉") + " " + fmtUsd(amount),
       detail: "數量 " + d.qty + " · 價格 " + d.price,
       time: timeOf(d.time), symbol: d.symbol,
     };
@@ -108,12 +109,13 @@ function mapMarketVolume(text: string, i: number): AlertItem | null {
 
 export async function GET() {
   try {
-    const [events, liqRaw, marketLiq, marketFunding, marketVolume] = await Promise.all([
+    const [events, liqRaw, marketLiq, marketFunding, marketVolume, liqBuckets] = await Promise.all([
       redisLRange("at:events", -50, -1),
       redisGet("at:liquidations"),
       redisLRange("market:liquidations", -30, -1),
-      redisLRange("market:funding", -30, -1),
+      redisLRange("market:funding", -60, -1),
       redisLRange("market:volume", -30, -1),
+      redisLRange("market:liq_buckets", -1440, -1),
     ]);
     let liqRecords: any[] = [];
     if (liqRaw) {
@@ -121,13 +123,35 @@ export async function GET() {
     }
     const hasAny = events.length || liqRecords.length || marketLiq.length || marketFunding.length || marketVolume.length;
     if (hasAny) {
+      // funding 依幣種去重：同一幣只留最新一筆，避免歷史殘留（如 MANTA 洗版時期）佔滿版面
+      const fundingLatest = new Map<string, string>();
+      for (const t of marketFunding) {
+        try { const sym = JSON.parse(t)?.symbol; if (sym) fundingLatest.set(sym, t); } catch {}
+      }
+      const fundingDeduped = Array.from(fundingLatest.values());
+
+      // 多/空爆倉匯總（market:liq_buckets 分鐘桶，bot 端 market_monitor 寫入；UTC 分鐘字串）
+      const nowMs = Date.now();
+      let long1h = 0, short1h = 0, long24h = 0, short24h = 0;
+      for (const t of liqBuckets) {
+        try {
+          const b = JSON.parse(t);
+          const age = nowMs - new Date(b.t + ":00Z").getTime();
+          if (!(age >= 0 && age <= 24 * 3600_000)) continue;
+          long24h += Number(b.longUsd ?? 0); short24h += Number(b.shortUsd ?? 0);
+          if (age <= 3600_000) { long1h += Number(b.longUsd ?? 0); short1h += Number(b.shortUsd ?? 0); }
+        } catch {}
+      }
+      const liqSummary = { long1h, short1h, long24h, short24h, hasData: liqBuckets.length > 0 };
+
       const evtAlerts = events.slice().reverse().map(mapEvent);
       const liqAlerts = liqRecords.slice(-20).reverse().map(mapLiquidation).filter(Boolean) as AlertItem[];
       const mLiqAlerts = marketLiq.slice().reverse().map(mapMarketLiquidation).filter(Boolean) as AlertItem[];
-      const mFundAlerts = marketFunding.slice().reverse().map(mapMarketFunding).filter(Boolean) as AlertItem[];
+      const mFundAlerts = fundingDeduped.slice().reverse().map(mapMarketFunding).filter(Boolean) as AlertItem[];
       const mVolAlerts = marketVolume.slice().reverse().map(mapMarketVolume).filter(Boolean) as AlertItem[];
       return Response.json({
         alerts: [...mLiqAlerts, ...mFundAlerts, ...mVolAlerts, ...liqAlerts, ...evtAlerts],
+        liqSummary,
         source: "redis",
       });
     }

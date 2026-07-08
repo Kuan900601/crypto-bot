@@ -110,16 +110,59 @@ class _VolumeTracker:
         return total
 
 
+class _LiqAgg:
+    """全市場多/空爆倉分鐘聚合（不設金額門檻，逐筆累計）。
+    Bybit 官方定義（all-liquidation 文件）：S="Buy" 代表「多單被清算」、"Sell" 代表「空單被清算」。
+    每分鐘桶滿換新桶時把非空桶寫進 market:liq_buckets，網站端加總出 1h/24h 多空爆倉金額。"""
+    def __init__(self):
+        self._minute = None
+        self._long_usd = 0.0; self._short_usd = 0.0
+        self._long_n = 0; self._short_n = 0
+
+    def add(self, side, amount):
+        now_min = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M")
+        flushed = None
+        if self._minute is not None and now_min != self._minute and (self._long_n or self._short_n):
+            flushed = {
+                "t": self._minute,
+                "longUsd": round(self._long_usd, 2), "shortUsd": round(self._short_usd, 2),
+                "longN": self._long_n, "shortN": self._short_n,
+            }
+        if now_min != self._minute:
+            self._minute = now_min
+            self._long_usd = self._short_usd = 0.0
+            self._long_n = self._short_n = 0
+        if side == "Buy":      # 多單被清算
+            self._long_usd += amount; self._long_n += 1
+        elif side == "Sell":   # 空單被清算
+            self._short_usd += amount; self._short_n += 1
+        return flushed
+
+
+_liq_agg = _LiqAgg()
+
+
 async def _handle_liquidation(it):
     try:
-        price = float(it.get("price", 0) or 0)
-        qty = float(it.get("size", it.get("qty", 0)) or 0)
+        # Bybit allLiquidation 用短欄位名 T/s/S/v/p（舊版 liquidation topic 才是長名）。
+        # v65 原始碼讀長名導致金額永遠是 0、全被門檻濾掉——這就是爆倉資料近乎全空的根因。
+        price = float(it.get("p", it.get("price", 0)) or 0)
+        qty = float(it.get("v", it.get("size", it.get("qty", 0))) or 0)
+        symbol = str(it.get("s", it.get("symbol", ""))).replace("USDT", "")
+        side = str(it.get("S", it.get("side", "")))
         amount = price * qty
+        if amount <= 0:
+            return
+        # 多/空爆倉聚合：全數累計，不受 LIQ_MIN_USD 影響
+        flushed = _liq_agg.add(side, amount)
+        if flushed is not None:
+            _push_list("market:liq_buckets", flushed, max_len=2000)
+        # 單筆大額事件流：維持門檻，給「值得注意的爆倉」列表用
         if amount < LIQ_MIN_USD:
             return
         _push_list("market:liquidations", {
-            "symbol": str(it.get("symbol", "")).replace("USDT", ""),
-            "side": it.get("side", ""),
+            "symbol": symbol,
+            "side": side,
             "qty": qty, "amount": round(amount, 2), "price": price,
             "time": datetime.now(timezone.utc).isoformat(),
         })
@@ -210,6 +253,18 @@ async def _run_stream():
             await asyncio.sleep(_RECONNECT_DELAY_SEC)
 
 
+def _one_time_cleanup():
+    """一次性清除 market:funding 舊洗版資料（作者 2026-07-08 核可）。
+    用 SET NX 旗標保證整個部署歷史只執行一次；旗標已存在就什麼都不做。"""
+    try:
+        res = _redis_cmd(["SET", "market:funding_cleaned_v1", "1", "NX"])
+        if res and res.get("result") == "OK":
+            _redis_cmd(["DEL", "market:funding"])
+            logger.info("🧹 market:funding 舊資料已一次性清除（NX 旗標 market:funding_cleaned_v1）")
+    except Exception as e:
+        logger.warning("market:funding 一次性清理失敗（不影響監控）: %s", str(e)[:120])
+
+
 def _worker():
     if not _HAS_WS:
         logger.warning("⚠️ market_monitor 未啟動：缺少 websockets 套件（pip install websockets）")
@@ -217,6 +272,7 @@ def _worker():
     if not _USE_REDIS:
         logger.warning("⚠️ market_monitor 未啟動：缺少 UPSTASH_REDIS_REST_URL/TOKEN 環境變數")
         return
+    _one_time_cleanup()
     while True:
         try:
             asyncio.run(_run_stream())

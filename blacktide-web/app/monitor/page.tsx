@@ -27,9 +27,10 @@ export default function MonitorPage() {
   const [loading, setLoading] = useState(true);
   const [live, setLive] = useState(true);
   const [type, setType] = useState<"all" | AlertItem["type"]>("all");
+  const [liqSum, setLiqSum] = useState<{ long1h: number; short1h: number; long24h: number; short24h: number; hasData: boolean } | null>(null);
   const pushNotif = useApp((s) => s.pushNotif);
   const refresh = useCallback(() => {
-    return fetch("/api/alerts").then((r) => r.json()).then((d) => { setAlerts(d.alerts ?? []); setSource(d.source ?? ""); }).catch(() => {}).finally(() => setLoading(false));
+    return fetch("/api/alerts").then((r) => r.json()).then((d) => { setAlerts(d.alerts ?? []); setSource(d.source ?? ""); setLiqSum(d.liqSummary ?? null); }).catch(() => {}).finally(() => setLoading(false));
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
   const { pullDistance, refreshing, threshold } = usePullToRefresh(refresh);
@@ -74,6 +75,24 @@ export default function MonitorPage() {
           )
         )}
       </div>
+      {/* 全市場多/空爆倉匯總（Bybit allLiquidation 逐筆聚合；官方定義 Buy=多單被清算） */}
+      {liqSum?.hasData && (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {([
+            { label: "多單爆倉 · 1 小時", v: liqSum.long1h, color: C.rose },
+            { label: "空單爆倉 · 1 小時", v: liqSum.short1h, color: C.green },
+            { label: "多單爆倉 · 24 小時", v: liqSum.long24h, color: C.rose },
+            { label: "空單爆倉 · 24 小時", v: liqSum.short24h, color: C.green },
+          ] as const).map(({ label, v, color }) => (
+            <div key={label} className="rounded-xl p-3.5" style={{ border: `1px solid ${C.line}`, background: C.deep }}>
+              <div style={{ fontSize: 11, color: C.dim }}>{label}</div>
+              <div className="font-mono" style={{ marginTop: 4, fontSize: 19, fontWeight: 800, color }}>
+                {v >= 1_000_000 ? "$" + (v / 1_000_000).toFixed(2) + "M" : v >= 1_000 ? "$" + (v / 1_000).toFixed(1) + "K" : "$" + Math.round(v)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="space-y-2.5">
         {loading && (
           <>
