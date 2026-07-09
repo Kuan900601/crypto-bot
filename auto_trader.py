@@ -19,6 +19,8 @@ MAX_SL_PCT = float(os.getenv("AT_MAX_SL_PCT", "0.035"))
 LIQ_BUFFER = float(os.getenv("LIQ_BUFFER", "0.20"))          # 止損最多用距強平的 (1-LIQ_BUFFER) 比例；v65 P3 從 0.15→0.20，結構式止損日常貼安全線需更厚緩衝
 MIN_SL_SPACE_PCT = float(os.getenv("MIN_SL_SPACE_PCT", "0.005"))   # 止損空間 < 此值 → 不開倉
 WARN_SL_SPACE_PCT = float(os.getenv("WARN_SL_SPACE_PCT", "0.015"))  # 止損空間 < 此值 → 告警但照開
+# v66-b A2：強平線定期複查（UTA 帳戶強平線隨其他倉位浮動，需事後追蹤）
+LIQ_RECHECK_EVERY_N = int(os.getenv("LIQ_RECHECK_EVERY_N", "4"))  # 每 N 輪複查一次（預設 4×15s=每 60 秒）
 ALLOWED_TIERS = [t.strip() for t in os.getenv("AUTO_TRADE_TIERS", "S,A,B").split(",") if t.strip()]
 TP_SPLIT = {1: 0.40, 2: 0.35, 3: 0.25}  # v61：三段止盈 40/35/25，對齊 bot.py 結算與 Bybit 實際三段成交
 POLL_INTERVAL = 15
@@ -1229,6 +1231,66 @@ def check_unprotected_positions(ex):
             log("  ⚠️ 偵測到無止損的孤兒/手動單:", ccxt_sym, "side=", side, "量=", contracts)
 
 
+def check_liq_drift(ex):
+    """v66-b A2：定期複查每筆持倉的止損是否仍在「當前」強平安全線內側。
+    UTA 帳戶：其他倉位虧損 → 維持保證金率下降 → 所有倉位的強平線往現價移。
+    查詢失敗 → 本倉本輪跳過，絕不誤動止損（真錢安全優先）。"""
+    trades = load_json(TRADES_FILE, [])
+    open_trades = [r for r in trades if r.get("ok") and not r.get("closed")]
+    if not open_trades:
+        return
+
+    changed = False
+    for rec in open_trades:
+        sym = rec.get("symbol")
+        side = rec.get("side")
+        entry = rec.get("entry_price")
+        sl_used = rec.get("sl_used")
+        total_amount = rec.get("total_amount")
+        if not (sym and side and entry and sl_used and total_amount):
+            continue
+        close_side = "sell" if side == "buy" else "buy"
+
+        # 讀 Bybit 當前強平價（失敗 → skip，不動 SL）
+        liq_real = None
+        try:
+            pos_list = trader.get_positions(ex, sym)
+            for _p in pos_list:
+                _lp = (_p.get("info") or {}).get("liquidationPrice")
+                if _lp and str(_lp) not in ("", "0", "0.0"):
+                    liq_real = float(_lp)
+                    break
+        except Exception as _e:
+            log("  ⚠️ liq_drift 查強平價失敗，本倉本輪跳過:", sym, str(_e)[:80])
+            continue
+
+        if liq_real is None:
+            continue  # 強平價讀不到 → 跳過，不估算（只信真實值）
+
+        safe_sl, safety_line, was_adjusted, _, _ = _get_safe_sl(
+            side, float(entry), float(sl_used), liq_real)
+        if not was_adjusted:
+            continue  # SL 仍在安全線內，不需調整
+
+        # SL 已漂移到強平安全線外 → 上移
+        log("⚠️ liq_drift 強平線移近，SL 需上移: {} 舊SL={:.6f} 新SL={:.6f} 強平={:.6f} 安全線={:.6f}".format(
+            sym, float(sl_used), safe_sl, liq_real, safety_line))
+        _ok, _sl_r, _msg, _err = _attach_position_sl(ex, sym, safe_sl, total_amount, close_side)
+        if _ok:
+            rec["sl_used"] = _sl_r
+            changed = True
+            push_event("⚠️ {} 強平線移近，SL 已自動上移: {:.6f}→{:.6f}｜強平={:.6f}".format(
+                sym, float(sl_used), safe_sl, liq_real))
+            log("  ✅ SL 上移成功:", sym, "→", _sl_r)
+        else:
+            push_event("🔴 {} 強平線移近但 SL 上移失敗！請手動確認止損！強平={:.6f} 應為≥{:.6f}｜{}".format(
+                sym, liq_real, safe_sl, _err[:80]))
+            log("  🔴 SL 上移失敗:", sym, _msg, _err[:80])
+
+    if changed:
+        save_json(TRADES_FILE, trades)
+
+
 def reconcile_positions(ex):
     """v63b：持倉對帳。止損/止盈被 Bybit 直接觸發時不經過 bot，bot 端紀錄仍顯示開著、
     不發通知、不清殘單、永久佔位擋新信號。本函式逐輪比對 auto_trades 與 Bybit 實際持倉：
@@ -1483,6 +1545,9 @@ def _main_loop_connected():
             reconcile_stale_orders(ex)
             check_liquidations(ex)
             round_num += 1
+            # v66-b A2：強平線定期複查（LIQ_RECHECK_EVERY_N 輪一次，預設 4×15s=60s）
+            if round_num % max(1, LIQ_RECHECK_EVERY_N) == 0:
+                check_liq_drift(ex)
             if round_num % 40 == 0:
                 update_pnl_ledger(ex)
         except KeyboardInterrupt:
