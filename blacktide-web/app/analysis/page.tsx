@@ -3,8 +3,8 @@ import { useEffect, useState } from "react";
 import { ANALYSES } from "@/lib/mock";
 import { fmtPrice } from "@/lib/format";
 import { C, MONO } from "@/lib/theme";
-import Corner from "@/components/site/Corner";
 import { Skeleton } from "@/components/ui";
+import { NumberTicker } from "@/components/ui/number-ticker";
 import { X } from "lucide-react";
 interface RA {
   symbol: string; price: number; change24h: number; rsi: number; ma20: number; ma50: number;
@@ -47,9 +47,8 @@ function DetailModal({ a, demo, onClose }: { a: RA; demo: boolean; onClose: () =
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center p-0 sm:items-center sm:p-4" style={{ background: "rgba(2,4,9,0.7)", backdropFilter: "blur(5px)" }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="pop-in relative max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-t-2xl p-5 sm:rounded-2xl" style={{
-        background: "linear-gradient(180deg, rgba(10,20,34,0.98), rgba(4,9,16,0.98))", border: `1px solid ${C.linePrimary}`,
+        background: C.deep, border: `1px solid ${C.linePrimary}`,
       }}>
-        <Corner pos="tl" /><Corner pos="tr" /><Corner pos="bl" /><Corner pos="br" />
         <div className="flex items-center gap-2">
           <span style={{ fontFamily: MONO, fontSize: 17, fontWeight: 800, color: C.ink }}>{a.symbol}</span>
           <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 9px", borderRadius: 99, color: biasColor(a.bias), background: biasColor(a.bias) + "1A" }}>{biasLabel(a.bias)}</span>
@@ -128,7 +127,7 @@ export default function AnalysisPage() {
       <div className="rounded-2xl p-4" style={{ border: `1px solid ${C.line}`, background: "rgba(255,255,255,0.02)" }}>
         <div className="flex items-center justify-between" style={{ fontSize: 13.5 }}>
           <span style={{ fontWeight: 700, color: C.ink }}>市場綜合情緒</span>
-          <span style={{ fontFamily: MONO, color: C.ink }}>{avg}/100</span>
+          <span style={{ fontFamily: MONO, color: C.ink }}><NumberTicker value={avg} />/100</span>
         </div>
         <div className="mt-2"><EnergyBar value={avg} tone={avgTone} /></div>
         <div className="mt-1.5" style={{ fontSize: 11.5, color: C.dim }}>{avg >= 55 ? "偏多" : avg <= 45 ? "偏空" : "中性"}</div>
@@ -155,10 +154,8 @@ export default function AnalysisPage() {
         : (
           <div className="grid gap-4 lg:grid-cols-2">
             {display.map((a) => (
-              <div key={a.symbol} onClick={() => setSel(a)} className="sigrow cursor-pointer relative overflow-hidden rounded-2xl p-4" style={{ border: `1px solid ${C.line}`, background: "linear-gradient(180deg, rgba(16,30,48,0.7), rgba(6,16,30,0.55))" }}>
+              <div key={a.symbol} onClick={() => setSel(a)} className="sigrow rise-in cursor-pointer relative overflow-hidden rounded-2xl p-4" style={{ border: `1px solid ${C.line}`, background: C.deep }}>
                 <span className="accent-bar" style={{ background: `linear-gradient(${biasColor(a.bias)},transparent)`, boxShadow: `0 0 6px ${biasColor(a.bias)}` }} />
-                <div className="row-sweep" />
-                <Corner pos="tr" /><Corner pos="br" />
                 <div className="flex flex-wrap items-center gap-2" style={{ position: "relative", zIndex: 1 }}>
                   <span style={{ fontFamily: MONO, fontWeight: 800, fontSize: 15, color: C.ink }}>{a.symbol}</span>
                   <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, color: biasColor(a.bias), background: biasColor(a.bias) + "1A" }}>{biasLabel(a.bias)}</span>
