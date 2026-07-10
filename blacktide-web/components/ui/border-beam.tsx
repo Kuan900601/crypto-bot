@@ -4,50 +4,23 @@ import { motion, MotionStyle, Transition } from "motion/react"
 
 import { cn } from "@/lib/utils"
 
+/* Magic UI BorderBeam——已改寫為 Tailwind v3 相容版：
+ * 原版用 v4 專屬語法（border-(length:--var)、mask-[...]、mask-intersect、bg-linear-to-l、
+ * from-(--var)），在本專案 Tailwind 3.4 下完全不會生效。此版改用 inline style +
+ * 標準 mask-composite exclude 技法（只顯示邊框環），視覺行為與原版一致。
+ * reduced-motion 由 .beam-anim class（globals.css）整組隱藏。 */
+
 interface BorderBeamProps {
-  /**
-   * The size of the border beam.
-   */
   size?: number
-  /**
-   * The duration of the border beam.
-   */
   duration?: number
-  /**
-   * The delay of the border beam.
-   */
   delay?: number
-  /**
-   * The color of the border beam from.
-   */
   colorFrom?: string
-  /**
-   * The color of the border beam to.
-   */
   colorTo?: string
-  /**
-   * The motion transition of the border beam.
-   */
   transition?: Transition
-  /**
-   * The class name of the border beam.
-   */
   className?: string
-  /**
-   * The style of the border beam.
-   */
   style?: React.CSSProperties
-  /**
-   * Whether to reverse the animation direction.
-   */
   reverse?: boolean
-  /**
-   * The initial offset position (0-100).
-   */
   initialOffset?: number
-  /**
-   * The border width of the beam.
-   */
   borderWidth?: number
 }
 
@@ -56,8 +29,8 @@ export const BorderBeam = ({
   size = 50,
   delay = 0,
   duration = 6,
-  colorFrom = "#ffaa40",
-  colorTo = "#9c40ff",
+  colorFrom = "#00D4FF",
+  colorTo = "#075985",
   transition,
   style,
   reverse = false,
@@ -66,25 +39,23 @@ export const BorderBeam = ({
 }: BorderBeamProps) => {
   return (
     <div
-      className="pointer-events-none absolute inset-0 rounded-[inherit] border-(length:--border-beam-width) border-transparent mask-[linear-gradient(transparent,transparent),linear-gradient(#000,#000)] mask-intersect [mask-clip:padding-box,border-box]"
-      style={
-        {
-          "--border-beam-width": `${borderWidth}px`,
-        } as React.CSSProperties
-      }
+      className="beam-anim pointer-events-none absolute inset-0 rounded-[inherit]"
+      style={{
+        border: `${borderWidth}px solid transparent`,
+        // 兩層遮罩 XOR：只留下邊框環的區域可見
+        WebkitMask: "linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0) border-box",
+        WebkitMaskComposite: "xor",
+        mask: "linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0) border-box",
+        maskComposite: "exclude",
+      }}
     >
       <motion.div
-        className={cn(
-          "absolute aspect-square",
-          "bg-linear-to-l from-(--color-from) via-(--color-to) to-transparent",
-          className
-        )}
+        className={cn("absolute aspect-square", className)}
         style={
           {
             width: size,
             offsetPath: `rect(0 auto auto 0 round ${size}px)`,
-            "--color-from": colorFrom,
-            "--color-to": colorTo,
+            background: `linear-gradient(to left, ${colorFrom}, ${colorTo}, transparent)`,
             ...style,
           } as MotionStyle
         }

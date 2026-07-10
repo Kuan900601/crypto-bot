@@ -6,6 +6,12 @@ import {
 
 import { cn } from "@/lib/utils"
 
+/* Magic UI AnimatedShinyText——已改寫為 Tailwind v3 相容版：
+ * 原版用 v4 專屬語法（bg-size-[...]、bg-position-[...]、bg-linear-to-r、via-50%），
+ * 在本專案 Tailwind 3.4 下不生效。掃光漸層與尺寸改 inline style，
+ * 位移動畫沿用 tailwind.config 定義的 animate-shiny-text keyframes。
+ * 深色站台用白色掃光；reduced-motion 時停用動畫（globals.css）。 */
+
 export interface AnimatedShinyTextProps extends ComponentPropsWithoutRef<"span"> {
   shimmerWidth?: number
 }
@@ -21,19 +27,15 @@ export const AnimatedShinyText: FC<AnimatedShinyTextProps> = ({
       style={
         {
           "--shiny-width": `${shimmerWidth}px`,
+          backgroundImage: "linear-gradient(to right, transparent, rgba(255,255,255,0.85) 50%, transparent)",
+          backgroundSize: `${shimmerWidth}px 100%`,
+          backgroundRepeat: "no-repeat",
+          backgroundPosition: "0 0",
+          WebkitBackgroundClip: "text",
+          backgroundClip: "text",
         } as CSSProperties
       }
-      className={cn(
-        "mx-auto max-w-md text-neutral-600/70 dark:text-neutral-400/70",
-
-        // Shine effect
-        "animate-shiny-text bg-size-[var(--shiny-width)_100%] bg-clip-text bg-position-[0_0] bg-no-repeat [transition:background-position_1s_cubic-bezier(.6,.6,0,1)_infinite]",
-
-        // Shine gradient
-        "bg-linear-to-r from-transparent via-black/80 via-50% to-transparent dark:via-white/80",
-
-        className
-      )}
+      className={cn("animate-shiny-text", className)}
       {...props}
     >
       {children}

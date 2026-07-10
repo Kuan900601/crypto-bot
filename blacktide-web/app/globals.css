@@ -49,9 +49,8 @@ a:active { -webkit-tap-highlight-color: transparent; }
 @keyframes flashDown { 0% { color: #EF4444; } 100% { color: inherit; } }
 .pulse-dot { animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-@keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-.animate-marquee { animation: marquee 36s linear infinite; }
-.animate-marquee:hover { animation-play-state: paused; }
+/* 舊版 .animate-marquee 已移除：與 tailwind.config 的 Magic UI marquee 動畫同名衝突，
+   TickerTape 改用 components/ui/marquee.tsx */
 /* 進場淡入（給卡片群用，可選）*/
 @keyframes riseIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .rise-in { animation: riseIn 0.35s cubic-bezier(0.22, 0.8, 0.26, 1) both; }
@@ -284,3 +283,21 @@ a:active { -webkit-tap-highlight-color: transparent; }
     background-position: 0%; }
   100% {
     background-position: 200%; } } }
+/* ============ 階段二·首頁：Magic UI 元件 reduced-motion 守門 ============ */
+@media (prefers-reduced-motion: reduce) {
+  .beam-anim { display: none !important; }            /* BorderBeam 整組隱藏 */
+  .animate-shiny-text { animation: none !important; } /* 掃光文字停用 */
+  .animate-marquee, .animate-marquee-vertical { animation-play-state: paused !important; }
+  .mui-grid-anim { display: none !important; }        /* AnimatedGridPattern 退回無動畫（頁面自帶靜態格線） */
+}
+
+/* ============ 階段二·首頁：Base UI Accordion 高度過渡 ============ */
+.acc-panel {
+  overflow: hidden;
+  height: var(--accordion-panel-height);
+  transition: height .24s cubic-bezier(0.22, 0.8, 0.26, 1);
+}
+.acc-panel[data-starting-style], .acc-panel[data-ending-style] { height: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .acc-panel { transition: none !important; }
+}

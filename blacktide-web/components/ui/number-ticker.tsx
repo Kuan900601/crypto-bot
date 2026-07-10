@@ -31,18 +31,22 @@ export function NumberTicker({
   const isInView = useInView(ref, { once: true, margin: "0px" })
 
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null
-
-    if (isInView) {
-      timer = setTimeout(() => {
-        motionValue.set(direction === "down" ? startValue : value)
-      }, delay * 1000)
+    const target = direction === "down" ? startValue : value
+    // reduced-motion：直接跳到最終值，不跑 spring
+    if (typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      motionValue.jump(target)
+      return
     }
-
+    let timer: ReturnType<typeof setTimeout> | null = null
+    if (isInView) {
+      timer = setTimeout(() => motionValue.set(target), delay * 1000)
+    }
+    // 保底：2.5 秒內 inView 沒觸發（省電模式/hydration 延遲等）也要顯示正確數字，
+    // 絕不讓真實數據卡在 0——同 Counter 的教訓
+    const fallback = setTimeout(() => motionValue.set(target), 2500)
     return () => {
-      if (timer !== null) {
-        clearTimeout(timer)
-      }
+      if (timer !== null) clearTimeout(timer)
+      clearTimeout(fallback)
     }
   }, [motionValue, isInView, delay, value, direction, startValue])
 
@@ -63,7 +67,9 @@ export function NumberTicker({
     <span
       ref={ref}
       className={cn(
-        "inline-block tracking-wider text-black tabular-nums dark:text-white",
+        // 原版預設 text-black dark:text-white——本站是深色單主題、html 無 .dark class，
+        // 會渲染成黑字看不見；顏色改由呼叫端/繼承決定
+        "inline-block tabular-nums",
         className
       )}
       {...props}

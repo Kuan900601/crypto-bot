@@ -4,7 +4,7 @@ import Link from "next/link";
 import {
   Lock, TrendingUp, TrendingDown, Radar, Radio, Clock,
   Trophy, BarChart2, AlertTriangle, BrainCircuit, Gauge, Crosshair, Activity,
-  ChevronDown, ArrowRight, ScanSearch, Send, ShieldCheck,
+  ArrowRight, ScanSearch, Send, ShieldCheck,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useMarket } from "@/lib/useMarket";
@@ -12,10 +12,14 @@ import { Signal } from "@/lib/types";
 import TickerTape from "@/components/TickerTape";
 import { C, MONO } from "@/lib/theme";
 import CTA from "@/components/site/CTA";
-import Counter from "@/components/site/Counter";
 import SignalShowcase from "@/components/site/SignalShowcase";
 import { useTilt } from "@/lib/useTilt";
 import { Skeleton } from "@/components/ui";
+import { NumberTicker } from "@/components/ui/number-ticker";
+import { BorderBeam } from "@/components/ui/border-beam";
+import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern";
+import { AnimatedShinyText } from "@/components/ui/animated-shiny-text";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 
 // 監測幣種數固定為 52（analyzer.py 實際掃描的幣種數，與站內既有文案一致，非首頁自行估算）
 const MONITORED_COINS = 52;
@@ -62,24 +66,19 @@ const FAQS = [
 ];
 
 function Faq() {
-  const [open, setOpen] = useState<number | null>(0);
   return (
-    <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", flexDirection: "column", gap: 10 }}>
-      {FAQS.map((f, i) => {
-        const on = open === i;
-        return (
-          <div key={f.q} style={{ borderRadius: 14, border: `1px solid ${on ? C.linePrimary : C.line}`, background: C.deep, overflow: "hidden", transition: "border-color .2s" }}>
-            <button onClick={() => setOpen(on ? null : i)} className="press-feedback" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "16px 18px", background: "transparent", border: "none", cursor: "pointer", color: C.ink, fontSize: 14.5, fontWeight: 600, textAlign: "left" }}>
-              {f.q}
-              <ChevronDown size={16} color={C.dim} style={{ transform: on ? "rotate(180deg)" : "none", transition: "transform .2s", flexShrink: 0, marginLeft: 12 }} />
-            </button>
-            {on && (
-              <div style={{ padding: "0 18px 16px", fontSize: 13.5, lineHeight: 1.7, color: C.mut }}>{f.a}</div>
-            )}
-          </div>
-        );
-      })}
-    </div>
+    <Accordion multiple={false} defaultValue={[FAQS[0].q]} style={{ maxWidth: 640, margin: "0 auto", gap: 10 }}>
+      {FAQS.map((f) => (
+        <AccordionItem key={f.q} value={f.q} style={{ borderRadius: 14, border: `1px solid ${C.line}`, background: C.deep, overflow: "hidden" }}>
+          <AccordionTrigger className="press-feedback" style={{ padding: "16px 18px", color: C.ink, fontSize: 14.5, fontWeight: 600, background: "transparent", border: "none", cursor: "pointer" }}>
+            {f.q}
+          </AccordionTrigger>
+          <AccordionContent style={{ padding: "0 18px 16px", fontSize: 13.5, lineHeight: 1.7, color: C.mut }}>
+            {f.a}
+          </AccordionContent>
+        </AccordionItem>
+      ))}
+    </Accordion>
   );
 }
 
@@ -128,13 +127,24 @@ export default function Home() {
           maskImage: "radial-gradient(720px 380px at 50% 0%, #000 30%, transparent 78%)",
           WebkitMaskImage: "radial-gradient(720px 380px at 50% 0%, #000 30%, transparent 78%)",
         }} />
+        {/* Magic UI 動態格塊：對齊 56px 靜態格線隨機淡入淡出；reduced-motion 整組隱藏（.mui-grid-anim） */}
+        <AnimatedGridPattern
+          width={56} height={56} numSquares={22} maxOpacity={0.14} duration={3.5}
+          className="mui-grid-anim stroke-transparent text-cyan-300"
+          style={{
+            maskImage: "radial-gradient(720px 380px at 50% 0%, #000 30%, transparent 78%)",
+            WebkitMaskImage: "radial-gradient(720px 380px at 50% 0%, #000 30%, transparent 78%)",
+          }}
+        />
 
         <div style={{ position: "relative", zIndex: 2, maxWidth: 1120, margin: "0 auto" }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 48, alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ maxWidth: 580, flex: "1 1 360px" }}>
               <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 24, padding: "6px 14px", borderRadius: 999, fontSize: 12, fontWeight: 600, color: C.primary, border: `1px solid ${C.linePrimary}`, background: "rgba(0,212,255,0.06)" }}>
                 <span className="pulse-live" />
-                {MONITORED_COINS} 幣種 · 24/7 AI 盯盤
+                <AnimatedShinyText className="text-[rgba(0,212,255,0.85)]" shimmerWidth={90}>
+                  {MONITORED_COINS} 幣種 · 24/7 AI 盯盤
+                </AnimatedShinyText>
               </div>
               <h1 style={{ fontWeight: 800, lineHeight: 1.18, margin: 0, fontSize: "clamp(38px,5.6vw,62px)", letterSpacing: "-0.02em", color: C.ink, wordBreak: "keep-all", overflowWrap: "break-word" }}>
                 專業 AI 交易情報，<br />
@@ -162,7 +172,7 @@ export default function Home() {
                   <div key={label}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <Icon size={14} color={C.primary} style={{ opacity: 0.7 }} />
-                      <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 800, color: C.ink }}><Counter to={n} /></div>
+                      <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 800, color: C.ink }}><NumberTicker value={n} /></div>
                     </div>
                     <div style={{ fontSize: 11, color: C.dim, marginTop: 2, letterSpacing: 1 }}>{label} <span style={{ opacity: 0.6 }}>· {sub}</span></div>
                   </div>
@@ -203,7 +213,8 @@ export default function Home() {
               </div>
             )}
             {previewSignal && (
-              <div ref={previewTiltRef} className="tilt-card" style={{ flex: "0 1 300px", minWidth: 260, borderRadius: 16, padding: 20, background: C.deep, border: `1px solid ${C.line}`, boxShadow: "0 20px 60px rgba(0,0,0,.35)" }}>
+              <div ref={previewTiltRef} className="tilt-card" style={{ position: "relative", flex: "0 1 300px", minWidth: 260, borderRadius: 16, padding: 20, background: C.deep, border: `1px solid ${C.line}`, boxShadow: "0 20px 60px rgba(0,0,0,.35)" }}>
+                <BorderBeam size={70} duration={7} borderWidth={1.2} colorFrom="#00D4FF" colorTo="#075985" />
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                   <span style={{ fontSize: 10.5, letterSpacing: 2, color: C.dim }}>今日 AI 信號預覽</span>
                   <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, color: C.primary }}><span className="pulse-live" />LIVE</span>
