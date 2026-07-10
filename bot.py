@@ -122,6 +122,10 @@ _REDIS_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
 _REDIS_KEY = "bot_data"  # Redis 裡存數據用的 key
 _USE_REDIS = bool(_REDIS_URL and _REDIS_TOKEN)
 
+# v66-b C3：近 TP 鎖利（預設關，數據累積夠後再視情況開）
+_NEAR_TP_LOCK_ENABLED = os.getenv("NEAR_TP_LOCK_ENABLED", "false").lower() == "true"
+_TP_NEAR_PCT = float(os.getenv("TP_NEAR_PCT", "0.005"))  # 距 TP1 多近才觸發（預設 0.5%）
+
 # 本地檔案 fallback 路徑
 _DATA_DIR = os.environ.get("DATA_DIR", "/tmp")
 try:
@@ -3732,6 +3736,17 @@ async def close_signal(ctx, symbol, reason_code, reason_msg, current_price=None)
         "market_health_at_entry": sig.get("market_health_at_entry"),
         # v66 P1：追入旗標
         "chase_flags_at_entry": sig.get("chase_flags_at_entry", []),
+        # v66-b C1：止盈緩衝比例（源頭記錄，與 TP 數字對應）
+        "tp_buffer_used": sig.get("tp_buffer_used"),
+        # v66-b C2：最大有利波動
+        "max_favorable_pct": (
+            round(((sig.get("max_seen_price") or sig.get("entry", 0)) - sig.get("entry", 0)) / sig.get("entry", 1) * 100, 2)
+            if direction == "LONG" and sig.get("entry") else
+            round((sig.get("entry", 0) - (sig.get("min_seen_price") or sig.get("entry", 0))) / sig.get("entry", 1) * 100, 2)
+            if direction == "SHORT" and sig.get("entry") else None
+        ),
+        # v66-b C3：近 TP 鎖利觸發紀錄
+        "near_tp_lock_triggered": sig.get("near_tp_lock_triggered", False),
     })
     # 只保留最近 1000 筆
     if len(SIGNAL_RESULTS) > 1000:
@@ -3894,6 +3909,15 @@ async def check_active_signals(ctx):
                 _ms = sig.get("max_seen_price")
                 if _ms is None or price > _ms:
                     sig["max_seen_price"] = price
+            # v66-b C2：追蹤最大有利波動（max_favorable_pct 於 close_signal 時計算）
+            if direction == "LONG":
+                _mf = sig.get("max_seen_price")
+                if _mf is None or price > _mf:
+                    sig["max_seen_price"] = price
+            elif direction == "SHORT":
+                _mf = sig.get("min_seen_price")
+                if _mf is None or price < _mf:
+                    sig["min_seen_price"] = price
 
             # === 止損 ===
             if direction == "LONG" and price <= sl:
@@ -3920,6 +3944,51 @@ async def check_active_signals(ctx):
                     await notify_tp_hit(ctx, sym, level, price)
                     tp_triggered = True
                     break
+
+            # v66-b C3：近 TP 鎖利（NEAR_TP_LOCK_ENABLED=false 預設關）
+            if (_NEAR_TP_LOCK_ENABLED and not tp_triggered
+                    and not sig.get("near_tp_lock_triggered")
+                    and 1 not in tp_hit):
+                try:
+                    tp1_px = float(sig.get("tp1") or 0)
+                    _entry_f = float(entry)
+                    if tp1_px > 0:
+                        if direction == "LONG":
+                            _near_thr = tp1_px * (1.0 - _TP_NEAR_PCT)
+                            if price >= _near_thr:
+                                _max_fav = sig.get("max_seen_price") or _entry_f
+                                _new_sl = _entry_f + 0.6 * (float(_max_fav) - _entry_f)
+                                if _new_sl > float(sl) and _new_sl < price:
+                                    sig["sl"] = round(_new_sl, 8)
+                                    sig["near_tp_lock_triggered"] = True
+                                    save_data()
+                                    for _wid in list(sig.get("watchers", [])):
+                                        try:
+                                            await ctx.bot.send_message(
+                                                chat_id=_wid,
+                                                text="🔒 *" + sym.replace("/USDT", "") + " 近 TP1 鎖利*\nSL 已上移至 " + str(round(_new_sl, 6)),
+                                                parse_mode="Markdown")
+                                        except Exception:
+                                            pass
+                        elif direction == "SHORT":
+                            _near_thr = tp1_px * (1.0 + _TP_NEAR_PCT)
+                            if price <= _near_thr:
+                                _min_fav = sig.get("min_seen_price") or _entry_f
+                                _new_sl = _entry_f - 0.6 * (_entry_f - float(_min_fav))
+                                if _new_sl < float(sl) and _new_sl > price:
+                                    sig["sl"] = round(_new_sl, 8)
+                                    sig["near_tp_lock_triggered"] = True
+                                    save_data()
+                                    for _wid in list(sig.get("watchers", [])):
+                                        try:
+                                            await ctx.bot.send_message(
+                                                chat_id=_wid,
+                                                text="🔒 *" + sym.replace("/USDT", "") + " 近 TP1 鎖利*\nSL 已上移至 " + str(round(_new_sl, 6)),
+                                                parse_mode="Markdown")
+                                        except Exception:
+                                            pass
+                except Exception as _ntl_e:
+                    logger.warning("near_tp_lock 計算失敗（不影響主流程）: " + str(_ntl_e)[:80])
 
             # === v31 主動退出檢查（達 TP1 之前才檢查，避免已盈利的被誤觸發）===
             if sym in ACTIVE_SIGNALS and not tp_triggered and not tp_hit:

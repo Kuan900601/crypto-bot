@@ -41,6 +41,9 @@ _CHASE_REGIME_PENALTY = int(os.getenv("CHASE_REGIME_PENALTY", "8"))  # 軟懲罰
 _CHASE_REGIME_ENABLED = os.getenv("CHASE_REGIME_ENABLED", "true").lower() == "true"
 _RANGE_POS_LOOKBACK = int(os.getenv("RANGE_POS_LOOKBACK", "120"))  # range_pos 回望 1H K 棒數
 
+# v66-b C1：止盈前置緩衝（防「差一 tick 沒碰到」）
+_TP_FILL_BUFFER = float(os.getenv("TP_FILL_BUFFER", "0.0015"))  # 0.15% 內縮，源頭統一適用
+
 
 async def _fetch_crypto_news(session, limit=10):
     """抓最近的加密新聞標題。失敗回傳空列表，不拋錯。
@@ -5838,6 +5841,20 @@ class CryptoAnalyzer:
         if entry <= 0 or sl <= 0 or abs(entry - sl) <= 0:
             return None, "價格精度異常"
 
+        # v66-b C1：止盈前置緩衝——所有路徑（fixed_atr + structure）在此統一內縮
+        # 目的：避免 TP 掛在阻力/前高正上方，最後一tick成交機率極低
+        tp_buffer_used = 0.0
+        if _TP_FILL_BUFFER > 0 and tp1 and tp2 and tp3:
+            if direction == "LONG":
+                tp1 = self.px_round(tp1 * (1.0 - _TP_FILL_BUFFER))
+                tp2 = self.px_round(tp2 * (1.0 - _TP_FILL_BUFFER))
+                tp3 = self.px_round(tp3 * (1.0 - _TP_FILL_BUFFER))
+            else:
+                tp1 = self.px_round(tp1 * (1.0 + _TP_FILL_BUFFER))
+                tp2 = self.px_round(tp2 * (1.0 + _TP_FILL_BUFFER))
+                tp3 = self.px_round(tp3 * (1.0 + _TP_FILL_BUFFER))
+            tp_buffer_used = _TP_FILL_BUFFER
+
         risk = abs(entry - sl)
         rr1 = round(abs(tp1 - entry) / risk, 2) if risk > 0 else 0
         rr2 = round(abs(tp2 - entry) / risk, 2) if risk > 0 else 0
@@ -6103,6 +6120,7 @@ class CryptoAnalyzer:
             "range_pos": _gate_info.get("range_pos"),
             "gate_tags": _gate_info.get("tags", []),
             "chase_flags": _gate_info.get("chase_flags", []),  # v66 P1：追入旗標（透過 Bug A fix 自動流通）
+            "tp_buffer_used": tp_buffer_used,  # v66-b C1：止盈緩衝比例
             "scale_in": self.scale_in_plan(direction, entry, sl, p, entry_grade["grade"]),
             # v32 頂尖量化分析
             "ofi_state": ofi_state,
