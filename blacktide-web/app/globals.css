@@ -301,3 +301,12 @@ a:active { -webkit-tap-highlight-color: transparent; }
 @media (prefers-reduced-motion: reduce) {
   .acc-panel { transition: none !important; }
 }
+
+/* ============ 燈塔 v2：旋轉光束（transform-only）+ 燈芯呼吸 ============ */
+.lh-beam { animation: spinSlow 14s linear infinite; will-change: transform; }
+@keyframes lampPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+.lh-lamp { animation: lampPulse 3.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .lh-beam { animation: none !important; }
+  .lh-lamp { animation: none !important; }
+}

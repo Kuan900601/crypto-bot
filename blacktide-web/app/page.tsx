@@ -13,7 +13,7 @@ import TickerTape from "@/components/TickerTape";
 import { C, MONO } from "@/lib/theme";
 import CTA from "@/components/site/CTA";
 import SignalShowcase from "@/components/site/SignalShowcase";
-import { GodRays, Lighthouse, HeroWaves } from "@/components/site/HeroVisuals";
+import { Lighthouse, HeroWaves } from "@/components/site/HeroVisuals";
 import { useTilt } from "@/lib/useTilt";
 import { Skeleton } from "@/components/ui";
 import { NumberTicker } from "@/components/ui/number-ticker";
@@ -131,15 +131,14 @@ export default function Home() {
         }} />
         {/* Magic UI 動態格塊：對齊 56px 靜態格線隨機淡入淡出；reduced-motion 整組隱藏（.mui-grid-anim） */}
         <AnimatedGridPattern
-          width={56} height={56} numSquares={22} maxOpacity={0.14} duration={3.5}
+          width={56} height={56} numSquares={12} maxOpacity={0.12} duration={4}
           className="mui-grid-anim stroke-transparent text-cyan-300"
           style={{
             maskImage: "radial-gradient(720px 380px at 50% 0%, #000 30%, transparent 78%)",
             WebkitMaskImage: "radial-gradient(720px 380px at 50% 0%, #000 30%, transparent 78%)",
           }}
         />
-        {/* 品牌識別特色：燈塔光束 + 海浪 + 深海光柱（青色調），作者指定要明顯保留 */}
-        <GodRays />
+        {/* 品牌識別特色：燈塔 v2 + 海浪（GodRays 大面積 blur 動畫已移除——手機效能） */}
         <Lighthouse />
         <HeroWaves />
 

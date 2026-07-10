@@ -56,47 +56,50 @@ export function SoftRays() {
   );
 }
 
+/** 燈塔 v2「現代信標」（2026-07 重做）：純 SVG 剪影 + conic-gradient 旋轉光束。
+ *  效能原則：只用 transform rotate / opacity 動畫，零 blur、零 filter、零 clip-path 動畫
+ *  ——舊版 520px blur(10px) 光束層是手機卡頓主因之一。色彩全青色系，無金/奶油殘留。 */
 export function Lighthouse() {
-  const ref = useParallax<HTMLDivElement>(-0.12);
   return (
-    <div ref={ref} className="parallax-layer" style={{ position: "absolute", bottom: 60, right: "4%", zIndex: 1, pointerEvents: "none", opacity: 0.9 }}>
-      <div className="gpu" style={{
-        position: "absolute", bottom: 130, left: 30, width: 520, height: 230,
-        background: "linear-gradient(108deg, rgba(255,246,214,.22) 0%, rgba(0,212,255,.1) 30%, transparent 62%)",
-        clipPath: "polygon(0 42%, 0 58%, 100% 100%, 100% 0)", filter: "blur(10px)",
-        animation: "beamSweep 8s ease-in-out infinite", transformOrigin: "left center",
+    <div style={{ position: "absolute", bottom: 44, right: "5%", zIndex: 1, pointerEvents: "none", width: 96, height: 216 }}>
+      {/* 旋轉光束：兩道對向光的 conic 漸層，radial mask 淡出邊緣，transform-only */}
+      <div className="lh-beam gpu" style={{
+        position: "absolute", left: "50%", top: 26, width: 340, height: 340,
+        marginLeft: -170, marginTop: -170, borderRadius: "50%",
+        background: "conic-gradient(from 0deg, transparent 0deg, rgba(0,212,255,0.28) 14deg, rgba(186,243,255,0.36) 22deg, rgba(0,212,255,0.28) 30deg, transparent 44deg, transparent 180deg, rgba(0,212,255,0.16) 196deg, rgba(0,212,255,0.22) 202deg, transparent 216deg)",
+        WebkitMask: "radial-gradient(circle, #000 8%, rgba(0,0,0,.55) 40%, transparent 68%)",
+        mask: "radial-gradient(circle, #000 8%, rgba(0,0,0,.55) 40%, transparent 68%)",
       }} />
-      <div style={{ position: "absolute", bottom: 0, left: -4, width: 88, height: 188, borderRadius: "50% 50% 35% 35%", background: "radial-gradient(ellipse at 50% 28%, rgba(0,212,255,.2), transparent 62%)", filter: "blur(10px)" }} />
-      <svg width="80" height="200" viewBox="0 0 80 200" style={{ position: "relative", display: "block", filter: "drop-shadow(0 0 20px rgba(0,212,255,.32))" }}>
+      {/* 燈室靜態光暈（不動畫） */}
+      <div style={{ position: "absolute", left: "50%", top: 26, width: 88, height: 88, marginLeft: -44, marginTop: -44, borderRadius: "50%", background: "radial-gradient(circle, rgba(186,243,255,0.5), rgba(0,212,255,0.18) 45%, transparent 70%)" }} />
+      {/* 塔身剪影 */}
+      <svg width="96" height="216" viewBox="0 0 96 216" style={{ position: "relative", display: "block" }}>
         <defs>
-          <linearGradient id="lhBody" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="rgba(150,120,50,.15)" />
-            <stop offset="18%" stopColor="rgba(0,212,255,.42)" />
-            <stop offset="50%" stopColor="rgba(255,248,224,.62)" />
-            <stop offset="82%" stopColor="rgba(0,212,255,.42)" />
-            <stop offset="100%" stopColor="rgba(150,120,50,.15)" />
+          <linearGradient id="lh2Body" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#0B1117" />
+            <stop offset="46%" stopColor="#1E293B" />
+            <stop offset="54%" stopColor="#22303F" />
+            <stop offset="100%" stopColor="#0B1117" />
           </linearGradient>
-          <linearGradient id="lhFade" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgba(255,255,255,.75)" />
-            <stop offset="100%" stopColor="rgba(255,255,255,.85)" />
-          </linearGradient>
-          <mask id="lhMask"><rect width="80" height="200" fill="url(#lhFade)" /></mask>
-          <radialGradient id="lhLamp" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="rgba(255,252,235,1)" />
-            <stop offset="55%" stopColor="rgba(255,238,190,.95)" />
-            <stop offset="100%" stopColor="rgba(0,212,255,.2)" />
-          </radialGradient>
         </defs>
-        <g mask="url(#lhMask)">
-          <path d="M30,52 L50,52 L58,200 L22,200 Z" fill="url(#lhBody)" />
-          <rect x="26" y="46" width="28" height="6" rx="2" fill="rgba(255,246,214,.5)" />
-          <rect x="31" y="28" width="18" height="18" rx="2.5" fill="rgba(40,32,16,.6)" stroke="rgba(0,212,255,.4)" strokeWidth="1" />
-          <rect x="34" y="31" width="12" height="13" rx="1.5" fill="url(#lhLamp)" opacity="0.95" />
-          <path d="M28,28 Q40,11 52,28 Z" fill="rgba(0,212,255,.6)" />
-        </g>
-        <circle cx="40" cy="11" r="1.8" fill="rgba(0,212,255,.8)" />
+        {/* 塔身 */}
+        <path d="M39,58 L57,58 L64,204 L32,204 Z" fill="url(#lh2Body)" />
+        {/* 塔身青色條紋（信標塗裝） */}
+        <path d="M37.4,88 L58.6,88 L59.5,104 L36.6,104 Z" fill="rgba(0,212,255,0.4)" />
+        <path d="M35.4,140 L60.9,140 L61.8,156 L34.5,156 Z" fill="rgba(0,212,255,0.3)" />
+        {/* 燈室平台 + 護欄 */}
+        <rect x="33" y="52" width="30" height="5" rx="2" fill="#1E293B" />
+        <rect x="35" y="44" width="26" height="3" rx="1.5" fill="rgba(0,212,255,0.35)" />
+        {/* 燈室玻璃 */}
+        <rect x="38" y="22" width="20" height="26" rx="3" fill="rgba(11,17,23,0.9)" stroke="rgba(0,212,255,0.5)" strokeWidth="1.2" />
+        {/* 燈芯 */}
+        <circle cx="48" cy="35" r="5.5" fill="#BAF3FF" className="lh-lamp" />
+        {/* 塔頂 */}
+        <path d="M36,22 L60,22 L48,8 Z" fill="#1E293B" stroke="rgba(0,212,255,0.35)" strokeWidth="1" />
+        <circle cx="48" cy="7" r="2" fill="rgba(0,212,255,0.9)" />
+        {/* 基座礁石 */}
+        <ellipse cx="48" cy="207" rx="42" ry="9" fill="#0B1117" />
       </svg>
-      <div style={{ position: "absolute", top: 36, left: 40, width: 38, height: 38, borderRadius: "50%", background: "radial-gradient(circle, rgba(255,246,214,.5), transparent 70%)", animation: "beaconPulse 3.4s ease-in-out infinite" }} />
     </div>
   );
 }
@@ -104,8 +107,8 @@ export function Lighthouse() {
 export function HeroWaves() {
   const ref = useParallax<HTMLDivElement>(0.08);
   const layers = [
-    { fill: "rgba(0,212,255,0.13)", h: 130, dur: 11, y: 48, blur: 1 },
-    { fill: "rgba(27,138,130,0.24)", h: 150, dur: 15, y: 24, blur: 1.5 },
+    { fill: "rgba(0,212,255,0.12)", h: 130, dur: 11, y: 48, blur: 0 },
+    { fill: "rgba(0,163,204,0.2)", h: 150, dur: 15, y: 24, blur: 0 },
     { fill: "rgba(9,20,38,0.9)", h: 180, dur: 21, y: 0, blur: 0 },
   ];
   return (
@@ -119,7 +122,7 @@ export function HeroWaves() {
       ))}
       <div className="gpu" style={{ position: "absolute", left: 0, bottom: 140, width: "200%", height: 50, animation: "waveMove 15s linear infinite" }}>
         <svg viewBox="0 0 1200 120" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
-          <path d="M0,40 C150,90 350,0 600,40 C850,80 1050,10 1200,40" fill="none" stroke="rgba(255,244,210,0.42)" strokeWidth="2" />
+          <path d="M0,40 C150,90 350,0 600,40 C850,80 1050,10 1200,40" fill="none" stroke="rgba(0,212,255,0.3)" strokeWidth="2" />
         </svg>
       </div>
     </div>
