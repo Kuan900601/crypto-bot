@@ -118,7 +118,8 @@ export default function Home() {
   return (
     <div>
       {/* ============ Hero：排版主導、低噪點綴（REDESIGN V1） ============ */}
-      <section style={{ position: "relative", overflow: "hidden", borderRadius: 20, padding: "clamp(56px,9vh,96px) 22px clamp(44px,7vh,72px)" }}>
+      {/* 底部 pb 用 class 做響應式：手機保留 208px 給燈塔+海浪完整展示帶（作者指定品牌特色要明顯），桌機 80px */}
+      <section className="pb-52 md:pb-20" style={{ position: "relative", overflow: "hidden", borderRadius: 20, paddingTop: "clamp(56px,9vh,96px)", paddingLeft: 22, paddingRight: 22 }}>
         {/* 背景：頂部單一青色微光 + 細格線，取代舊燈塔/海浪特效 */}
         <div aria-hidden style={{ position: "absolute", inset: 0, pointerEvents: "none", background: "radial-gradient(900px 420px at 50% -8%, rgba(0,212,255,0.09), transparent 62%)" }} />
         <div aria-hidden style={{
