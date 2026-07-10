@@ -63,7 +63,7 @@ export default function NewsPage() {
               </div>
               {/* 摘要 */}
               {n.summary && n.summary !== "（點擊閱讀原文）" && (
-                <p className="mt-2 text-xs leading-relaxed text-slate-400 line-clamp-2">{n.summary}</p>
+                <p className="mt-2 break-words text-xs leading-relaxed text-slate-400 line-clamp-2" style={{ overflowWrap: "anywhere" }}>{n.summary}</p>
               )}
               {/* 底部：來源 + 影響 + 標籤 + 時間 */}
               <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">

@@ -13,6 +13,7 @@ import TickerTape from "@/components/TickerTape";
 import { C, MONO } from "@/lib/theme";
 import CTA from "@/components/site/CTA";
 import SignalShowcase from "@/components/site/SignalShowcase";
+import { GodRays, Lighthouse, HeroWaves } from "@/components/site/HeroVisuals";
 import { useTilt } from "@/lib/useTilt";
 import { Skeleton } from "@/components/ui";
 import { NumberTicker } from "@/components/ui/number-ticker";
@@ -136,8 +137,12 @@ export default function Home() {
             WebkitMaskImage: "radial-gradient(720px 380px at 50% 0%, #000 30%, transparent 78%)",
           }}
         />
+        {/* 品牌識別特色：燈塔光束 + 海浪 + 深海光柱（青色調），作者指定要明顯保留 */}
+        <GodRays />
+        <Lighthouse />
+        <HeroWaves />
 
-        <div style={{ position: "relative", zIndex: 2, maxWidth: 1120, margin: "0 auto" }}>
+        <div style={{ position: "relative", zIndex: 5, maxWidth: 1120, margin: "0 auto" }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 48, alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ maxWidth: 580, flex: "1 1 360px" }}>
               <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 24, padding: "6px 14px", borderRadius: 999, fontSize: 12, fontWeight: 600, color: C.primary, border: `1px solid ${C.linePrimary}`, background: "rgba(0,212,255,0.06)" }}>
@@ -146,11 +151,11 @@ export default function Home() {
                   {MONITORED_COINS} 幣種 · 24/7 AI 盯盤
                 </AnimatedShinyText>
               </div>
-              <h1 style={{ fontWeight: 800, lineHeight: 1.18, margin: 0, fontSize: "clamp(38px,5.6vw,62px)", letterSpacing: "-0.02em", color: C.ink, wordBreak: "keep-all", overflowWrap: "break-word" }}>
+              <h1 style={{ fontWeight: 800, lineHeight: 1.2, margin: 0, fontSize: "clamp(31px,8.4vw,62px)", letterSpacing: "-0.02em", color: C.ink, overflowWrap: "break-word" }}>
                 專業 AI 交易情報，<br />
                 <span style={{ color: C.primary }}>紀律化</span>進出場
               </h1>
-              <p style={{ fontSize: "clamp(15px,1.8vw,17px)", lineHeight: 1.7, color: C.mut, margin: "20px 0 0", maxWidth: 460, wordBreak: "keep-all", overflowWrap: "break-word" }}>
+              <p style={{ fontSize: "clamp(15px,1.8vw,17px)", lineHeight: 1.7, color: C.mut, margin: "20px 0 0", maxWidth: 460, overflowWrap: "break-word" }}>
                 {session
                   ? <>歡迎回來。AI 持續掃描市場，下面是今日分析與照實結算的信號戰績。</>
                   : <>多策略投票產出可執行的交易信號——進場區間、止損、分批止盈一次給齊，每筆結果照實公開。</>}

@@ -66,7 +66,10 @@ function parseFeed(xml: string, source: string, lang: "zh" | "en"): Item[] {
     if (!link) { const m = b.match(/<link[^>]*href="([^"]+)"/i); if (m) link = m[1]; }
     const pub = decode(tag(b, "pubDate") || tag(b, "published") || tag(b, "updated") || tag(b, "dc:date"));
     const ts = pub ? Date.parse(pub) : 0;
-    const desc = decode(tag(b, "description") || tag(b, "summary") || tag(b, "content:encoded"));
+    // RSS description 常夾原始 HTML（Google News 會塞 <a href=...> 整串連結），
+    // 直接當純文字渲染會把長網址撐爆手機版容器——先剝掉標籤再壓空白
+    const desc = decode(tag(b, "description") || tag(b, "summary") || tag(b, "content:encoded"))
+      .replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
     const tags = TICKERS.filter((t) => {
       const pat = t.length <= 3 ? new RegExp("\\b" + t + "\\b") : new RegExp(t);
       return pat.test(title.toUpperCase()) || pat.test(title);
