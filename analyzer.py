@@ -5121,11 +5121,14 @@ class CryptoAnalyzer:
                 except Exception:
                     pass
                 # v66 P1：硬擋記錄推入 _gate_shadow_queue，供 bot.py flush 到 Redis
+                # v66 B1：補 price（反事實評估用）與 chase_flags
                 try:
                     self._gate_shadow_queue.append({
                         "sym": symbol, "dir": direction,
+                        "price": round(float(p), 6) if p else None,
                         "range_pos": _gate_info.get("range_pos"),
                         "regime": _gate_info.get("regime", ""),
+                        "chase_flags": _gate_info.get("chase_flags", []),
                         "would_be_score": round(float(score)),
                         "reason": _gate_reason,
                         "ts": datetime.now(timezone.utc).isoformat(),

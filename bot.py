@@ -848,17 +848,43 @@ async def cmd_gate_stats(update, context):
         r = b.get("reason", "")
         reason_counts[r] = reason_counts.get(r, 0) + 1
 
+    # 從 Redis 讀最近 10 筆明細（gate_shadow 存完整 JSON，最新在尾端）
+    _gs_recent = []
+    if _USE_REDIS and _gs_count > 0:
+        try:
+            _gs_raw = _redis_cmd_raw(["LRANGE", "gate_shadow", -10, -1])
+            _gs_items = (_gs_raw or {}).get("result", [])
+            for _item in reversed(_gs_items):  # 最新在最前
+                try:
+                    _gs_recent.append(json.loads(_item))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     text = "🚧 *情境閘門擋下統計（v66）*\n"
     text += "━━━━━━━━━━━━━━━━━━━━\n"
     text += "記憶體（重啟清空）：" + str(len(blocked)) + " 筆\n"
-    text += "Redis gate_shadow（持久）：" + str(_gs_count) + " 筆\n\n"
+    text += "Redis gate_shadow（持久，保留最近 300 筆）：" + str(_gs_count) + " 筆\n\n"
     if reason_counts:
-        text += "*原因統計*\n"
+        text += "*原因統計（記憶體）*\n"
         for r, c in sorted(reason_counts.items(), key=lambda x: -x[1]):
             text += "• " + r + "：" + str(c) + "\n"
 
-    if blocked:
-        text += "\n*最近 10 筆*\n"
+    if _gs_recent:
+        text += "\n*最近 10 筆明細（Redis）*\n"
+        for g in _gs_recent[:10]:
+            _ts = g.get("ts", "")[:16].replace("T", " ")
+            _rp = g.get("range_pos")
+            _px = g.get("price")
+            _rp_str = (" rp=" + str(_rp)) if _rp is not None else ""
+            _px_str = (" px=" + str(_px)) if _px is not None else ""
+            text += ("• " + str(g.get("sym", "")) + " " + str(g.get("dir", ""))
+                     + _rp_str + _px_str
+                     + " — " + str(g.get("reason", ""))
+                     + " [" + _ts + "]\n")
+    elif blocked:
+        text += "\n*最近 10 筆（記憶體）*\n"
         for b in blocked[-10:][::-1]:
             text += "• " + b.get("sym", "") + " " + b.get("dir", "") + " — " + b.get("reason", "") + "\n"
 
@@ -1158,6 +1184,31 @@ async def cmd_at_debug(update, context):
         for t in last_closed:
             text += ("• " + t.get("symbol", "?") + " " + str(t.get("close_reason", "?"))
                      + " price=" + str(t.get("close_price")) + " pnl=" + str(t.get("realized_pnl")) + "\n")
+
+    # ⑥c gate_shadow（v66 B2）
+    _gs_llen = 0
+    _gs_last_ago = None
+    if _USE_REDIS:
+        try:
+            _gs_r = _redis_cmd_raw(["LLEN", "gate_shadow"])
+            _gs_llen = int((_gs_r or {}).get("result", 0))
+            if _gs_llen > 0:
+                _gs_last_raw = _redis_cmd_raw(["LRANGE", "gate_shadow", -1, -1])
+                _gs_last_items = (_gs_last_raw or {}).get("result", [])
+                if _gs_last_items:
+                    _gs_last = json.loads(_gs_last_items[0])
+                    _gs_ts = _gs_last.get("ts", "")
+                    if _gs_ts:
+                        _gs_dt = datetime.fromisoformat(_gs_ts)
+                        if _gs_dt.tzinfo is None:
+                            _gs_dt = _gs_dt.replace(tzinfo=timezone.utc)
+                        _gs_last_ago = round((datetime.now(timezone.utc) - _gs_dt).total_seconds() / 60.0, 1)
+        except Exception:
+            pass
+    text += "\n*⑥c gate_shadow 持久記錄*\n"
+    text += "總數：" + str(_gs_llen) + " 筆（保留最近 300）\n"
+    if _gs_last_ago is not None:
+        text += "最近一筆距今：" + str(_gs_last_ago) + " 分\n"
 
     # ⑦ 結論（自動推斷）
     text += "\n*⑦ 結論*\n"
