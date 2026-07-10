@@ -292,8 +292,9 @@ export default function Home() {
             )}
           </div>
 
-          {/* 近 N 筆已結算信號績效（樣本不足不強調具體數字） */}
-          <div style={{ marginTop: 40, maxWidth: 520, borderRadius: 14, padding: 18, background: C.deep, border: `1px solid ${C.line}` }}>
+          {/* 近 N 筆已結算信號績效（樣本不足不強調具體數字）
+              半透明玻璃卡：讓後面的燈塔/海浪透出來（作者要求），輕 blur 保持文字可讀 */}
+          <div style={{ marginTop: 40, maxWidth: 520, borderRadius: 14, padding: 18, background: "rgba(11,17,23,0.55)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", border: `1px solid ${C.line}` }}>
             <div style={{ fontSize: 11, letterSpacing: 2, color: C.dim, marginBottom: 12 }}>
               {signals === null ? "信號績效" : perfSampleOk ? `近 ${chronological.length} 筆已結算信號` : "信號績效"}
             </div>
@@ -328,7 +329,7 @@ export default function Home() {
                 </div>
               </div>
             ) : (
-              <div style={{ fontSize: 12.5, color: C.mut, lineHeight: 1.6, wordBreak: "keep-all", overflowWrap: "break-word" }}>
+              <div style={{ fontSize: 12.5, color: C.mut, lineHeight: 1.6 }}>
                 樣本仍在累積中，待已結算信號足量後將公開實際績效數字。目前可確認：{MONITORED_COINS} 幣種監測、7+1 策略投票、分批止盈紀律、24/7 AI 盯盤。
               </div>
             )}
@@ -346,10 +347,10 @@ export default function Home() {
         <div style={{ maxWidth: 1120, margin: "0 auto" }}>
           <div style={{ textAlign: "center", marginBottom: 40 }}>
             <div style={{ fontSize: 12, letterSpacing: 4, color: C.primary, fontWeight: 700, marginBottom: 14 }}>CAPABILITIES</div>
-            <h2 style={{ fontSize: "clamp(26px,4vw,40px)", fontWeight: 800, color: C.ink, margin: 0, letterSpacing: "-0.02em", lineHeight: 1.25, wordBreak: "keep-all" }}>
+            <h2 style={{ fontSize: "clamp(26px,4vw,40px)", fontWeight: 800, color: C.ink, margin: 0, letterSpacing: "-0.02em", lineHeight: 1.25 }}>
               信號背後的完整系統
             </h2>
-            <p style={{ fontSize: 15, color: C.mut, margin: "14px auto 0", maxWidth: 460, lineHeight: 1.65, wordBreak: "keep-all" }}>
+            <p style={{ fontSize: 15, color: C.mut, margin: "14px auto 0", maxWidth: 460, lineHeight: 1.65 }}>
               不是單一指標喊單——從掃描、評分、分級到出場管理，每一步都有規則。
             </p>
           </div>
@@ -360,7 +361,7 @@ export default function Home() {
                   <Icon size={19} />
                 </span>
                 <div style={{ marginTop: 14, fontSize: 15.5, fontWeight: 700, color: C.ink }}>{title}</div>
-                <div style={{ marginTop: 7, fontSize: 13, lineHeight: 1.65, color: C.mut, wordBreak: "keep-all" }}>{desc}</div>
+                <div style={{ marginTop: 7, fontSize: 13, lineHeight: 1.65, color: C.mut }}>{desc}</div>
               </div>
             ))}
           </div>
@@ -372,7 +373,7 @@ export default function Home() {
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
           <div style={{ textAlign: "center", marginBottom: 36 }}>
             <div style={{ fontSize: 12, letterSpacing: 4, color: C.primary, fontWeight: 700, marginBottom: 14 }}>HOW IT WORKS</div>
-            <h2 style={{ fontSize: "clamp(24px,3.6vw,36px)", fontWeight: 800, color: C.ink, margin: 0, letterSpacing: "-0.02em", wordBreak: "keep-all" }}>
+            <h2 style={{ fontSize: "clamp(24px,3.6vw,36px)", fontWeight: 800, color: C.ink, margin: 0, letterSpacing: "-0.02em" }}>
               從市場雜訊到可執行信號
             </h2>
           </div>
@@ -384,7 +385,7 @@ export default function Home() {
                   <Icon size={17} color={C.primary} />
                   <span style={{ fontSize: 15.5, fontWeight: 700, color: C.ink }}>{title}</span>
                 </div>
-                <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.65, color: C.mut, wordBreak: "keep-all" }}>{desc}</div>
+                <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.65, color: C.mut }}>{desc}</div>
               </div>
             ))}
           </div>
@@ -413,10 +414,10 @@ export default function Home() {
       {/* ============ 結尾轉換區（極簡，聲納特效退場） ============ */}
       <section style={{ padding: "56px 22px 72px", textAlign: "center", position: "relative", overflow: "hidden", borderRadius: 20, background: `radial-gradient(640px 300px at 50% 110%, rgba(0,212,255,0.08), transparent 70%)` }}>
         <div style={{ position: "relative", zIndex: 2, maxWidth: 680, margin: "0 auto" }}>
-          <h2 style={{ fontSize: "clamp(26px,4.4vw,42px)", fontWeight: 800, color: C.ink, margin: 0, lineHeight: 1.3, letterSpacing: "-0.02em", wordBreak: "keep-all", overflowWrap: "break-word" }}>
+          <h2 style={{ fontSize: "clamp(26px,4.4vw,42px)", fontWeight: 800, color: C.ink, margin: 0, lineHeight: 1.3, letterSpacing: "-0.02em" }}>
             方向、信號、進場、止損、TP，<br /><span style={{ color: C.primary }}>一站看齊</span>
           </h2>
-          <p style={{ fontSize: "clamp(14px,1.9vw,17px)", color: C.mut, margin: "16px 0 0", wordBreak: "keep-all" }}>免費註冊即可開始查看今日信號。</p>
+          <p style={{ fontSize: "clamp(14px,1.9vw,17px)", color: C.mut, margin: "16px 0 0" }}>免費註冊即可開始查看今日信號。</p>
           <div style={{ marginTop: 34 }}>
             {status === "unauthenticated" && <Link href="/login?register=1"><CTA big>免費註冊 · 送 3 日 Plus 體驗</CTA></Link>}
             {status === "authenticated" && <Link href="/signals"><CTA big>前往黑潮船長信號</CTA></Link>}
