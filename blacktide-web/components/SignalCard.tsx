@@ -3,6 +3,7 @@ import { Signal } from "@/lib/types";
 import { fmtPrice, entryGradeDisplay } from "@/lib/format";
 import { C, MONO } from "@/lib/theme";
 import { TrendingUp, TrendingDown, Lock } from "lucide-react";
+import { BorderBeam } from "@/components/ui/border-beam";
 import { useTilt } from "@/lib/useTilt";
 
 const STATUS_LABEL: Record<Signal["status"], string> = { active: "進行中", tp: "已止盈", sl: "已止損", closed: "已平倉" };
@@ -30,6 +31,8 @@ export default function SignalCard({ s, onOpen }: { s: Signal; onOpen: () => voi
       background: C.deep, border: `1px solid ${C.line}`,
     }}>
       <span className="accent-bar" style={{ background: `linear-gradient(${sc},transparent)`, boxShadow: `0 0 6px ${sc}` }} />
+      {/* Tier S 專屬：青色光束巡邊（premium 記號，其他等級不加） */}
+      {s.tier === "S" && <BorderBeam size={56} duration={8} borderWidth={1} />}
 
       {/* ── 頂行：方向 / 幣種 / Tier pill / 狀態 ── */}
       <div className="flex flex-wrap items-center gap-2" style={{ position: "relative", zIndex: 1 }}>

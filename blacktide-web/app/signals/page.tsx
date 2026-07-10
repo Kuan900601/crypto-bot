@@ -8,6 +8,7 @@ import { Crown, Radio, Send, Bell, ArrowRight, ExternalLink, Lock } from "lucide
 import { useApp } from "@/lib/store";
 import { useSession } from "next-auth/react";
 import { Skeleton, SkeletonCard, EmptyState, PullIndicator } from "@/components/ui";
+import { NumberTicker } from "@/components/ui/number-ticker";
 import { usePullToRefresh } from "@/lib/usePullToRefresh";
 
 const TG_CHANNEL = "https://t.me/KuroshioSignal";
@@ -106,7 +107,7 @@ function LiveFeed({ userTier }: { userTier: string }) {
             const locked = sig.entryLow == null;
             const sc = sig.direction === "long" ? C.green : C.rose;
             return (
-              <div key={sig.id} className="sigrow" style={{ position: "relative", overflow: "hidden", borderRadius: 12, padding: "10px 12px", border: isNew ? `1px solid ${C.green}66` : `1px solid ${C.line}`, background: isNew ? "rgba(70,214,160,0.06)" : "rgba(255,255,255,0.02)" }}>
+              <div key={sig.id} className={isNew ? "sigrow rise-in" : "sigrow"} style={{ position: "relative", overflow: "hidden", borderRadius: 12, padding: "10px 12px", border: isNew ? `1px solid ${C.green}66` : `1px solid ${C.line}`, background: isNew ? "rgba(16,185,129,0.06)" : "rgba(255,255,255,0.02)" }}>
                 <div className="flex flex-wrap items-center gap-2">
                   {isNew && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1, padding: "2px 7px", borderRadius: 99, color: C.green, background: "rgba(70,214,160,0.18)", animation: "pulseDot 1.4s infinite" }}>NEW</span>}
                   <span style={{ fontSize: 11, fontWeight: 700, color: sc }}>{sig.direction === "long" ? "▲ LONG" : "▼ SHORT"}</span>
@@ -219,20 +220,20 @@ export default function SignalsPage() {
         {[["信號總數", String(signals.length), C.ink], ["進行中", String(signals.filter((s) => s.status === "active").length), C.ink], ["做多", String(longN), C.green], ["做空", String(shortN), C.rose]].map(([label, value, color]) => (
           <div key={label} className="rounded-xl p-3.5" style={{ border: `1px solid ${C.line}`, background: "rgba(255,255,255,0.02)" }}>
             <div style={{ fontSize: 11, color: C.dim }}>{label}</div>
-            <div style={{ marginTop: 4, fontFamily: MONO, fontSize: 19, fontWeight: 800, color: color as string }}>{value}</div>
+            <div style={{ marginTop: 4, fontFamily: MONO, fontSize: 19, fontWeight: 800, color: color as string }}><NumberTicker value={Number(value)} /></div>
           </div>
         ))}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
         {(["all", "long", "short"] as const).map((d) => (
-          <button key={d} onClick={() => setDir(d)} className="rounded-full px-3 py-1" style={{ fontSize: 12, border: `1px solid ${dir === d ? C.primary + "70" : C.line}`, background: dir === d ? "rgba(0,212,255,0.12)" : "transparent", color: dir === d ? C.primary : C.mut }}>
+          <button key={d} onClick={() => setDir(d)} className="press-feedback rounded-full px-3 py-1" style={{ fontSize: 12, fontWeight: dir === d ? 700 : 400, border: `1px solid ${dir === d ? C.primary : C.line}`, background: dir === d ? C.primary : "transparent", color: dir === d ? C.abyss : C.mut, transition: "background .15s, color .15s" }}>
             {d === "all" ? "全部" : d === "long" ? "做多" : "做空"}
           </button>
         ))}
         <span style={{ margin: "0 4px", width: 1, height: 16, background: C.line }} />
         {["all", "S", "A", "B", "C"].map((t) => (
-          <button key={t} onClick={() => setTier(t)} className="rounded-full px-3 py-1" style={{ fontSize: 12, border: `1px solid ${tier === t ? C.primary + "70" : C.line}`, background: tier === t ? "rgba(0,212,255,0.12)" : "transparent", color: tier === t ? C.primary : C.mut }}>
+          <button key={t} onClick={() => setTier(t)} className="press-feedback rounded-full px-3 py-1" style={{ fontSize: 12, fontWeight: tier === t ? 700 : 400, border: `1px solid ${tier === t ? C.primary : C.line}`, background: tier === t ? C.primary : "transparent", color: tier === t ? C.abyss : C.mut, transition: "background .15s, color .15s" }}>
             {t === "all" ? "全部 Tier" : "Tier " + t}
           </button>
         ))}
