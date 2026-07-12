@@ -24,7 +24,7 @@ export default function LegalModal({ docKey, onClose }: { docKey: LegalDocKey | 
     }}>
       <div onClick={(e) => e.stopPropagation()} className="legal-panel modal-sheet" style={{
         position: "relative", width: "100%", maxWidth: 640, display: "flex", flexDirection: "column",
-        background: "linear-gradient(180deg, rgba(10,20,34,0.98), rgba(4,9,16,0.98))",
+        background: C.deep,
         border: `1px solid ${C.linePrimary}`, boxShadow: "0 30px 80px rgba(0,0,0,.6)", overflow: "hidden",
         paddingBottom: "max(8px, env(safe-area-inset-bottom))",
       }}>

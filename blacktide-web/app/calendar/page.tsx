@@ -2,7 +2,6 @@
 import { useState } from "react";
 import { Calendar, TrendingUp, DollarSign, Globe } from "lucide-react";
 import { C, MONO } from "@/lib/theme";
-import Corner from "@/components/site/Corner";
 
 type Category = "all" | "crypto" | "macro" | "fed";
 
@@ -78,10 +77,9 @@ export default function CalendarPage() {
           </div>
           <div className="space-y-2">
             {high.map((e, i) => (
-              <div key={i} className="sigrow relative overflow-hidden rounded-xl p-4" style={{ border: `1px solid ${C.linePrimary}`, background: "linear-gradient(180deg, rgba(16,30,48,0.7), rgba(6,16,30,0.5))" }}>
+              <div key={i} className="sigrow relative overflow-hidden rounded-xl p-4" style={{ border: `1px solid ${C.linePrimary}`, background: C.deep }}>
                 <span className="accent-bar" style={{ background: `linear-gradient(${C.rose},transparent)`, boxShadow: `0 0 6px ${C.rose}` }} />
-                <div className="row-sweep" />
-                <Corner pos="tr" />
+                
                 <div className="flex flex-wrap items-start gap-2">
                   <div className="flex-1">
                     <div className="flex flex-wrap items-center gap-2">

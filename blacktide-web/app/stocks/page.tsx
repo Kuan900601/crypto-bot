@@ -4,7 +4,6 @@ import { TrendingUp, TrendingDown, Minus, RefreshCw, BarChart2, Activity } from 
 import { Card, Skeleton } from "@/components/ui";
 import { fmtPrice } from "@/lib/format";
 import { C, MONO } from "@/lib/theme";
-import Corner from "@/components/site/Corner";
 const STOCKS = ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD"];
 
 interface StockData {
@@ -107,7 +106,7 @@ export default function StocksPage() {
         <div className="space-y-4">
           {/* Price + bias hero */}
           <Card className="relative overflow-hidden p-5">
-            <Corner pos="tl" /><Corner pos="br" />
+            
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <div className="flex flex-wrap items-center gap-2">

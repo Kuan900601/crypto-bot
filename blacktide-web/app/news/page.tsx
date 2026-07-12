@@ -5,7 +5,6 @@ import { NewsItem } from "@/lib/types";
 import { SectionTitle, Card, Badge, Chip, Skeleton, EmptyState } from "@/components/ui";
 import { Newspaper } from "lucide-react";
 import { C } from "@/lib/theme";
-import Corner from "@/components/site/Corner";
 const SENT: Record<NewsItem["sentiment"], { label: string; tone: "up" | "down" | "slate" }> = {
   bull: { label: "利多", tone: "up" }, bear: { label: "利空", tone: "down" }, neutral: { label: "中性", tone: "slate" },
 };
@@ -53,8 +52,7 @@ export default function NewsPage() {
           <a key={n.id} href={hrefOf(n)} target="_blank" rel="noreferrer" className="block">
             <Card className="sigrow relative overflow-hidden p-4 transition hover:border-tide-500/30 hover:bg-white/[0.03]">
               <span className="accent-bar" style={{ background: `linear-gradient(${SENT[n.sentiment].tone === "up" ? C.green : SENT[n.sentiment].tone === "down" ? C.rose : C.dim},transparent)` }} />
-              <div className="row-sweep" />
-              <Corner pos="tr" />
+              
               {/* 第一行：badge + 標題 */}
               <div className="flex items-start gap-2" style={{ position: "relative", zIndex: 1 }}>
                 <Badge tone={SENT[n.sentiment].tone}>{SENT[n.sentiment].label}</Badge>

@@ -8,7 +8,6 @@ import { Card, SectionTitle, Badge } from "@/components/ui";
 import { useApp } from "@/lib/store";
 import { TIER_LABEL } from "@/lib/access";
 import { C } from "@/lib/theme";
-import Corner from "@/components/site/Corner";
 interface Me { uid: string; email: string; nickname: string; phone: string; avatar: string; tier: "free" | "air" | "pro"; cycle: string | null; subAmount: number; planExpiry: string | null; emailVerified: boolean; phoneVerified: boolean; invitedBy: string; referrals: number; referralRewarded: number; notifyEnabled: boolean; quietStart: string; quietEnd: string; isAdmin: boolean; isFounder: boolean; createdAt: string; }
 const inp = "w-full rounded-lg border border-white/10 bg-ink-900 px-3 py-2.5 text-sm outline-none focus:border-tide-500/40";
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -120,14 +119,14 @@ export default function MemberPage() {
         </div>
       )}
       <Card className="relative overflow-hidden p-5">
-        <Corner pos="tl" /><Corner pos="br" />
+        
         <div className="flex items-center gap-4">
           <label className="relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-full" style={{ boxShadow: me.isFounder ? `0 0 0 2px ${C.primary}, 0 0 14px ${C.primary}99` : `0 0 0 1px ${C.linePrimary}` }}>
             {avatar ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={avatar} alt="頭像" className="h-full w-full object-cover" />
             ) : (
-              <span className="flex h-full w-full items-center justify-center bg-gradient-to-br from-tide-400 to-amber-700 text-lg font-bold text-ink-950">{letter}</span>
+              <span className="flex h-full w-full items-center justify-center bg-gradient-to-br from-tide-400 to-tide-600 text-lg font-bold text-ink-950">{letter}</span>
             )}
             <span className="absolute bottom-0 right-0 rounded-full bg-ink-900 p-1 text-tide-300"><Camera size={11} /></span>
             <input type="file" accept="image/*" className="hidden" onChange={(e) => onAvatar(e.target.files?.[0])} />

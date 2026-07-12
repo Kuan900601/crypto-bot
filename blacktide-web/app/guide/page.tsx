@@ -3,7 +3,6 @@ import { useState } from "react";
 import { SectionTitle, Card } from "@/components/ui";
 import { Smartphone, Bell, Search, Crown, Gift, BrainCircuit, Radio, ShieldAlert, ChevronDown, BookOpen, RefreshCw, Repeat2, Zap } from "lucide-react";
 import { C } from "@/lib/theme";
-import Corner from "@/components/site/Corner";
 const SECTIONS = [
   {
     icon: Smartphone, title: "把網站加到手機主畫面（像 App 一樣）",
@@ -156,7 +155,7 @@ export default function GuidePage() {
           const isOpen = open === i;
           return (
             <Card key={i} className="relative overflow-hidden p-0">
-              {isOpen && <Corner pos="tr" />}
+              
               <button onClick={() => setOpen(isOpen ? -1 : i)} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: "rgba(0,212,255,0.1)", color: C.primary }}><Icon size={17} /></span>
                 <span className="flex-1 text-sm font-semibold">{sec.title}</span>

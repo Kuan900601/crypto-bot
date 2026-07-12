@@ -81,7 +81,7 @@ export default function LoginPage() {
         <div className="mt-3" style={{ fontSize: 17, fontWeight: 800, letterSpacing: "0.04em", color: C.ink }}>黑潮 BLACKTIDE</div>
         <div style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: "0.28em", color: C.primary, marginTop: 2 }}>SIGNALS · PRO TERMINAL</div>
       </div>
-      <div className="mt-6 rounded-2xl p-5" style={{ border: `1px solid ${C.linePrimary}`, background: "linear-gradient(180deg, rgba(16,30,48,0.78), rgba(6,16,30,0.7))" }}>
+      <div className="mt-6 rounded-2xl p-5" style={{ border: `1px solid ${C.linePrimary}`, background: C.deep }}>
         {notice && (
           <div className="mb-3 flex items-center gap-2 rounded-lg border border-up/20 bg-up/10 px-3 py-2 text-xs text-up">
             <CheckCircle size={13} /> {notice}

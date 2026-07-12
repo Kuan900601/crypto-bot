@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { Card, SectionTitle, Progress, Badge } from "@/components/ui";
 import { Gift, Copy, Check, Users, Sparkles } from "lucide-react";
 import { C } from "@/lib/theme";
-import Corner from "@/components/site/Corner";
 interface Ref { uid: string; referrals: number; rewarded: number; monthsEarned: number; inThisCycle: number; toNext: number; }
 export default function ActivityPage() {
   const [r, setR] = useState<Ref | null>(null);
@@ -31,7 +30,7 @@ export default function ActivityPage() {
         </div>
       </div>
       <Card className="relative overflow-hidden p-0">
-        <Corner pos="tl" /><Corner pos="br" />
+        
         <div className="flex items-center gap-3 border-b border-white/5 bg-gradient-to-r from-amber-500/10 to-transparent px-5 py-4" style={{ borderBottom: `1px solid ${C.linePrimary}` }}>
           <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-300"><Gift size={22} /></span>
           <div>

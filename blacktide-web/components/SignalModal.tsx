@@ -3,7 +3,6 @@ import { useState } from "react";
 import { Signal } from "@/lib/types";
 import { fmtPrice, entryGradeDisplay } from "@/lib/format";
 import { C, MONO } from "@/lib/theme";
-import Corner from "@/components/site/Corner";
 import { X, Copy, Check, Lock } from "lucide-react";
 
 export default function SignalModal({ s, onClose }: { s: Signal; onClose: () => void }) {
@@ -25,9 +24,9 @@ export default function SignalModal({ s, onClose }: { s: Signal; onClose: () => 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(2,4,9,0.7)", backdropFilter: "blur(5px)" }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="relative max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl p-5" style={{
-        background: "linear-gradient(180deg, rgba(10,20,34,0.98), rgba(4,9,16,0.98))", border: `1px solid ${C.linePrimary}`, boxShadow: "0 30px 80px rgba(0,0,0,.5)",
+        background: C.deep, border: `1px solid ${C.linePrimary}`, boxShadow: "0 30px 80px rgba(0,0,0,.5)",
       }}>
-        <Corner pos="tl" /><Corner pos="tr" /><Corner pos="bl" /><Corner pos="br" />
+        
         <div className="flex items-center gap-2">
           <span style={{ fontFamily: MONO, fontSize: 18, fontWeight: 800, color: C.ink }}>{s.symbol}</span>
           <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 9px", borderRadius: 99, color: sc, background: sc + "1A" }}>{long ? "做多" : "做空"}</span>

@@ -1,7 +1,6 @@
 "use client";
 import { useSession } from "next-auth/react";
 import { C, MONO } from "@/lib/theme";
-import Corner from "@/components/site/Corner";
 import CTA from "@/components/site/CTA";
 import { Signal } from "@/lib/types";
 import Link from "next/link";
@@ -36,9 +35,8 @@ export default function SignalShowcase({ signals }: { signals: Signal[] | null }
           </p>
         </div>
 
-        <div className="reveal in glass-sheen" style={{ maxWidth: 600, margin: "0 auto", borderRadius: 20, padding: 20, position: "relative", overflow: "hidden", background: "linear-gradient(180deg, rgba(16,30,48,0.9), rgba(6,16,30,0.78))", border: `1px solid ${C.linePrimary}`, boxShadow: "0 20px 60px rgba(0,0,0,.4)" }}>
-          <div className="scanline" />
-          <Corner pos="tl" /><Corner pos="tr" /><Corner pos="bl" /><Corner pos="br" />
+        <div className="reveal in" style={{ maxWidth: 600, margin: "0 auto", borderRadius: 20, padding: 20, position: "relative", overflow: "hidden", background: C.deep, border: `1px solid ${C.linePrimary}`, boxShadow: "0 20px 60px rgba(0,0,0,.4)" }}>
+          
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, position: "relative", zIndex: 1 }}>
             <span style={{ fontSize: 11, letterSpacing: 2, color: C.dim }}>● 黑潮信號流</span>
             <span style={{ fontSize: 11, color: C.teal, display: "flex", alignItems: "center", gap: 5 }}>
@@ -70,7 +68,6 @@ export default function SignalShowcase({ signals }: { signals: Signal[] | null }
             return (
               <div key={s.id} className="sigrow" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 8px 13px 14px", borderBottom: `1px solid ${C.line}` }}>
                 <span className="accent-bar" style={{ background: `linear-gradient(${sc},transparent)`, boxShadow: `0 0 6px ${sc}` }} />
-                <div className="row-sweep" />
                 <div style={{ display: "flex", alignItems: "center", gap: 10, position: "relative", zIndex: 1, minWidth: 0 }}>
                   <span style={{ fontFamily: MONO, fontWeight: 800, fontSize: 15, color: C.ink, width: 44 }}>{s.symbol}</span>
                   <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, color: sc, background: sc + "1A" }}>{s.direction === "long" ? "做多" : "做空"}</span>

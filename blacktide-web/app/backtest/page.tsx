@@ -4,7 +4,6 @@ import { Card, Stat, Skeleton } from "@/components/ui";
 import { makeRng } from "@/lib/format";
 import { Play, TrendingUp, FlaskConical, AlertTriangle } from "lucide-react";
 import { C } from "@/lib/theme";
-import Corner from "@/components/site/Corner";
 const SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "SUI", "PEPE", "NVDA", "TSLA", "AAPL", "META"];
 const TFS = ["15m", "1h", "4h", "1d"];
 const STRATS = ["黑潮綜合（7+1 投票）", "趨勢追隨", "動量策略", "BOS 突破", "均線排列", "支撐阻力", "訂單流", "新聞情緒"];
@@ -87,7 +86,7 @@ export default function BacktestPage() {
     <div className="space-y-5">
       {/* Hero */}
       <section className="relative overflow-hidden rounded-2xl p-5 sm:p-6" style={{ border: `1px solid ${C.linePrimary}`, background: "linear-gradient(135deg, rgba(0,212,255,0.07), rgba(10,12,18,0.4))" }}>
-        <Corner pos="tl" /><Corner pos="br" />
+        
         <div className="relative">
           <div className="mb-2 flex items-center gap-2">
             <TrendingUp size={15} color={C.teal} />
@@ -108,7 +107,7 @@ export default function BacktestPage() {
 
       {/* Config */}
       <Card className="relative overflow-hidden p-4">
-        <Corner pos="tr" />
+        
         <div className="mb-3 flex items-center gap-1.5" style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: C.dim, textTransform: "uppercase" }}>回測設定</div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div><div className="mb-1 text-xs text-slate-500">標的</div>
