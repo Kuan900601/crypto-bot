@@ -1,17 +1,21 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { Card, SectionTitle, Progress, Badge } from "@/components/ui";
 import { Gift, Copy, Check, Users, Sparkles } from "lucide-react";
 import { C } from "@/lib/theme";
 interface Ref { uid: string; referrals: number; rewarded: number; monthsEarned: number; inThisCycle: number; toNext: number; }
 export default function ActivityPage() {
+  const { status } = useSession();
   const [r, setR] = useState<Ref | null>(null);
   const [origin, setOrigin] = useState("");
   const [copied, setCopied] = useState("");
   useEffect(() => {
     setOrigin(window.location.origin);
+    // 未登入不打受保護 API（401 會在 console 留 error，鎖定層本來就會蓋住頁面）
+    if (status !== "authenticated") return;
     fetch("/api/referral").then((x) => x.json()).then((d) => { if (d && !d.error) setR(d); }).catch(() => {});
-  }, []);
+  }, [status]);
   const link = r ? origin + "/login?register=1&inviter=" + r.uid : "";
   const copy = (text: string, key: string) => {
     try { navigator.clipboard.writeText(text); setCopied(key); setTimeout(() => setCopied(""), 1500); } catch {}
