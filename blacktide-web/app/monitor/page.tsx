@@ -6,8 +6,8 @@ import { useApp } from "@/lib/store";
 import { SectionTitle, Card, Badge, Chip, Skeleton, EmptyState, PullIndicator } from "@/components/ui";
 import { Pause, Play, Waves, ArrowDownToLine, Flame, Zap, BarChart3, Activity, Bell } from "lucide-react";
 import { C } from "@/lib/theme";
-import Corner from "@/components/site/Corner";
 import { usePullToRefresh } from "@/lib/usePullToRefresh";
+import { NumberTicker } from "@/components/ui/number-ticker";
 const META = {
   whale: { label: "巨鯨異動", icon: Waves, color: "text-tide-300" },
   flow: { label: "交易所流向", icon: ArrowDownToLine, color: "text-indigo-300" },
@@ -87,7 +87,11 @@ export default function MonitorPage() {
             <div key={label} className="rounded-xl p-3.5" style={{ border: `1px solid ${C.line}`, background: C.deep }}>
               <div style={{ fontSize: 11, color: C.dim }}>{label}</div>
               <div className="font-mono" style={{ marginTop: 4, fontSize: 19, fontWeight: 800, color }}>
-                {v >= 1_000_000 ? "$" + (v / 1_000_000).toFixed(2) + "M" : v >= 1_000 ? "$" + (v / 1_000).toFixed(1) + "K" : "$" + Math.round(v)}
+                {v >= 1_000_000
+                  ? <>$<NumberTicker value={+(v / 1_000_000).toFixed(2)} decimalPlaces={2} />M</>
+                  : v >= 1_000
+                    ? <>$<NumberTicker value={+(v / 1_000).toFixed(1)} decimalPlaces={1} />K</>
+                    : <>$<NumberTicker value={Math.round(v)} /></>}
               </div>
             </div>
           ))}
@@ -118,10 +122,8 @@ export default function MonitorPage() {
           const Icon = META[a.type].icon;
           const sevColor = a.severity === "critical" ? C.rose : a.severity === "warn" ? C.primary : C.dim;
           return (
-            <Card key={a.id} className="sigrow relative flex items-start gap-3 overflow-hidden p-3.5">
+            <Card key={a.id} className="sigrow rise-in relative flex items-start gap-3 overflow-hidden p-3.5">
               <span className="accent-bar" style={{ background: `linear-gradient(${sevColor},transparent)`, boxShadow: `0 0 6px ${sevColor}` }} />
-              <div className="row-sweep" />
-              <Corner pos="tr" />
               <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/5 ${META[a.type].color}`}>
                 <Icon size={16} />
               </span>
